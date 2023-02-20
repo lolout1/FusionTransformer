@@ -251,9 +251,9 @@ class Poses3d_Dataset(torch.utils.data.Dataset):
             mocap_ext = torch.zeros((self.mocap_frames,29,4))
             mocap_ext[:,:,:3] = mocap_sig
 
-            data_sample = torch.cat((mocap_ext,acc_ext),dim=1) #600x29x3 + 600x162x3 = 200 x 191 x 3
+            # data_sample = torch.cat((mocap_ext,acc_ext),dim=1) #600x29x3 + 600x162x3 = 200 x 191 x 3
             
-            return data_sample #mocap_frames x ACC_FEATUTES+acc_frames+num_joints x 3 = 191
+            return mocap_ext, acc_ext #mocap_frames x ACC_FEATUTES+acc_frames+num_joints x 3 = 191
 
 
     def __len__(self):
@@ -265,11 +265,12 @@ class Poses3d_Dataset(torch.utils.data.Dataset):
             # Select sample
             ID = self.list_IDs[index]
             # Load data and get label
-            data=self.get_pose_data(ID)
+            mocap_ext, acc_ext =self.get_pose_data(ID)
+            data = torch.cat(mocap_ext, acc_ext, dim = 1)  #600x29x3 + 600x162x3 = 200 x 191 x 3
             if isinstance(data,np.ndarray):
                 X = torch.from_numpy(data)
             else:
                 X = data
             y = self.labels[ID]
-            return X, y
+            return X, y, acc_ext
 

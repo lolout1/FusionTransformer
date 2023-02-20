@@ -27,6 +27,8 @@ def parse_args():
                         help = 'how many bathces to wait before logging training status')
     parser.add_argument('--val-bsize', type = int, default = 8, metavar = 'N', 
                         help = 'Validation batch sieze (default : 8)')
+    
+    parser.add_argument('--fusion', type = str, default = 'simple', metavar = 'F', help = "Fusion method to choose (default : Simple)")
 
     arg = parser.parse_args()
 

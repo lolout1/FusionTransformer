@@ -17,7 +17,7 @@ import torch.nn.functional as F
 from .model_utils import Block
 
 
-class ActRecogTransformer(nn.Module):
+class ActTransformerMM(nn.Module):
     def __init__(self, device='cpu' , mocap_frames=600, acc_frames=150, num_joints=29, in_chans=3, acc_coords=3, acc_features=18, spatial_embed=32,
                  sdepth=4, adepth=4, tdepth=4, num_heads=8, mlp_ratio=2., qkv_bias=True,
                  qk_scale=None, op_type='cls', embed_type='lin', fuse_acc_features=False,
