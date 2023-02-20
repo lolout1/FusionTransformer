@@ -5,10 +5,13 @@ import PreProcessing_ncrc
 from Model.model_crossview_fusion import ActTransformerMM
 from Model.model_acc_only import ActTransformerAcc
 from Tools.visualize import get_plot
+from tqdm import tqdm
 import pickle
 from asam import ASAM, SAM
 from timm.loss import LabelSmoothingCrossEntropy
 import os
+
+
 
 exp = 'myexp-1' #Assign an experiment id
 
@@ -23,12 +26,24 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 torch.backends.cudnn.benchmark = True
 
+# KDL loss function 
+def distillation(y, labels, teacher_scores, T, alpha):
+    # Implementing alpha * Temp ^2 * crossEn(Q_s, Q_t) + (1-alpha)* crossEn(Q_s, y_true)
+    pred_soft = F.log_softmax(y/T, dim = 1)
+    # print(f'Student pred has Nan : {torch.isnan(pred_soft).any()}')
+    teacher_scores_soft = F.log_softmax(teacher_scores/T, dim = 1)
+    # print(f'Teacher pred has Nan : {torch.isnan(teacher_scores_soft).any()}')
+    kl_div = nn.KLDivLoss(reduction= "batchmean", log_target=True)(pred_soft, teacher_scores_soft) * ( alpha * T * T * 2.0)
+    # print(f'KlDiv pred has Nan : {torch.isnan(kl_div).any()}')
+    loss_y_label = F.cross_entropy(y, labels) * (1.0 - alpha)
+    # print(f'Y loss has Nan : {torch.isnan(loss_y_label).any()}')
+    return kl_div + loss_y_label
+
 # Parameters
 print("Creating params....")
 params = {'batch_size':8,
           'shuffle': True,
-          'num_workers': 0}
-max_epochs = 250
+          'num_workers': 0}(num_epochs)= 250
 
 # Generators
 #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
@@ -56,8 +71,7 @@ print("-----------TRAINING PARAMS----------")
 lr=0.0025
 wt_decay=5e-4
 
-criterion = torch.nn.CrossEntropyLoss()
-
+#Optimizer
 optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9,weight_decay=wt_decay)
 #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wt_decay)
 
@@ -67,7 +81,7 @@ eta=0.01
 minimizer = ASAM(optimizer, model, rho=rho, eta=eta)
 
 #Learning Rate Scheduler
-#scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(minimizer.optimizer, max_epochs)
+#scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(minimizer.optimizer,(num_epochs)
 #print("Using cosine")
 
 #TRAINING AND VALIDATING
@@ -84,75 +98,80 @@ epoch_acc_val=[]
 best_accuracy = 0.
 
 
-print("Begin Training....")
-for epoch in range(max_epochs):
-    # Train
-    model.train()
-    loss = 0.
-    accuracy = 0.
-    cnt = 0.
-    for inputs, targets in training_generator:
-        inputs = inputs.to(device); #print("Input batch: ",inputs)
-        targets = targets.to(device)
-
-        optimizer.zero_grad()
-
-        # Ascent Step
-        #print("labels: ",targets)
-        predictions = model(inputs.float())
-        #print("predictions: ",torch.argmax(predictions, 1) )
-        batch_loss = criterion(predictions, targets)
-        batch_loss.mean().backward()
-        minimizer.ascent_step()
-
-        # Descent Step
-        criterion(model(inputs.float()), targets).mean().backward()
-        minimizer.descent_step()
-
-        with torch.no_grad():
-            loss += batch_loss.sum().item()
-            accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
-        cnt += len(targets)
-    loss /= cnt
-    accuracy *= 100. / cnt
-    print(f"Epoch: {epoch}, Train accuracy: {accuracy:6.2f} %, Train loss: {loss:8.5f}")
-    epoch_loss_train.append(loss)
-    epoch_acc_train.append(accuracy)
-    #scheduler.step()
-
-    #accuracy,loss = validation(model,validation_generator)
-    #Test
-    model.eval()
-    loss = 0.
-    accuracy = 0.
-    cnt = 0.
-    model=model.to(device)
-    with torch.no_grad():
-        for inputs, targets in validation_generator:
-
-            b = inputs.shape[0]
-            inputs = inputs.to(device); #print("Validation input: ",inputs)
+def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
+    teacher_model.eval()
+    with tqdm(total  = len(training_generator), desc = f'Epoch {epoch+1}/{num_epochs}',ncols = 128) as pbar:
+        # Train
+        student_model.train()
+        loss = 0.
+        accuracy = 0.
+        cnt = 0.
+        for inputs, acc_input, targets in training_generator:
+            inputs = inputs.to(device); #print("Input batch: ",inputs)
             targets = targets.to(device)
-            
-            predictions = model(inputs.float())
-            
+            acc_input = acc_input.to(device)
+
+            optimizer.zero_grad()
+
+            # Ascent Step
+            #print("labels: ",targets)
+            predictions = student_model(acc_input.float())
+            teacher_output = teacher_model(inputs.float())
+            detached_pred = predictions.detach()
+            teacher_output = teacher_output.detach()
+            #print("predictions: ",torch.argmax(predictions, 1) )
+            loss = loss_fn(detached_pred, target, teacher_output, T=2.0, alpha = 0.7)
+            loss.mean().backward()
+            minimizer.ascent_step()
+
+            # Descent Step
+            loss_fn(detached_pred, target, teacher_output, T=2.0, alpha = 0.7).mean().backward()
+            minimizer.descent_step()
+
             with torch.no_grad():
-                loss += batch_loss.sum().item()
+                loss += loss.sum().item()
                 accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
             cnt += len(targets)
         loss /= cnt
         accuracy *= 100. / cnt
+        print(f"Epoch: {epoch}, Train accuracy: {accuracy:6.2f} %, Train loss: {loss:8.5f}")
+        epoch_loss_train.append(loss)
+        epoch_acc_train.append(accuracy)
+        #scheduler.step()
+
+        #accuracy,loss = validation(model,validation_generator)
+        #Test
+        model.eval()
+        loss = 0.
+        accuracy = 0.
+        cnt = 0.
+        model=model.to(device)
+        with torch.no_grad():
+            for inputs, targets in validation_generator:
+
+                b = inputs.shape[0]
+                inputs = inputs.to(device); #print("Validation input: ",inputs)
+                targets = targets.to(device)
+                
+                predictions = model(inputs.float())
+                
+                with torch.no_grad():
+                    loss += batch_loss.sum().item()
+                    accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
+                cnt += len(targets)
+            loss /= cnt
+            accuracy *= 100. / cnt
+            
         
-    
-        if best_accuracy < accuracy:
-            best_accuracy = accuracy
-            torch.save(model.state_dict(),PATH+exp+'_best_ckpt.pt'); print("Check point "+PATH+exp+'_best_ckpt.pt'+ ' Saved!')
+            if best_accuracy < accuracy:
+                best_accuracy = accuracy
+                torch.save(model.state_dict(),PATH+exp+'_best_ckpt.pt'); print("Check point "+PATH+exp+'_best_ckpt.pt'+ ' Saved!')
 
-    print(f"Epoch: {epoch},Test accuracy:  {accuracy:6.2f} %, Test loss:  {loss:8.5f}")
+        print(f"Epoch: {epoch},Test accuracy:  {accuracy:6.2f} %, Test loss:  {loss:8.5f}")
 
 
-    epoch_loss_val.append(loss)
-    epoch_acc_val.append(accuracy)
+        epoch_loss_val.append(loss)
+        epoch_acc_val.append(accuracy)
 
 
 print(f"Best test accuracy: {best_accuracy}")

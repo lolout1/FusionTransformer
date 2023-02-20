@@ -272,5 +272,5 @@ class Poses3d_Dataset(torch.utils.data.Dataset):
             else:
                 X = data
             y = self.labels[ID]
-            return X, y, acc_ext
+            return X, acc_ext, y
 
