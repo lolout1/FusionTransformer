@@ -134,26 +134,25 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
             cnt += len(targets)
         loss /= cnt
         accuracy *= 100. / cnt
-        print(f"Epoch: {epoch}, Train accuracy: {accuracy:6.2f} %, Train loss: {loss:8.5f}")
+        pbar.update(1)
+        pbar.set_postfix({'train_loss' : loss, 'train_acc' : acc})
         epoch_loss_train.append(loss)
         epoch_acc_train.append(accuracy)
-        #scheduler.step()
 
-        #accuracy,loss = validation(model,validation_generator)
         #Test
-        model.eval()
+        student_model.eval()
         loss = 0.
         accuracy = 0.
         cnt = 0.
-        model=model.to(device)
+        student_model=student_model.to(device)
         with torch.no_grad():
-            for inputs, targets in validation_generator:
+            for _,acc_input, targets in validation_generator:
 
-                b = inputs.shape[0]
-                inputs = inputs.to(device); #print("Validation input: ",inputs)
+                b = acc_input.shape[0]
+                acc_input = acc_input.to(device); #print("Validation input: ",inputs)
                 targets = targets.to(device)
                 
-                predictions = model(inputs.float())
+                predictions = student_model(acc_input.float())
                 
                 with torch.no_grad():
                     loss += batch_loss.sum().item()
@@ -174,10 +173,10 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
         epoch_acc_val.append(accuracy)
 
 
-print(f"Best test accuracy: {best_accuracy}")
-print("TRAINING COMPLETED :)")
+# print(f"Best test accuracy: {best_accuracy}")
+# print("TRAINING COMPLETED :)")
 
-#Save visualization
-get_plot(PATH,epoch_acc_train,epoch_acc_val,'Accuracy-'+exp,'Train Accuracy','Val Accuracy','Epochs','Acc')
-get_plot(PATH,epoch_loss_train,epoch_loss_val,'Loss-'+exp,'Train Loss','Val Loss','Epochs','Loss')
+# #Save visualization
+# get_plot(PATH,epoch_acc_train,epoch_acc_val,'Accuracy-'+exp,'Train Accuracy','Val Accuracy','Epochs','Acc')
+# get_plot(PATH,epoch_loss_train,epoch_loss_val,'Loss-'+exp,'Train Loss','Val Loss','Epochs','Loss')
 
