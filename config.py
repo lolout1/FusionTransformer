@@ -6,13 +6,13 @@ data_params = {
 
 
 file_paths={
-    'mocap_train_path': '/Users/tousif/KD_torch/MMT_for_NCRC/data/train/mocap/',
-    'mocap_test_path' :'/Users/tousif/KD_torch/MMT_for_NCRC/data/test/mocap/',
+    'mocap_train_path': '/home/bgu9/Fall_Detection_KD_Multimodal/data/train/mocap/',
+    'mocap_test_path' :'/home/bgu9/Fall_Detection_KD_Multimodal/data/test/mocap/',
 
-    'acc_train_path':'/Users/tousif/KD_torch/MMT_for_NCRC/data/train/accelerometer_train.csv',
-    'acc_test_path':'/Users/tousif/KD_torch/MMT_for_NCRC/data/test/accelerometer_test.csv',
+    'acc_train_path':'/home/bgu9/Fall_Detection_KD_Multimodal/data/train/accelerometer_train.csv',
+    'acc_test_path':'/home/bgu9/Fall_Detection_KD_Multimodal/data/test/accelerometer_test.csv',
 
-    'tr_labels_path':'/Users/tousif/KD_torch/MMT_for_NCRC/data/train/activities_train.csv',
-    'tst_labels_path':'/Users/tousif/KD_torch/MMT_for_NCRC/data/test/activities_test.csv'
+    'tr_labels_path':'/home/bgu9/Fall_Detection_KD_Multimodal/data/train/activities_train.csv',
+    'tst_labels_path':'/home/bgu9/Fall_Detection_KD_Multimodal/data/test/activities_test.csv'
 
 }

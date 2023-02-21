@@ -47,11 +47,9 @@ def pose2idlabel(data_path,labels_path,aug_path=None,start_i=0):
                 segment_id = int(re.findall(r'\d+', smpl)[0])
                 pose2id['id-'+str(i)] = {} #pose2id['id-0']={'mocap':['segment0.csv',seg_id],'acc':['meditag_train.csv',seg_id]}
                 pose2id['id-'+str(i)]['mocap'] = [mocap_smpl_path,segment_id]
-                print(pose2id['id-'+str(i)]['mocap'])
                 pose2id['id-'+str(i)]['acc'] = [acc_path,segment_id]
                 id2label['id-'+str(i)] = get_ncrc_labels(segment_id,labels_path)
                 i+=1
-        print(id2label)
     return pose2id,id2label,i
 
 
@@ -69,7 +67,6 @@ def get_ncrc_labels(segment_id,labels_path):
     labels_map={}
     for _,row in df.iterrows():
         #creating a dictionary mapping segment_id to activity_id
-        print(row['activity_id'])
         labels_map[row['segment_id']]=lbl_map[row['activity_id']]
     return labels_map[segment_id]
 

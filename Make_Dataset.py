@@ -266,7 +266,7 @@ class Poses3d_Dataset(torch.utils.data.Dataset):
             ID = self.list_IDs[index]
             # Load data and get label
             mocap_ext, acc_ext =self.get_pose_data(ID)
-            data = torch.cat(mocap_ext, acc_ext, dim = 1)  #600x29x3 + 600x162x3 = 200 x 191 x 3
+            data = torch.cat((mocap_ext, acc_ext), dim = 1)  #600x29x3 + 600x162x3 = 200 x 191 x 3
             if isinstance(data,np.ndarray):
                 X = torch.from_numpy(data)
             else:

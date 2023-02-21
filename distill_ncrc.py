@@ -1,13 +1,13 @@
 import torch
 import numpy as np
 from Make_Dataset import Poses3d_Dataset
+import torch.nn as nn
 import PreProcessing_ncrc
-from Model.model_crossview_fusion import ActTransformerMM
-from Model.model_acc_only import ActTransformerAcc
-from Tools.visualize import get_plot
+from Models.model_crossview_fusion import ActTransformerMM
+from Models.model_acc_only import ActTransformerAcc
+# from Tools.visualize import get_plot
 from tqdm import tqdm
 import torch.nn.functional as F
-import 
 import pickle
 from asam import ASAM, SAM
 from timm.loss import LabelSmoothingCrossEntropy
@@ -25,6 +25,7 @@ PATH='exps/'+exp+'/'
 print("Using CUDA....")
 
 use_cuda = torch.cuda.is_available()
+print(use_cuda)
 device = torch.device("cuda:0" if use_cuda else "cpu")
 torch.backends.cudnn.benchmark = True
 
@@ -67,6 +68,9 @@ validation_generator = torch.utils.data.DataLoader(validation_set, **params) #Ea
 print("Initiating Model...")
 teacher_model = ActTransformerMM(device)
 student_model = ActTransformerAcc(device)
+
+teacher_model.cuda()
+student_model.cuda()
 
 
 print("-----------TRAINING PARAMS----------")
@@ -114,17 +118,17 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
 
             # Ascent Step
             #print("labels: ",targets)
-            predictions = student_model(acc_input.float())
+            predictions = student_model(inputs.float())
             teacher_output = teacher_model(inputs.float())
-            detached_pred = predictions.detach()
-            teacher_output = teacher_output.detach()
+            # detached_pred = predictions.detach()
+            # teacher_output = teacher_output.detach()
             #print("predictions: ",torch.argmax(predictions, 1) )
-            loss = loss_fn(detached_pred, targets, teacher_output, T=2.0, alpha = 0.7)
+            loss = loss_fn(predictions, targets, teacher_output, T=2.0, alpha = 0.7)
             loss.mean().backward()
             minimizer.ascent_step()
 
             # Descent Step
-            loss_fn(detached_pred, targets, teacher_output, T=2.0, alpha = 0.7).mean().backward()
+            loss_fn(student_model(inputs.float()), targets, teacher_model(inputs.float()), T=2.0, alpha = 0.7).mean().backward()
             minimizer.descent_step()
 
             with torch.no_grad():
@@ -145,13 +149,13 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
         cnt = 0.
         student_model=student_model.to(device)
         with torch.no_grad():
-            for _,acc_input, targets in validation_generator:
+            for inputs,_, targets in validation_generator:
 
-                b = acc_input.shape[0]
-                acc_input = acc_input.to(device); #print("Validation input: ",inputs)
+                b = inputs.shape[0]
+                inputs = inputs.to(device); #print("Validation input: ",inputs)
                 targets = targets.to(device)
                 
-                predictions = student_model(acc_input.float())
+                predictions = student_model(inputs.float())
                 val_loss = F.cross_entropy(predictions, targets)
                 
                 with torch.no_grad():
@@ -159,7 +163,7 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
                     val_accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
                 cnt += len(targets)
             val_loss /= cnt
-            accuracy *= 100. / cnt
+            val_accuracy *= 100. / cnt
             
         
             if best_accuracy < val_accuracy:
@@ -167,7 +171,7 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
                 torch.save(student_model.state_dict(),PATH+exp+'_best_ckpt.pt'); 
                 print("Check point "+PATH+exp+'_best_ckpt.pt'+ ' Saved!')
 
-        print(f"Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss):8.5f}")
+        print(f"Epoch: {epoch},Val accuracy:  {val_acc:6.2f} %, Val loss:  {val_loss:8.5f}%")
 
 
         epoch_loss_val.append(val_loss)
@@ -189,7 +193,7 @@ if __name__ == "__main__":
     epoch_loss_val=[]
     epoch_acc_train=[]
     epoch_acc_val=[]
-    teacher_model.load_state_dict(torch.load('weights/best_ckpt.pt'))
+    teacher_model.load_state_dict(torch.load('weights/model_crossview_fusion.pt'))
     
     for epoch in range(1,max_epoch+1): 
         train(epoch, max_epoch, student_model, teacher_model, distillation)
