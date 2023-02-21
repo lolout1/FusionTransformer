@@ -6,6 +6,8 @@ from Model.model_crossview_fusion import ActTransformerMM
 from Model.model_acc_only import ActTransformerAcc
 from Tools.visualize import get_plot
 from tqdm import tqdm
+import torch.nn.functional as F
+import 
 import pickle
 from asam import ASAM, SAM
 from timm.loss import LabelSmoothingCrossEntropy
@@ -43,7 +45,9 @@ def distillation(y, labels, teacher_scores, T, alpha):
 print("Creating params....")
 params = {'batch_size':8,
           'shuffle': True,
-          'num_workers': 0}(num_epochs)= 250
+          'num_workers': 0}
+
+num_epochs = 250
 
 # Generators
 #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
@@ -62,8 +66,7 @@ validation_generator = torch.utils.data.DataLoader(validation_set, **params) #Ea
 #Define model
 print("Initiating Model...")
 teacher_model = ActTransformerMM(device)
-studetn_model = ActTransformerAcc(device)
-model = model.to(device)
+student_model = ActTransformerAcc(device)
 
 
 print("-----------TRAINING PARAMS----------")
@@ -72,30 +75,26 @@ lr=0.0025
 wt_decay=5e-4
 
 #Optimizer
-optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9,weight_decay=wt_decay)
+optimizer = torch.optim.SGD(student_model.parameters(), lr=lr, momentum=0.9,weight_decay=wt_decay)
 #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wt_decay)
 
 #ASAM
 rho=0.5
 eta=0.01
-minimizer = ASAM(optimizer, model, rho=rho, eta=eta)
+minimizer = ASAM(optimizer, student_model, rho=rho, eta=eta)
 
 #Learning Rate Scheduler
 #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(minimizer.optimizer,(num_epochs)
 #print("Using cosine")
 
 #TRAINING AND VALIDATING
-epoch_loss_train=[]
-epoch_loss_val=[]
-epoch_acc_train=[]
-epoch_acc_val=[]
+
 
 #Label smoothing
 #smoothing=0.1
 #criterion = LabelSmoothingCrossEntropy(smoothing=smoothing)
 #print("Loss: LSC ",smoothing)
 
-best_accuracy = 0.
 
 
 def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
@@ -120,12 +119,12 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
             detached_pred = predictions.detach()
             teacher_output = teacher_output.detach()
             #print("predictions: ",torch.argmax(predictions, 1) )
-            loss = loss_fn(detached_pred, target, teacher_output, T=2.0, alpha = 0.7)
+            loss = loss_fn(detached_pred, targets, teacher_output, T=2.0, alpha = 0.7)
             loss.mean().backward()
             minimizer.ascent_step()
 
             # Descent Step
-            loss_fn(detached_pred, target, teacher_output, T=2.0, alpha = 0.7).mean().backward()
+            loss_fn(detached_pred, targets, teacher_output, T=2.0, alpha = 0.7).mean().backward()
             minimizer.descent_step()
 
             with torch.no_grad():
@@ -135,7 +134,7 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
         loss /= cnt
         accuracy *= 100. / cnt
         pbar.update(1)
-        pbar.set_postfix({'train_loss' : loss, 'train_acc' : acc})
+        pbar.set_postfix({'train_loss' : loss, 'train_acc' : accuracy})
         epoch_loss_train.append(loss)
         epoch_acc_train.append(accuracy)
 
@@ -153,7 +152,7 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
                 targets = targets.to(device)
                 
                 predictions = student_model(acc_input.float())
-                val_loss = F.cross_entropy(prediction, targets)
+                val_loss = F.cross_entropy(predictions, targets)
                 
                 with torch.no_grad():
                     val_loss += val_loss.sum().item()
@@ -182,3 +181,15 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn):
 # get_plot(PATH,epoch_acc_train,epoch_acc_val,'Accuracy-'+exp,'Train Accuracy','Val Accuracy','Epochs','Acc')
 # get_plot(PATH,epoch_loss_train,epoch_loss_val,'Loss-'+exp,'Train Loss','Val Loss','Epochs','Loss')
 
+
+if __name__ == "__main__":
+    max_epoch = 10
+    best_accuracy = 0 
+    epoch_loss_train=[]
+    epoch_loss_val=[]
+    epoch_acc_train=[]
+    epoch_acc_val=[]
+    teacher_model.load_state_dict(torch.load('weights/best_ckpt.pt'))
+    
+    for epoch in range(1,max_epoch+1): 
+        train(epoch, max_epoch, student_model, teacher_model, distillation)
