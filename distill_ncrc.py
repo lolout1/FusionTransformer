@@ -171,7 +171,7 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn, best_accurac
             val_loss /= cnt
             val_accuracy *= 100. / cnt
             
-        print(f"Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}%")
+        print(f"\n Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}%")
         if best_accuracy < val_accuracy:
                 best_accuracy = val_accuracy
                 torch.save(student_model.state_dict(),PATH+exp+'_best_ckpt.pt'); 
