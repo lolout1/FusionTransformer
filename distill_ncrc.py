@@ -102,7 +102,7 @@ minimizer = ASAM(optimizer, student_model, rho=rho, eta=eta)
 
 def train(epoch, num_epochs, student_model, teacher_model, loss_fn, best_accuracy):
     teacher_model.eval()
-    with tqdm(total  = len(training_generator), desc = f'Epoch {epoch+1}/{num_epochs}',ncols = 128) as pbar:
+    with tqdm(total  = len(training_generator), desc = f'Epoch {epoch}/{num_epochs}',ncols = 128) as pbar:
         # Train
         student_model.train()
         train_loss = 0.
@@ -171,13 +171,13 @@ def train(epoch, num_epochs, student_model, teacher_model, loss_fn, best_accurac
             val_loss /= cnt
             val_accuracy *= 100. / cnt
             
-        
-            if best_accuracy < val_accuracy:
+        print(f"Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}%")
+        if best_accuracy < val_accuracy:
                 best_accuracy = val_accuracy
                 torch.save(student_model.state_dict(),PATH+exp+'_best_ckpt.pt'); 
                 print("Check point "+PATH+exp+'_best_ckpt.pt'+ ' Saved!')
 
-        print(f"Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}%")
+        
 
 
         epoch_loss_val.append(val_loss)
