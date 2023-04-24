@@ -151,11 +151,9 @@ class ActTransformerAcc(nn.Module):
             sx+= sxf #Add the features signal to acceleration signal
 
         #Concat features along frame dimension
-        print(f'Accelerometer shape {sx.shape}')
         out = sx
         logits = self.class_head(sx)
-
-        return out, logits, F.log_softmax(sx,dim=1)
+        return out, logits, F.log_softmax(logits,dim=1)
 
 '''
 model=ActRecogTransformer()

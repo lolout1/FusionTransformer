@@ -84,49 +84,50 @@ wt_decay=5e-4
 
 
 
-def train(epoch, num_epochs, student_model, teacher_model, best_accuracy):
-    total_params = 0
-    print("-----------TRAINING PARAMS----------")
-    for name , params in student_model.named_parameters():
-        total_params += params.numel()
-        print(f'Layer {name} | Size: {params.size()} | Params: {params.numel()}')
-    print(f'Total parameter: {total_params}')
-
+def train(epoch, num_epochs, student_model, teacher_model, criterion, best_accuracy):
     teacher_model.eval()
-    criterion = SemanticLoss()
     with tqdm(total  = len(training_generator), desc = f'Epoch {epoch}/{num_epochs}',ncols = 128) as pbar:
         # Train
         student_model.train()
         train_loss = 0.
         accuracy = 0.
         cnt = 0.
+        alpha = 0.7
+        T = 2.0
         for inputs, acc_input, targets in training_generator:
+            # Transfering the input, targets to the GPU
             inputs = inputs.to(device); #print("Input batch: ",inputs)
             targets = targets.to(device)
             acc_input = acc_input.to(device)
+
 
             optimizer.zero_grad()
 
             # Ascent Step
             #print("labels: ",targets)
-            predictions = student_model(inputs.float())
-            teacher_output = teacher_model(inputs.float())
+
+            #Prediction step
+            out, student_logits,student_pred = student_model(inputs.float())
+            teacher_out, teacher_logits, teacher_pred = teacher_model(inputs.float())
             # detached_pred = predictions.detach()
             # teacher_output = teacher_output.detach()
             #print("predictions: ",torch.argmax(predictions, 1) )
-            loss = criterion(predictions, targets, teacher_output, T=2.0, alpha = 0.7)
+            loss = criterion(student_logits, targets, teacher_logits, T, alpha)
             loss.mean().backward()
             minimizer.ascent_step()
 
             # Descent Step
-            criterion(student_model(inputs.float()), targets, teacher_model(inputs.float()), T=2.0, alpha = 0.7).mean().backward()
+            # Not really sure why I need to make prediction again 
+            _, des_student_logits,des_stud_pred = student_model(inputs.float())
+            _, des_teacher_logits, des_teacher_pred = teacher_model(inputs.float())
+            criterion(des_student_logits, targets, des_teacher_logits, T=2.0, alpha = 0.7).mean().backward()
             minimizer.descent_step()
 
             with torch.no_grad():
                 train_loss += loss.sum().item()
                 # print(loss)
                 # print(type(loss))
-                accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
+                accuracy += (torch.argmax(des_stud_pred, 1) == targets).sum().item()
             cnt += len(targets)
 
             temp_loss = train_loss / cnt
@@ -153,7 +154,7 @@ def train(epoch, num_epochs, student_model, teacher_model, best_accuracy):
                 inputs = inputs.to(device); #print("Validation input: ",inputs)
                 targets = targets.to(device)
                 
-                predictions = student_model(inputs.float())
+                out, student_logits,predictions = student_model(inputs.float())
                 loss_score = F.cross_entropy(predictions, targets)
                 
                 with torch.no_grad():
@@ -165,25 +166,15 @@ def train(epoch, num_epochs, student_model, teacher_model, best_accuracy):
             
         print(f"\n Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}%")
         if best_accuracy < val_accuracy:
-                print(best_accuracy)
                 best_accuracy = val_accuracy
+                #need to add arguements here also for different experiments
                 torch.save(student_model.state_dict(),PATH+exp+'_best_ckpt.pt'); 
                 print("Check point "+PATH+exp+'_best_ckpt.pt'+ ' Saved!')
-
-        
 
 
         epoch_loss_val.append(val_loss)
         epoch_acc_val.append(val_accuracy)
 
-
-
-# print(f"Best test accuracy: {best_accuracy}")
-# print("TRAINING COMPLETED :)")
-
-# #Save visualization
-# get_plot(PATH,epoch_acc_train,epoch_acc_val,'Accuracy-'+exp,'Train Accuracy','Val Accuracy','Epochs','Acc')
-# get_plot(PATH,epoch_loss_train,epoch_loss_val,'Loss-'+exp,'Train Loss','Val Loss','Epochs','Loss')
 
 
 if __name__ == "__main__":
@@ -204,10 +195,16 @@ if __name__ == "__main__":
     minimizer = ASAM(optimizer, student_model, rho=rho, eta=eta)
     
     best_accuracy = 0
-     
+    criterion = SemanticLoss()
     #criterion selection using arguements
+    total_params = 0
+    print("-----------TRAINING PARAMS----------")
+    for name , params in student_model.named_parameters():
+        total_params += params.numel()
+        print(f'Layer {name} | Size: {params.size()} | Params: {params.numel()}')
+    print(f'Total parameter: {total_params}')
 
     for epoch in range(1,max_epoch+1): 
-        train(epoch, max_epoch, student_model, teacher_model,  best_accuracy = best_accuracy )
+        train(epoch, max_epoch, student_model, teacher_model,criterion,  best_accuracy = best_accuracy )
         best_accuracy = epoch_acc_val[epoch - 1]
         print(best_accuracy)

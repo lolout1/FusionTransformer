@@ -8,7 +8,7 @@ class SemanticLoss(nn.Module):
     def __init__(self):
         super(SemanticLoss, self).__init__()
     
-    def distillation_loss(pred, labels, teacher_pred, T, alpha):
+    def distillation_loss(self,pred, labels, teacher_pred, T, alpha):
         
         #Softmax of student prediciton 
         pred_soft = F.log_softmax(pred/T, dim = 1)
@@ -20,13 +20,13 @@ class SemanticLoss(nn.Module):
         kl_div = nn.KLDivLoss(reduction = 'batchmean', log_target = True)(pred_soft, teacher_soft) * ( alpha * T * T * 2.0)
 
         #cross entropy loss 
-        loss_y_label = F.cross_entropy(y, labels) * (1.0 - alpha)
+        loss_y_label = F.cross_entropy(pred, labels) * (1.0 - alpha)
 
         distill_loss = kl_div + loss_y_label
 
         return distill_loss
     
-    def angular_dist(student_pred, teacher_pred):
+    def angular_dist(self,student_pred, teacher_pred):
 
         # do I need to calculate gradients for the variables associated with student
         with torch.no_grad():
@@ -35,19 +35,19 @@ class SemanticLoss(nn.Module):
             t_angle = torch.bmm(norm_td, norm_td.transpose(1, 2)).view(-1)
 	
 		#flatenning the prediction
-        sd = (student.unsqueeze(0) - student.unsqueeze(1))
+        sd = (student_pred.unsqueeze(0) - student_pred.unsqueeze(1))
         norm_sd = F.normalize(sd, p=2, dim=2)
 		# computing angular correlation between the norm_sd
         s_angle = torch.bmm(norm_sd, norm_sd.transpose(1, 2)).view(-1)
 
-        loss = F.smooth_l1_loss(s_angle, t_angle, reduction='elementwise_mean')
+        loss = F.smooth_l1_loss(s_angle, t_angle, reduction='mean')
         return loss
     
-    def forward(student_pred, labels, teacher_pred, T, alpha):
-        distill_loss = distill_loss(student_pred, labels, teacher_pred, T, alpha)
-        angular_loss = angular_dist(student_pred, teacher_pred)
+    def forward(self,student_pred, labels, teacher_pred, T, alpha):
+        kd_loss = self.distillation_loss(student_pred, labels, teacher_pred, T, alpha)
+        angular_loss = self.angular_dist(student_pred, teacher_pred)
 
-        loss = distill_loss + angular_loss
+        loss = kd_loss + angular_loss
 
         return loss
     
