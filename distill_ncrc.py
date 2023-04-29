@@ -8,6 +8,7 @@ from Models.model_acc_only import ActTransformerAcc
 # from Tools.visualize import get_plot
 from tqdm import tqdm
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pickle
 from asam import ASAM, SAM
 from timm.loss import LabelSmoothingCrossEntropy
@@ -87,6 +88,7 @@ wt_decay=5e-4
 
 def train(epoch, num_epochs, student_model, teacher_model, criterion, best_accuracy):
     teacher_model.eval()
+    scheduler = ReduceLROnPlateau(optimizer, 'max', verbose = True, patience = 2)
     with tqdm(total  = len(training_generator), desc = f'Epoch {epoch}/{num_epochs}',ncols = 128) as pbar:
         # Train
         student_model.train()
@@ -161,7 +163,7 @@ def train(epoch, num_epochs, student_model, teacher_model, criterion, best_accur
                 cnt += len(targets)
             val_loss /= cnt
             val_accuracy *= 100. / cnt
-            
+        scheduler.step(train_loss)
         print(f"\n Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}%")
         if best_accuracy < val_accuracy:
                 best_accuracy = val_accuracy
@@ -183,8 +185,10 @@ if __name__ == "__main__":
     epoch_acc_train=[]
     epoch_acc_val=[]
     teacher_model.load_state_dict(torch.load('weights/model_crossview_fusion.pt'))
+    student_model.load_state_dict(torch.load('exps/myexp-1/myexp-1_best_ckpt.pt'))
     #Optimizer
     optimizer = torch.optim.Adam(student_model.parameters(), lr=lr,weight_decay=wt_decay)
+
     #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wt_decay)
 
     #ASAM
