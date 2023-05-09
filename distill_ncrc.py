@@ -17,7 +17,7 @@ import os
 
 
 
-exp = 'utd' #Assign an experiment id
+exp = 'ncrc' #Assign an experiment id
 
 if not os.path.exists('exps/'+exp+'/'):
     os.makedirs('exps/'+exp+'/')
@@ -39,24 +39,24 @@ params = {'batch_size':8,
           'shuffle': True,
           'num_workers': 0}
 
-num_epochs = 250
+num_epochs = 100
 
 # Generators
 #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
 
 
-dataset = 'utd'
-mocap_frames = 100
+dataset = 'ncrc'
+mocap_frames = 600
 acc_frames = 150
-num_joints = 20
-num_classes = 27
+num_joints = 29
+num_classes = 6
 
 if dataset == 'ncrc':
     tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
     training_set = Poses3d_Dataset( data='ncrc',list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=False)
     training_generator = torch.utils.data.DataLoader(training_set, **params) #Each produced sample is  200 x 59 x 3
 
-    validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['test'], labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False)
+    validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'], labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False)
     validation_generator = torch.utils.data.DataLoader(validation_set, **params) #Each produced sample is 6000 x 229 x 3
 
 else:
@@ -70,13 +70,13 @@ else:
 #Define model
 print("Initiating Model...")
 teacher_model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
-                                  acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
+                                  acc_features=18, spatial_embed=32,has_features = True,num_classes=num_classes)
 
 #Define model
 print("Initiating Model...")
 
 student_model = ActTransformerAcc(device = device, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
-                                  acc_features=0, has_features = False,num_classes=num_classes)
+                                  acc_features=18, has_features = True,num_classes=num_classes)
 
 teacher_model.cuda()
 student_model.cuda()
@@ -180,29 +180,30 @@ def train(epoch, num_epochs, student_model, teacher_model, criterion, best_accur
             val_loss /= cnt
             val_accuracy *= 100. / cnt
             val_t_accuracy *= 100./ cnt
-        lr_scheduler.step(val_loss)
+        lr_scheduler.step(temp_loss)
         print(f"\n Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}% , Val_teach: {val_t_accuracy:8.5f}%")
         if best_accuracy < val_accuracy:
                 best_accuracy = val_accuracy
                 #need to add arguements here also for different experiments
-                torch.save(student_model.state_dict(),PATH+exp+'_utd_ckpt_wdistance.pt'); 
-                print("Check point "+PATH+exp+'_utd_ckpt_wnodistance.pt'+ ' Saved!')
+                torch.save(student_model.state_dict(),PATH+exp+'_ncrc_ckpt_wdistaccurate.pt'); 
+                print("Check point "+PATH+exp+'_ncrc_ckpt_wdistaccurate.pt'+ ' Saved!')
 
 
         epoch_loss_val.append(val_loss)
         epoch_acc_val.append(val_accuracy)
+        return best_accuracy
 
 
 
 if __name__ == "__main__":
-    max_epoch = 50
+    max_epoch = 100
     best_accuracy = 0 
     epoch_loss_train=[]
     epoch_loss_val=[]
     epoch_acc_train=[]
     epoch_acc_val=[]
 
-    teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/myexp-utd/myexp-utd_best_ckptutdmm.pt'))
+    teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/weights/model_crossview_fusion.pt'))
     #Optimizer
     optimizer = torch.optim.Adam(student_model.parameters(), lr=lr,weight_decay=wt_decay)
 
@@ -226,5 +227,5 @@ if __name__ == "__main__":
     
     for epoch in range(1,max_epoch+1): 
         print(optimizer.param_groups[0]['lr'])
-        train(epoch, max_epoch, student_model, teacher_model,criterion,  best_accuracy = best_accuracy , lr_scheduler = scheduler )
-        best_accuracy = epoch_acc_val[epoch - 1]
+        best_acc = train(epoch, max_epoch, student_model, teacher_model,criterion,  best_accuracy = best_accuracy , lr_scheduler = scheduler )
+        best_accuracy = best_acc
