@@ -45,9 +45,14 @@ if dataset == 'ncrc':
     validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'], labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False)
     validation_generator = torch.utils.data.DataLoader(validation_set, **params) #Each produced sample is 6000 x 229 x 3
 
+    test_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['test'], labels=labels, pose2id=pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False)
+    test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
+
+
+
 else:
 
-    test_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/valid_data.npz')
+    test_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/test_data.npz')
     test_generator = torch.utils.data.DataLoader(test_set, **params)
 
 
@@ -55,20 +60,27 @@ else:
 #Define model
 print("Initiating Model...")
 
-student_model = ActTransformerAcc(device = device, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
-                                  acc_features=18, has_features = False,num_classes=num_classes)
-student_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/utd/utd_utd_ckpt_wdistance.pt'))
+# student_model = ActTransformerAcc(device = device, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
+#                                   acc_features=18, has_features =True,num_classes=num_classes)
+# student_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/ncrc/ncrc_ncrc_ckpt_wdistaccurate.pt'))
 
-student_model.cuda()
+teacher_model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
+                                  acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
+teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/myexp-utd/myexp-utd_best_ckptafter70.pt'))
+# student_model.cuda()
+teacher_model.cuda()
 
-student_model.eval()
+# student_model.eval()
+teacher_model.eval()
+
 y_true = []
 y_pred = []
 val_loss = 0
 val_accuracy = 0
 val_t_accuracy = 0
 cnt = 0.
-student_model=student_model.to(device)
+# student_model=student_model.to(device)
+teacher_model = teacher_model.to(device)
 with torch.no_grad():
     for inputs,targets in test_generator:
         y_true.extend(targets.numpy().tolist())
@@ -76,7 +88,7 @@ with torch.no_grad():
         targets = targets.to(device)
         
         
-        out, student_logits,predictions = student_model(inputs.float())
+        out, student_logits,predictions = teacher_model(inputs.float())
         loss_score = F.cross_entropy(predictions, targets)
         y_pred.extend(torch.argmax(predictions, 1).cpu().numpy().tolist())
         with torch.no_grad():

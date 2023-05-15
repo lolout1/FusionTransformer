@@ -65,15 +65,17 @@ class SemanticLoss(nn.Module):
         mean_d = d[d>0].mean()
         d = d / mean_d
 
-        loss = F.smooth_l1_loss(d, t_d, reduction='elementwise_mean')
+        loss = F.smooth_l1_loss(d, t_d, reduction='mean')
         return loss
 
     def forward(self,student_pred, labels, teacher_pred, T, alpha):
         gamma = 0.1
         beta = 0.2
         kd_loss = self.distillation_loss(student_pred, labels, teacher_pred, T, alpha)
-        angular_loss = self.angular_dist(student_pred, teacher_pred)
-        dist_loss = self.distance(student_pred, teacher_pred)
+        y = F.log_softmax(student_pred, dim = 1)
+        teacher_y = F.log_softmax(teacher_pred, dim = 1)
+        angular_loss = self.angular_dist(y, teacher_y)
+        dist_loss = self.distance(y, teacher_y)
 
         loss = kd_loss + (beta*angular_loss) + (gamma*dist_loss)
 

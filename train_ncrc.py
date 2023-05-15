@@ -28,7 +28,7 @@ print("Creating params....")
 params = {'batch_size':8,
           'shuffle': True,
           'num_workers': 0}
-max_epochs = 70
+max_epochs = 200
 
 # Generators
 #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
@@ -38,6 +38,8 @@ print("Creating Data Generators...")
 dataset = 'utd'
 mocap_frames = 100
 acc_frames = 150
+num_joints = 20 
+num_classes = 27
 
 if dataset == 'ncrc':
     training_set = Poses3d_Dataset( data='ncrc',list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=False)
@@ -56,14 +58,14 @@ else:
 
 #Define model
 print("Initiating Model...")
-model = ActTransformerMM(device = device, mocap_frames=100, acc_frames=150, num_joints=20, in_chans=3, acc_coords=3,
-                                  acc_features=1, spatial_embed=32,has_features = False,num_classes=27)
+model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
+                                  acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
 model = model.to(device)
 
 
 print("-----------TRAINING PARAMS----------")
 #Define loss and optimizer
-lr=0.0025
+lr=0.001
 wt_decay=5e-4
 
 criterion = torch.nn.CrossEntropyLoss()
@@ -93,7 +95,7 @@ epoch_acc_val=[]
 
 best_accuracy = 0.
 model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/myexp-utd/myexp-utd_best_ckptutdmm.pt'))
-scheduler = ReduceLROnPlateau(optimizer, 'min', verbose = True, patience = 10)
+# scheduler = ReduceLROnPlateau(optimizer, 'min', verbose = True, patience = 10)
 
 print("Begin Training....")
 for epoch in range(max_epochs):
@@ -103,7 +105,6 @@ for epoch in range(max_epochs):
     accuracy = 0.
     cnt = 0.
     for inputs, targets in training_generator:
-        targets = targets.long() - 1
         inputs = inputs.to(device); #print("Input batch: ",inputs)
         targets = targets.to(device)
 
@@ -145,7 +146,6 @@ for epoch in range(max_epochs):
 
             b = inputs.shape[0]
             inputs = inputs.to(device); #print("Validation input: ",inputs)
-            targets = targets.int() -1
             targets = targets.to(device)
             
             _,_,predictions = model(inputs.float())
@@ -156,11 +156,10 @@ for epoch in range(max_epochs):
         val_loss /= cnt
         accuracy *= 100. / cnt
         
-        scheduler.step(val_loss)
         if best_accuracy < accuracy:
             best_accuracy = accuracy
-            torch.save(model.state_dict(),PATH+exp+'_best_ckptutdmm2.pt'); 
-            print("Check point "+PATH+exp+'_best_ckptutdmm2.pt'+ ' Saved!')
+            torch.save(model.state_dict(),PATH+exp+'_best_ckptafter70.pt'); 
+            print("Check point "+PATH+exp+'_best_ckptafter70.pt'+ ' Saved!')
 
     print(f"Epoch: {epoch},Test accuracy:  {accuracy:6.2f} %, Test loss:  {loss:8.5f}")
 
@@ -169,10 +168,12 @@ for epoch in range(max_epochs):
     epoch_acc_val.append(accuracy)
 
 
+data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_loss_val, 'val_loss' : epoch_loss_val }
+df.to_csv('loss_acc.csv')
+
 print(f"Best test accuracy: {best_accuracy}")
 print("TRAINING COMPLETED :)")
 
 #Save visualization
 # get_plot(PATH,epoch_acc_train,epoch_acc_val,'Accuracy-'+exp,'Train Accuracy','Val Accuracy','Epochs','Acc')
 # get_plot(PATH,epoch_loss_train,epoch_loss_val,'Loss-'+exp,'Train Loss','Val Loss','Epochs','Loss')
-
