@@ -5,13 +5,14 @@ from Make_Dataset import Poses3d_Dataset, Utd_Dataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import PreProcessing_ncrc
 from Models.model_crossview_fusion import ActTransformerMM
+from Models.model_acc_only import ActTransformerAcc
 # from Tools.visualize import get_plot
 import pickle
 from asam import ASAM, SAM
 from timm.loss import LabelSmoothingCrossEntropy
 import os
 
-exp = 'myexp-utd' #Assign an experiment id
+exp = 'ncrcacc-wokd' #Assign an experiment id
 
 if not os.path.exists('exps/'+exp+'/'):
     os.makedirs('exps/'+exp+'/')
@@ -36,14 +37,15 @@ max_epochs = 200
 # pose2id, labels, partition = PreProcessing_ncrc.preprocess()
 
 print("Creating Data Generators...")
-dataset = 'utd'
-mocap_frames = 100
+dataset = 'ncrc'
+mocap_frames = 600
 acc_frames = 150
-num_joints = 20 
-num_classes = 27
+num_joints = 29 
+num_classes = 6
+acc_features = 18
 
 if dataset == 'ncrc':
-    pose2id, labels, partition = PreProcessing_ncrc.preprocess()
+    tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
     training_set = Poses3d_Dataset( data='ncrc',list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=False)
     training_generator = torch.utils.data.DataLoader(training_set, **params) #Each produced sample is  200 x 59 x 3
 
@@ -60,8 +62,9 @@ else:
 
 #Define model
 print("Initiating Model...")
-model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
-                                  acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
+# model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
+#                                   acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
+model = ActTransformerAcc(devide = device, acc_frames=acc_frames, num_joints = num_joints, in_chans = 2 , acc_features = acc_features,num_classes=num_classes )
 model = model.to(device)
 
 
@@ -160,8 +163,8 @@ for epoch in range(max_epochs):
         
         if best_accuracy < accuracy:
             best_accuracy = accuracy
-            torch.save(model.state_dict(),PATH+exp+'_best_ckpt200.pt'); 
-            print("Check point "+PATH+exp+'_best_ckpt200.pt'+ ' Saved!')
+            torch.save(model.state_dict(),PATH+exp+'ncrcacc_woKd.pt'); 
+            print("Check point "+PATH+exp+'ncrcacc_woKD.pt'+ ' Saved!')
 
     print(f"Epoch: {epoch},Test accuracy:  {accuracy:6.2f} %, Test loss:  {loss:8.5f}")
 
@@ -170,9 +173,10 @@ for epoch in range(max_epochs):
     epoch_acc_val.append(accuracy)
 
 
-data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_loss_val, 'val_loss' : epoch_loss_val }
+data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_acc_val, 'val_loss' : epoch_loss_val }
 df = pd.DataFrame(data_dict)
-df.to_csv('loss_acc.csv')
+with open('ncrcacc_woKD.csv'):
+    df.to_csv('ncrcacc_woKD.csv')
 
 print(f"Best test accuracy: {best_accuracy}")
 print("TRAINING COMPLETED :)")
