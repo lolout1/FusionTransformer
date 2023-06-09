@@ -196,7 +196,7 @@ if __name__ == "__main__":
     #Define model
     print("Initiating Model...")
 
-    student_model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = 29,has_features=True, num_heads=4, acc_embed = 16, num_heads = 3)
+    student_model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = 29,has_features=True, num_heads=4, acc_embed = 16)
 
     teacher_model.to(device=device)
     student_model.to(device=device)

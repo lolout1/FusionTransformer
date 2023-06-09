@@ -31,18 +31,18 @@ print("Creating params....")
 params = {'batch_size':16,
           'shuffle': True,
           'num_workers': 0}
-max_epochs = 100
+max_epochs = 200
 
 # Generators
 #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
 # pose2id, labels, partition = PreProcessing_ncrc.preprocess()
 
 print("Creating Data Generators...")
-dataset = 'ncrc'
-mocap_frames = 600
+dataset = 'utd'
+mocap_frames = 100
 acc_frames = 150
-num_joints = 29 
-num_classes = 6
+num_joints = 20 
+num_classes = 27
 
 if dataset == 'ncrc':
     tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
@@ -56,18 +56,18 @@ if dataset == 'ncrc':
     test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
 
 else:
-    training_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/randtrain_data.npz')
+    training_set = Utd_Dataset('/Users/tousif/Lstm_transformer/randtrain_data.npz')
     training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-    validation_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/randvalid_data.npz')
+    validation_set = Utd_Dataset('/Users/tousif/Lstm_transformer/randvalid_data.npz')
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
 #Define model
 print("Initiating Model...")
 # model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
-#                                   acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
-model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = 29,has_features=False, num_heads=8)
+#                                   acc_features=1, spatial_embed=16,has_features = False,num_classes=num_classes, num_heads=8)
+model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = num_joints,has_features=False, num_heads = 8, num_classes=num_classes)
 model = model.to(device)
 
 
@@ -76,8 +76,8 @@ print("-----------TRAINING PARAMS----------")
 lr=0.01
 wt_decay=1e-3
 # class_weights = torch.reciprocal(torch.tensor([74.23, 83.87, 56.75, 49.78, 49.05, 93.92]))
-# criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
-criterion = FocalLoss(alpha=0.25, gamma=2)
+criterion = torch.nn.CrossEntropyLoss()
+# criterion = FocalLoss(alpha=0.25, gamma=2)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr,weight_decay=wt_decay)
 #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wt_decay)
@@ -86,7 +86,7 @@ scheduler = CosineAnnealingLR(optimizer=optimizer,T_max=100, eta_min=1e-4,last_e
 #ASAM
 rho=0.5
 eta=0.01
-minimizer = ASAM(optimizer, model, rho=rho, eta=eta)
+# minimizer = ASAM(optimizer, model, rho=rho, eta=eta)
 
 #Learning Rate Scheduler
 #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(minimizer.optimizer, max_epochs)
@@ -103,7 +103,7 @@ epoch_acc_val=[]
 #criterion = LabelSmoothingCrossEntropy(smoothing=smoothing)
 #print("Loss: LSC ",smoothing)
 
-best_accuracy = 45.69
+best_accuracy = 0
 # model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/myexp-utd/myexp-utd_best_ckptutdmm.pt'))
 # scheduler = ReduceLROnPlateau(optimizer, 'min', verbose = True, patience = 10)
 
@@ -162,7 +162,7 @@ for epoch in range(max_epochs):
     val_trgt_list = []
     # model=model.to(device)
     with torch.no_grad():
-        for inputs, targets in test_generator:
+        for inputs, targets in validation_generator:
 
             b = inputs.shape[0]
             inputs = inputs.to(device); #print("Validation input: ",inputs)
@@ -183,19 +183,17 @@ for epoch in range(max_epochs):
         #         print(f'{item1} | {item2}')
         if best_accuracy < accuracy:
             best_accuracy = accuracy
-            torch.save(model.state_dict(),PATH+'ncrcacc_woKD.pt')
-            print("Check point "+PATH+'ncrcacc_woKD.pt'+ ' Saved!')
+            torch.save(model.state_dict(),PATH+'utdaccd4h4_woKD.pt')
+            print("Check point "+PATH+'utdaccd4h4_woKD.pt'+ ' Saved!')
 
     print(f"Epoch: {epoch},Valid accuracy:  {accuracy:6.2f} %, Valid loss:  {val_loss:8.5f}")
-
-
-    epoch_loss_val.append(loss)
+    epoch_loss_val.append(val_loss)
     epoch_acc_val.append(accuracy)
 
 
-data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_loss_val, 'val_loss' : epoch_loss_val }
+data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_loss_val, 'val_loss' : epoch_acc_val }
 df = pd.DataFrame(data_dict)
-df.to_csv('loss_acc.csv')
+df.to_csv('loss_utdaccd4h8.csv')
 
 print(f"Best test accuracy: {best_accuracy}")
 print("TRAINING COMPLETED :)")

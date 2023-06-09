@@ -126,7 +126,7 @@ class DropPath(nn.Module):
 #Transformer Block
 class Block(nn.Module):
 
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0.3, attn_drop=0.,
             drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, blocktype=None):
         super().__init__()
         self.norm1 = norm_layer(dim)

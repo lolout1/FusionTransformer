@@ -7,21 +7,24 @@ import torch.nn as nn
 class SemanticLoss(nn.Module):
     def __init__(self):
         super(SemanticLoss, self).__init__()
+        self.focal_loss = FocalLoss(alpha = 0.25, gamma=2)
     
     def distillation_loss(self,pred, labels, teacher_pred, T, alpha):
         
-        #Softmax of student prediciton 
+        #Softmax of student prediciton
+        pred_hard = F.softmax(pred, dim = 1)
         pred_soft = F.log_softmax(pred/T, dim = 1)
 
         #Softmax of teacher prediction
         teacher_soft = F.log_softmax(teacher_pred/T, dim = 1)
 
         #KLDivergence of this two
-        kl_div = nn.KLDivLoss(reduction = 'batchmean', log_target = True)(pred_soft, teacher_soft) * ( alpha * T * T * 2.0)
+        kl_div = nn.KLDivLoss(reduction = 'batchmean', log_target = True)(pred_soft, teacher_soft) * ( alpha * T * T )
+        # #cross entropy loss 
+        # loss_y_label = F.cross_entropy(pred, labels) * (1.0 - alpha)
 
-        #cross entropy loss 
-        loss_y_label = F.cross_entropy(pred, labels) * (1.0 - alpha)
-
+        #focal loss
+        loss_y_label = self.focal_loss(pred_hard, labels) * (1 - alpha)
         distill_loss = kl_div + loss_y_label
 
         return distill_loss
@@ -79,6 +82,17 @@ class SemanticLoss(nn.Module):
 
         loss = kd_loss + (beta*angular_loss) + (gamma*dist_loss)
 
-        # return kd_loss
-        return loss
+        return kd_loss
+        # return loss
     
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)  # Compute the softmax probability
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+        return focal_loss

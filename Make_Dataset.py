@@ -23,13 +23,14 @@ acc_frames = frames from acc sensor per action
 '''
 
 class Poses3d_Dataset(torch.utils.data.Dataset):
-    def __init__(self, data, list_IDs, labels, pose2id,  **kwargs): 
+    def __init__(self, data, list_IDs, labels, pose2id, has_features,  **kwargs): 
         
         'Initialization'
         self.labels = labels
         self.list_IDs = list_IDs
         self. pose2id = pose2id
         self.data=data
+        self.has_features = has_features
         
         if self.data=='ncrc':
             self.partition = kwargs.get('partition', None)
@@ -212,6 +213,7 @@ class Poses3d_Dataset(torch.utils.data.Dataset):
         return acc_features
 
     def normalize_data(self,data,mean,std):
+        # print(f'Data {data.shape}')
         return (data-mean) / std
 
   
@@ -234,22 +236,31 @@ class Poses3d_Dataset(torch.utils.data.Dataset):
             acc_sig = torch.tensor( self.read_acc_segment( acc_info[0] , segment_id ) ) #acc_frames x 3
 
             #Extract acceleration features
-            acc_features = self.extract_acc_features(acc_sig) #ACC_FEATURES x 4
-    
-            #Add magnitude signal to acceleration
-            acc_mag = torch.from_numpy(self.magnitude(acc_sig))
-            acc_sig = torch.cat((acc_sig,acc_mag), dim=1) #acc_frames x 4
+            if self.has_features:
+                acc_features = self.extract_acc_features(acc_sig) #ACC_FEATURES x 4
+        
+                #Add magnitude signal to acceleration
+                acc_mag = torch.from_numpy(self.magnitude(acc_sig))
+                acc_sig = torch.cat((acc_sig,acc_mag), dim=1) #acc_frames x 4
 
-            ######## Combine the windows of both signals #######
+                ######## Combine the windows of both signals #######
 
-            #concate features and acc data
-            acc_data = torch.cat((acc_features,acc_sig),dim=0) #acc_framesx4, ACC_FEATURESx4 -> acc_frames+ACC_FEATURES x 4
-            acc_ext = torch.zeros((self.mocap_frames, self.acc_frames + ACC_FEATURES, 4))
-            acc_ext[0,:,:] = acc_data #600 x 150+18 x 4
+                #concate features and acc data
+                acc_data = torch.cat((acc_features,acc_sig),dim=0) #acc_framesx4, ACC_FEATURESx4 -> acc_frames+ACC_FEATURES x 4
+            
+                acc_ext = torch.zeros((self.mocap_frames, self.acc_frames + ACC_FEATURES, 4))
+                acc_ext[0,:,:] = acc_data #600 x 150+18 x 4
+                mocap_ext = torch.zeros((self.mocap_frames,29,4))
+                mocap_ext[:,:,:3] = mocap_sig
+            
+            else:
+                acc_ext = torch.zeros((self.mocap_frames, self.acc_frames, 3))
+                acc_ext[0, :, :] = acc_sig
+                mocap_ext = torch.zeros((self.mocap_frames,29,3))
+                mocap_ext[:,:,:3] = mocap_sig
 
             #add additional dim to mocap_data
-            mocap_ext = torch.zeros((self.mocap_frames,29,4))
-            mocap_ext[:,:,:3] = mocap_sig
+
 
             # data_sample = torch.cat((mocap_ext,acc_ext),dim=1) #600x29x3 + 600x168x3 = 200 x 191 x 3
             
