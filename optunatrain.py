@@ -21,13 +21,13 @@ def objective(trial):
     adepth = trial.suggest_int('adepth', 1, 4, step = 1)
     attn_drop_rate = trial.suggest_uniform('attn_drop_rate', .1, .5)
     drop_rate = trial.suggest_uniform('drop_rate', .1, .5)
-    num_heads = trial.suggest_int('num_heads', 1, 6, step = 2)
+    num_heads = trial.suggest_categorical('num_heads', [1,2,4,6])
     acc_embed = trial.suggest_categorical('acc_embed', [8,16,32])
     lr = trial.suggest_loguniform('lr', 1e-5, 1e-1)
     wt_decay = trial.suggest_loguniform('wt_decay', 5e-4, 1e-2)
     batch_size = trial.suggest_categorical('batch_size', [8, 16, 32])
-    alpha = trial.suggest_uniform('alpha')
-    gamma = trail.suggest_categorical('gamma' , [1, 2, 4, 6,8])
+    alpha = trial.suggest_uniform('alpha', 0.2, 0.7)
+    gamma = trial.suggest_categorical('gamma' , [1, 2, 4, 6,8])
 
 
     exp = 'ncrcacc-wokd' #Assign an experiment id
@@ -91,7 +91,7 @@ def objective(trial):
     #                                   acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
     #model = ActRecogTransformer( device='cpu', mocap_frames=mocap_frames, num_joints=num_joints,  num_classes=num_classes)
     model = ActTransformerAcc(adepth = adepth,has_features=False, num_heads=num_heads,attn_drop_rate = attn_drop_rate,drop_rate = drop_rate, device = device,
-                             acc_frames=acc_frames, num_joints = num_joints, in_chans = 3 , acc_features = acc_features,num_classes=num_classes)
+                             acc_frames=acc_frames, num_joints = num_joints, in_chans = 3 , acc_features = acc_features,num_classes=num_classes, acc_embed=acc_embed)
     model = model.to(device)
 
 
@@ -160,7 +160,7 @@ def objective(trial):
         val_trgt_list = []
         # model=model.to(device)
         with torch.no_grad():
-            for inputs, targets in test_generator:
+            for inputs, targets in  validation_generator:
 
                 b = inputs.shape[0]
                 inputs = inputs.to(device); #print("Validation input: ",inputs)
