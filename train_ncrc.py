@@ -56,10 +56,10 @@ acc_features = 18
 
 if dataset == 'ncrc':
     tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
-    training_set = Poses3d_Dataset( data='ncrc',has_feature = False,list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=True)
+    training_set = Poses3d_Dataset( data='ncrc',has_feature = False,list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=True, has_features = False)
     training_generator = torch.utils.data.DataLoader(training_set, **params) #Each produced sample is  200 x 59 x 3
 
-    validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'],has_feature = False, labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=True)
+    validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'],has_feature = False, labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=True, has_features = True)
     validation_generator = torch.utils.data.DataLoader(validation_set, **params) #Each produced sample is 6000 x 229 x 3
 
     test_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['test'], labels=labels,has_features = False,pose2id=pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False)
