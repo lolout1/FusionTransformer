@@ -2,20 +2,34 @@ import torch
 import numpy as np
 import pandas as pd
 from Make_Dataset import Poses3d_Dataset, Utd_Dataset
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingWarmRestarts
 import PreProcessing_ncrc
 from Models.model_crossview_fusion import ActTransformerMM
 from Models.model_acc_only import ActTransformerAcc
 from Models.model_skeleton_only import ActRecogTransformer
-import optuna 
+from loss import FocalLoss
 # from Tools.visualize import get_plot
 import pickle
+import optuna
 from asam import ASAM, SAM
-from timm.loss import LabelSmoothingCrossEntropy
+# from timm.loss import LabelSmoothingCrossEntropy
 import os
+import json
+
+def objective(trial):
+    # batch_size = trial.suggest_int('batch_size', 8, 32, step = 8)
+    adepth = trial.suggest_int('adepth', 1, 4, step = 1)
+    attn_drop_rate = trial.suggest_uniform('attn_drop_rate', .1, .5)
+    drop_rate = trial.suggest_uniform('drop_rate', .1, .5)
+    num_heads = trial.suggest_int('num_heads', 1, 6, step = 2)
+    acc_embed = trial.suggest_categorical('acc_embed', [8,16,32])
+    lr = trial.suggest_loguniform('lr', 1e-5, 1e-1)
+    wt_decay = trial.suggest_loguniform('wt_decay', 5e-4, 1e-2)
+    batch_size = trial.suggest_categorical('batch_size', [8, 16, 32])
+    alpha = trial.suggest_uniform('alpha')
+    gamma = trail.suggest_categorical('gamma' , [1, 2, 4, 6,8])
 
 
-def objective(trail):
     exp = 'ncrcacc-wokd' #Assign an experiment id
     #exp = 'skeletonwithoutkd-utd'
 
@@ -32,14 +46,10 @@ def objective(trail):
 
     # Parameters
     print("Creating params....")
-    params = {'batch_size':8,
+    params = {'batch_size':batch_size,
             'shuffle': True,
             'num_workers': 0}
-    max_epochs = 200
-
-    # Generators
-    #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
-    # pose2id, labels, partition = PreProcessing_ncrc.preprocess()
+    max_epochs = 100
 
     print("Creating Data Generators...")
     dataset = 'ncrc'
@@ -58,11 +68,14 @@ def objective(trail):
 
     if dataset == 'ncrc':
         tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
-        training_set = Poses3d_Dataset( data='ncrc',has_feature = False,list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=True, has_features= False)
+        training_set = Poses3d_Dataset( data='ncrc',list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=True, has_features = False)
         training_generator = torch.utils.data.DataLoader(training_set, **params) #Each produced sample is  200 x 59 x 3
 
-        validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'],has_feature = False, labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=True, has_features = False)
+        validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'], labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=True, has_features = False)
         validation_generator = torch.utils.data.DataLoader(validation_set, **params) #Each produced sample is 6000 x 229 x 3
+
+        test_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['test'], labels=labels,pose2id=pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False,  has_features = False)
+        test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
 
     else:
         training_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/train_data.npz')
@@ -77,43 +90,18 @@ def objective(trail):
     # model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
     #                                   acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
     #model = ActRecogTransformer( device='cpu', mocap_frames=mocap_frames, num_joints=num_joints,  num_classes=num_classes)
-    model = ActTransformerAcc(device = device, acc_frames=acc_frames, num_joints = num_joints, in_chans = 3 , acc_features = acc_features,num_classes=num_classes, has_features = False )
+    model = ActTransformerAcc(adepth = adepth,has_features=False, num_heads=num_heads,attn_drop_rate = attn_drop_rate,drop_rate = drop_rate, device = device,
+                             acc_frames=acc_frames, num_joints = num_joints, in_chans = 3 , acc_features = acc_features,num_classes=num_classes)
     model = model.to(device)
 
 
     print("-----------TRAINING PARAMS----------")
     #Define loss and optimizer
-    lr=0.001
-    wt_decay=5e-4
+    criterion = FocalLoss(alpha=alpha, gamma=gamma)
 
-    criterion = torch.nn.CrossEntropyLoss()
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr,weight_decay=wt_decay)
-    #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wt_decay)
-
-    # #ASAM
-    # rho=0.5
-    # eta=0.01
-    # minimizer = ASAM(optimizer, model, rho=rho, eta=eta)
-
-    #Learning Rate Scheduler
-    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(minimizer.optimizer, max_epochs)
-    #print("Using cosine")
-
-    #TRAINING AND VALIDATING
-    epoch_loss_train=[]
-    epoch_loss_val=[]
-    epoch_acc_train=[]
-    epoch_acc_val=[]
-
-    #Label smoothing
-    #smoothing=0.1
-    #criterion = LabelSmoothingCrossEntropy(smoothing=smoothing)
-    #print("Loss: LSC ",smoothing)
-
-    best_accuracy = 0.
-    # model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/myexp-utd/myexp-utd_best_ckptutdmm.pt'))
-    # scheduler = ReduceLROnPlateau(optimizer, 'min', verbose = True, patience = 10)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr,weight_decay=wt_decay)
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=1, eta_min= 2.5e-05,verbose=True)
+    best_accuracy = 0
 
     print("Begin Training....")
     for epoch in range(max_epochs):
@@ -123,6 +111,8 @@ def objective(trail):
         loss = 0.
         accuracy = 0.
         cnt = 0.
+        pred_list = []
+        target_list = []
         for inputs, targets in training_generator:
             inputs = inputs.to(device); #print("Input batch: ",inputs)
             targets = targets.to(device)
@@ -135,14 +125,15 @@ def objective(trail):
             #print("predictions: ",torch.argmax(predictions, 1) )
             batch_loss = criterion(predictions, targets)
             batch_loss.mean().backward()
+            optimizer.step()
             # minimizer.ascent_step()
 
             # # Descent Step
             # _,_,des_predictions = model(inputs.float())
             # criterion(des_predictions, targets).mean().backward()
             # minimizer.descent_step()
-            optimizer.step()
-
+            pred_list.extend(torch.argmax(predictions, 1))
+            target_list.extend(targets)
             with torch.no_grad():
                 loss += batch_loss.sum().item()
                 pred.extend(torch.argmax(predictions,1).tolist())
@@ -150,21 +141,26 @@ def objective(trail):
             cnt += len(targets)
         loss /= cnt
         accuracy *= 100. / cnt
-        print(pred)
+        # print('---Train---')
+        # for item1 , item2 in zip(target_list, pred_list):
+        #     print(f'{item1} | {item2}')
+        scheduler.step()
         print(f"Epoch: {epoch}, Train accuracy: {accuracy:6.2f} %, Train loss: {loss:8.5f}")
-        epoch_loss_train.append(loss)
-        epoch_acc_train.append(accuracy)
+        # epoch_loss_train.append(loss)
+        # epoch_acc_train.append(accuracy)
         #scheduler.step()
 
-        #accuracy,loss = validation(model,validation_generator)
-        #Test
+        # accuracy,loss = validation(model,validation_generator)
+        # Test
         model.eval()
         val_loss = 0.
-        accuracy = 0.
+        val_acc = 0.
         cnt = 0.
-        model=model.to(device)
+        val_pred_list = []
+        val_trgt_list = []
+        # model=model.to(device)
         with torch.no_grad():
-            for inputs, targets in validation_generator:
+            for inputs, targets in test_generator:
 
                 b = inputs.shape[0]
                 inputs = inputs.to(device); #print("Validation input: ",inputs)
@@ -173,36 +169,52 @@ def objective(trail):
                 _,_,predictions = model(inputs.float())
                 with torch.no_grad():
                     val_loss += batch_loss.sum().item()
-                    accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
+                    val_acc += (torch.argmax(predictions, 1) == targets).sum().item()
                     
+                val_pred_list.extend(torch.argmax(predictions, 1))
+                val_trgt_list.extend(targets)
+
+                loss = criterion(predictions,targets)
+                val_loss += loss.sum().item()
+                val_acc += (torch.argmax(predictions, 1) == targets).sum().item()
                 cnt += len(targets)
             val_loss /= cnt
-            accuracy *= 100. / cnt
-            
-            if best_accuracy < accuracy:
-                best_accuracy = accuracy
-                torch.save(model.state_dict(),PATH+'ncrcacc_woKd_woF.pt'); 
-                print("Check point "+PATH+'ncrcacc_woKd_woF.pt'+ ' Saved!')
+            val_acc *= 100. / cnt
+            # print('---Val---')
+            # for item1 , item2 in zip(val_trgt_list, val_pred_list):
+            #         print(f'{item1} | {item2}')
+            # if best_accuracy < accuracy:
+            #     best_accuracy = accuracy
+                # torch.save(model.state_dict(),PATH+'ncrcacc_woKD.pt')
+                # print("Check point "+PATH+'ncrcacc_woKD.pt'+ ' Saved!')
 
-        print(f"Epoch: {epoch},Val accuracy:  {accuracy:6.2f} %, Val loss:  {loss:8.5f}")
+        print(f"Epoch: {epoch},Valid accuracy:  {val_acc:6.2f} %, Valid loss:  {val_loss:8.5f}")
+
+        if trial.should_prune():
+            raise optuna.exceptions.TrialPruned()
+        return val_acc
+
+    #     epoch_loss_val.append(loss)
+    #     epoch_acc_val.append(accuracy)
 
 
-        epoch_loss_val.append(loss)
-        epoch_acc_val.append(accuracy)
+    # data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_acc_val, 'val_loss' : epoch_loss_val }
+    # df = pd.DataFrame(data_dict)
+    # with open('utdskeleton_woKD_worand.csv'):
+    #     df.to_csv('utdskeleton_woKD_worand.csv')
 
+    # print(f"Best test accuracy: {best_accuracy}")
+    # print("TRAINING COMPLETED :)")
 
-# data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_acc_val, 'val_loss' : epoch_loss_val }
-# df = pd.DataFrame(data_dict)
-# with open('utdskeleton_woKD_worand.csv'):
-#     df.to_csv('utdskeleton_woKD_worand.csv')
+    #Save visualization
+    # get_plot(PATH,epoch_acc_train,epoch_acc_val,'Accuracy-'+exp,'Train Accuracy','Val Accuracy','Epochs','Acc')
+    # get_plot(PATH,epoch_loss_train,epoch_loss_val,'Loss-'+exp,'Train Loss','Val Loss','Epochs','Loss')
 
-# print(f"Best test accuracy: {best_accuracy}")
-# print("TRAINING COMPLETED :)")
-
-#Save visualization
-# get_plot(PATH,epoch_acc_train,epoch_acc_val,'Accuracy-'+exp,'Train Accuracy','Val Accuracy','Epochs','Acc')
-# get_plot(PATH,epoch_loss_train,epoch_loss_val,'Loss-'+exp,'Train Loss','Val Loss','Epochs','Loss')
-
-if __name__ == '__main__':
-    study = optuna.create_study()
-    study.optimize(objective)
+if __name__ == "__main__":
+    study = optuna.create_study(direction='maximize')
+    study.optimize(objective, n_trials = 100)
+    file_path = 'best_param.txt'
+    with open(file_path, 'w') as file:
+        json.dump(study.best_params, file)
+    for key, value in study.best_params.items():
+        print(f'{key}: {value}')
