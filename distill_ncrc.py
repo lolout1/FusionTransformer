@@ -46,8 +46,6 @@ def train(epoch, num_epochs, student_model, teacher_model, criterion, best_accur
         accuracy = 0.
         teacher_accuracy = 0.
         cnt = 0.
-        alpha = 0.7
-        T = 2.0
         for inputs, targets in training_generator:
             # Transfering the input, targets to the GPU]
             inputs = inputs.to(device) #[batch_size X ]
@@ -60,16 +58,16 @@ def train(epoch, num_epochs, student_model, teacher_model, criterion, best_accur
             # print(f'\nStudent logit shape: {student_logits.shape}')
             # print(f'\nTeacher logit shape: {teacher_logits.shape}')
 
-            loss = criterion(student_logits, targets, teacher_logits, T, alpha)
+            loss = criterion(student_pred, student_logits, targets, teacher_logits)
             loss.mean().backward()
-            minimizer.ascent_step()
+            # minimizer.ascent_step()
 
             # Descent Step
             # Not really sure why I need to make prediction again 
-            _, des_student_logits,des_stud_pred = student_model(inputs.float())
-            _, des_teacher_logits, des_teacher_pred = teacher_model(inputs.float())
-            criterion(des_student_logits, targets, des_teacher_logits, T=2.0, alpha = 0.7).mean().backward()
-            minimizer.descent_step()
+            # _, des_student_logits,des_stud_pred = student_model(inputs.float())
+            # _, des_teacher_logits, des_teacher_pred = teacher_model(inputs.float())
+            # criterion(des_stud_pred,des_student_logits, targets, des_teacher_logits).mean().backward()
+            # minimizer.descent_step()
 
             with torch.no_grad():
                 train_loss += loss.sum().item()
@@ -113,12 +111,12 @@ def train(epoch, num_epochs, student_model, teacher_model, criterion, best_accur
             val_accuracy *= 100. / cnt
             val_t_accuracy *= 100./ cnt
         lr_scheduler.step(temp_loss)
-        print(f"\n Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}% , Val_teach: {val_t_accuracy:8.5f}%")
+        print(f"\n Epoch: {epoch},Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}% ")
         if best_accuracy < val_accuracy:
                 best_accuracy = val_accuracy
                 #need to add arguements here also for different experiments
-                torch.save(student_model.state_dict(),PATH+exp+'_ncrc_ckpt_test.pt'); 
-                print("Check point "+PATH+exp+'_ncrc_ckpt_wdistaccurate.pt'+ ' Saved!')
+                torch.save(student_model.state_dict(),PATH+'ncrc_wKDonly.pt'); 
+                print("Check point "+PATH+'ncrc_wKDonly.pt'+ ' Saved!')
 
 
         epoch_loss_val.append(val_loss)
@@ -131,13 +129,13 @@ if __name__ == "__main__":
 
     args = parse_args()
     max_epoch = args.epochs
-    best_accuracy = 0 
+    best_accuracy = 37.29
     epoch_loss_train=[]
     epoch_loss_val=[]
     epoch_acc_train=[]
     epoch_acc_val=[]
 
-    exp = args.dataset #Assign an experiment id
+    exp = 'ncrc_KD'
     dataset = args.dataset
     mocap_frames = args.mocap
     acc_frames = args.acc_frame
@@ -166,17 +164,17 @@ if __name__ == "__main__":
             'shuffle': True,
             'num_workers': 0}
 
-    num_epochs = 100
+    num_epochs = 200
 
     # Generators
     #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
 
     if dataset == 'ncrc':
         tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
-        training_set = Poses3d_Dataset( data='ncrc',list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=False)
+        training_set = Poses3d_Dataset( data='ncrc',list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=False, has_feature=False)
         training_generator = torch.utils.data.DataLoader(training_set, **params) #Each produced sample is  200 x 59 x 3
 
-        validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'], labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False)
+        validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'], labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False, has_feature = False)
         validation_generator = torch.utils.data.DataLoader(validation_set, **params) #Each produced sample is 6000 x 229 x 3
 
     else:
@@ -195,7 +193,7 @@ if __name__ == "__main__":
     #Define model
     print("Initiating Model...")
 
-    student_model = ActTransformerAcc(device = device, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
+    student_model = ActTransformerAcc(acc_embed = 32,attn_drop_rate = 0.1,device = device, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
                                     acc_features=18, has_features = True,num_classes=num_classes)
 
     teacher_model.cuda()
@@ -207,13 +205,13 @@ if __name__ == "__main__":
 
     #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wt_decay)
 
-    #ASAM
-    rho=0.5
-    eta=0.01
-    minimizer = ASAM(optimizer, student_model, rho=rho, eta=eta)
+    # #ASAM
+    # rho=0.5
+    # eta=0.01
+    # minimizer = ASAM(optimizer, student_model, rho=rho, eta=eta)
     
     best_accuracy = 0
-    criterion = SemanticLoss()
+    criterion = SemanticLoss(T = 2, alpha = 0.7)
     scheduler = ReduceLROnPlateau(optimizer, 'min', verbose = True, patience = 7)
     #criterion selection using arguements
     total_params = 0

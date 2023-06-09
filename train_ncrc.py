@@ -6,6 +6,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import PreProcessing_ncrc
 from Models.model_crossview_fusion import ActTransformerMM
 from Models.model_acc_only import ActTransformerAcc
+from Models.model_skeleton_only import ActRecogTransformer
 # from Tools.visualize import get_plot
 import pickle
 from asam import ASAM, SAM
@@ -13,6 +14,7 @@ from timm.loss import LabelSmoothingCrossEntropy
 import os
 
 exp = 'ncrcacc-wokd' #Assign an experiment id
+#exp = 'skeletonwithoutkd-utd'
 
 if not os.path.exists('exps/'+exp+'/'):
     os.makedirs('exps/'+exp+'/')
@@ -44,19 +46,26 @@ num_joints = 29
 num_classes = 6
 acc_features = 18
 
+# dataset = 'utd'
+# mocap_frames = 100
+# acc_frames = 150
+# num_joints = 20 
+# num_classes = 27
+# acc_features = 1
+
 if dataset == 'ncrc':
     tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
-    training_set = Poses3d_Dataset( data='ncrc',list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=False)
+    training_set = Poses3d_Dataset( data='ncrc',has_feature = False,list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=True)
     training_generator = torch.utils.data.DataLoader(training_set, **params) #Each produced sample is  200 x 59 x 3
 
-    validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['test'], labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False)
+    validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'],has_feature = False, labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=True)
     validation_generator = torch.utils.data.DataLoader(validation_set, **params) #Each produced sample is 6000 x 229 x 3
 
 else:
-    training_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/randtrain_data.npz')
+    training_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/train_data.npz')
     training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-    validation_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/randvalid_data.npz')
+    validation_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/valid_data.npz')
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
@@ -64,7 +73,8 @@ else:
 print("Initiating Model...")
 # model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
 #                                   acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
-model = ActTransformerAcc(devide = device, acc_frames=acc_frames, num_joints = num_joints, in_chans = 2 , acc_features = acc_features,num_classes=num_classes )
+#model = ActRecogTransformer( device='cpu', mocap_frames=mocap_frames, num_joints=num_joints,  num_classes=num_classes)
+model = ActTransformerAcc(device = device, acc_frames=acc_frames, num_joints = num_joints, in_chans = 2 , acc_features = acc_features,num_classes=num_classes, has_features = False )
 model = model.to(device)
 
 
@@ -106,6 +116,7 @@ print("Begin Training....")
 for epoch in range(max_epochs):
     # Train
     model.train()
+    pred = []
     loss = 0.
     accuracy = 0.
     cnt = 0.
@@ -130,10 +141,12 @@ for epoch in range(max_epochs):
 
         with torch.no_grad():
             loss += batch_loss.sum().item()
+            pred.extend(torch.argmax(predictions,1).tolist())
             accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
         cnt += len(targets)
     loss /= cnt
     accuracy *= 100. / cnt
+    print(pred)
     print(f"Epoch: {epoch}, Train accuracy: {accuracy:6.2f} %, Train loss: {loss:8.5f}")
     epoch_loss_train.append(loss)
     epoch_acc_train.append(accuracy)
@@ -157,16 +170,17 @@ for epoch in range(max_epochs):
             with torch.no_grad():
                 val_loss += batch_loss.sum().item()
                 accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
+                
             cnt += len(targets)
         val_loss /= cnt
         accuracy *= 100. / cnt
         
         if best_accuracy < accuracy:
             best_accuracy = accuracy
-            torch.save(model.state_dict(),PATH+exp+'ncrcacc_woKd.pt'); 
-            print("Check point "+PATH+exp+'ncrcacc_woKD.pt'+ ' Saved!')
+            torch.save(model.state_dict(),PATH+'ncrcacc_woKd_woF.pt'); 
+            print("Check point "+PATH+'ncrcacc_woKd_woF.pt'+ ' Saved!')
 
-    print(f"Epoch: {epoch},Test accuracy:  {accuracy:6.2f} %, Test loss:  {loss:8.5f}")
+    print(f"Epoch: {epoch},Val accuracy:  {accuracy:6.2f} %, Val loss:  {loss:8.5f}")
 
 
     epoch_loss_val.append(loss)
@@ -175,8 +189,8 @@ for epoch in range(max_epochs):
 
 data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_acc_val, 'val_loss' : epoch_loss_val }
 df = pd.DataFrame(data_dict)
-with open('ncrcacc_woKD.csv'):
-    df.to_csv('ncrcacc_woKD.csv')
+with open('utdskeleton_woKD_worand.csv'):
+    df.to_csv('utdskeleton_woKD_worand.csv')
 
 print(f"Best test accuracy: {best_accuracy}")
 print("TRAINING COMPLETED :)")

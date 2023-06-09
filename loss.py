@@ -5,24 +5,26 @@ import torch.nn as nn
 
 
 class SemanticLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, T = 2, alpha = 0.7):
         super(SemanticLoss, self).__init__()
+        self.T = T
+        self.alpha = alpha
     
-    def distillation_loss(self,pred, labels, teacher_pred, T, alpha):
+    def distillation_loss(self,pred, logits, labels, teacher_logits):
         
         #Softmax of student prediciton 
-        pred_soft = F.log_softmax(pred/T, dim = 1)
+        pred_soft = F.log_softmax(logits/self.T, dim = 1)
 
         #Softmax of teacher prediction
-        teacher_soft = F.log_softmax(teacher_pred/T, dim = 1)
+        teacher_soft = F.log_softmax(teacher_logits/self.T, dim = 1)
 
         #KLDivergence of this two
-        kl_div = nn.KLDivLoss(reduction = 'batchmean', log_target = True)(pred_soft, teacher_soft) * ( alpha * T * T * 2.0)
+        kl_div = nn.KLDivLoss(reduction = 'batchmean')(pred_soft, teacher_soft) * (self.T * self.T)
 
         #cross entropy loss 
-        loss_y_label = F.cross_entropy(pred, labels) * (1.0 - alpha)
+        loss_y_label = F.cross_entropy(pred, labels) 
 
-        distill_loss = kl_div + loss_y_label
+        distill_loss = (self.alpha * kl_div) + (loss_y_label * (1.0 - self.alpha))
 
         return distill_loss
     
@@ -68,17 +70,18 @@ class SemanticLoss(nn.Module):
         loss = F.smooth_l1_loss(d, t_d, reduction='mean')
         return loss
 
-    def forward(self,student_pred, labels, teacher_pred, T, alpha):
+    def forward(self,student_pred, stud_logits, labels, teacher_logits):
         gamma = 0.1
         beta = 0.2
-        kd_loss = self.distillation_loss(student_pred, labels, teacher_pred, T, alpha)
-        y = F.log_softmax(student_pred, dim = 1)
-        teacher_y = F.log_softmax(teacher_pred, dim = 1)
+        sigma = 1 - gamma - beta
+        kd_loss = self.distillation_loss(pred = student_pred, logits = stud_logits, labels = labels, teacher_logits = teacher_logits)
+        y = F.log_softmax(stud_logits, dim = 1)
+        teacher_y = F.log_softmax(teacher_logits, dim = 1)
         angular_loss = self.angular_dist(y, teacher_y)
         dist_loss = self.distance(y, teacher_y)
 
-        loss = kd_loss + (beta*angular_loss) + (gamma*dist_loss)
-
+        loss = (sigma*kd_loss) + (beta*angular_loss) + (gamma*dist_loss)
+        return kd_loss
         # return kd_loss
-        return loss
+       
     
