@@ -21,7 +21,7 @@ class ActTransformerMM(nn.Module):
     def __init__(self, device='cpu' , mocap_frames=600, acc_frames=150, num_joints=29, in_chans=3, acc_coords=3,has_features =False, acc_features=18, spatial_embed=32,
                  sdepth=4, adepth=4, tdepth=4, num_heads=8, mlp_ratio=2., qkv_bias=True,
                  qk_scale=None, op_type='cls', embed_type='lin', fuse_acc_features=False,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.2,  norm_layer=None, num_classes=6):
+                 drop_rate=0.2, attn_drop_rate=0.2, drop_path_rate=0.2,  norm_layer=None, num_classes=6):
 
         """    ##########hybrid_backbone=None, representation_size=None,
         Args:

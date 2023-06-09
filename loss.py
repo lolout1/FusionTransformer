@@ -7,24 +7,26 @@ import torch.nn as nn
 class SemanticLoss(nn.Module):
     def __init__(self, T = 2, alpha = 0.7):
         super(SemanticLoss, self).__init__()
-        self.T = T
+        self.focal_loss = FocalLoss(alpha = 0.25, gamma=2)
         self.alpha = alpha
     
     def distillation_loss(self,pred, logits, labels, teacher_logits):
         
-        #Softmax of student prediciton 
-        pred_soft = F.log_softmax(logits/self.T, dim = 1)
+        #Softmax of student prediciton
+        pred_hard = F.softmax(pred, dim = 1)
+        pred_soft = F.log_softmax(pred/T, dim = 1)
 
         #Softmax of teacher prediction
         teacher_soft = F.log_softmax(teacher_logits/self.T, dim = 1)
 
         #KLDivergence of this two
-        kl_div = nn.KLDivLoss(reduction = 'batchmean')(pred_soft, teacher_soft) * (self.T * self.T)
+        kl_div = nn.KLDivLoss(reduction = 'batchmean', log_target = True)(pred_soft, teacher_soft) * (self.alpha * T * T )
+        # #cross entropy loss 
+        # loss_y_label = F.cross_entropy(pred, labels) * (1.0 - alpha)
 
-        #cross entropy loss 
-        loss_y_label = F.cross_entropy(pred, labels) 
-
-        distill_loss = (self.alpha * kl_div) + (loss_y_label * (1.0 - self.alpha))
+        #focal loss
+        loss_y_label = self.focal_loss(pred_hard, labels) * (1 - self.alpha)
+        distill_loss = kl_div + loss_y_label
 
         return distill_loss
     
@@ -82,6 +84,15 @@ class SemanticLoss(nn.Module):
 
         loss = (sigma*kd_loss) + (beta*angular_loss) + (gamma*dist_loss)
         return kd_loss
-        # return kd_loss
-       
     
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)  # Compute the softmax probability
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+        return focal_loss

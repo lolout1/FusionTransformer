@@ -8,7 +8,7 @@ from Models.model_crossview_fusion import ActTransformerMM
 from Models.model_acc_only import ActTransformerAcc
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, f1_score, precision_recall_fscore_support
 
 
 
@@ -31,29 +31,34 @@ num_epochs = 250
 #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
 
 
-dataset = 'utd'
-mocap_frames = 100
+# dataset = 'utd'
+# mocap_frames = 100
+# acc_frames = 150
+# num_joints = 20
+# num_classes = 27
+
+dataset = 'ncrc'
+mocap_frames = 600
 acc_frames = 150
-num_joints = 20
-num_classes = 27
-acc_features = 1
+num_joints = 29 
+num_classes = 6
 
 if dataset == 'ncrc':
     tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
-    training_set = Poses3d_Dataset( data='ncrc',list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames, normalize=False)
+    training_set = Poses3d_Dataset( data='ncrc',list_IDs=partition['train'], labels=tr_labels, pose2id=tr_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames,has_features=False, normalize=False)
     training_generator = torch.utils.data.DataLoader(training_set, **params) #Each produced sample is  200 x 59 x 3
 
-    validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'], labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False)
+    validation_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['valid'], labels=valid_labels, pose2id=valid_pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames,has_features=False,normalize=False)
     validation_generator = torch.utils.data.DataLoader(validation_set, **params) #Each produced sample is 6000 x 229 x 3
 
-    test_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['test'], labels=labels, pose2id=pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames ,normalize=False)
+    test_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['test'], labels=labels, pose2id=pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames,has_features=False,normalize=False)
     test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
 
 
 
 else:
 
-    test_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/test_data.npz')
+    test_set = Utd_Dataset('/Users/tousif/Lstm_transformer/randtest_data.npz')
     test_generator = torch.utils.data.DataLoader(test_set, **params)
 
 
@@ -68,8 +73,13 @@ teacher_model = model = ActTransformerAcc(device = device, acc_frames=acc_frames
 # teacher_model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
 #                                   acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
 teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/accwithoutkd-utd/accwithoutkd-utdutdacc_woKd_worand.pt'))
+#teacher_model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
+                                  #acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
+#teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/myexp-utd/myexp-utd_best_ckptafter70.pt'))
 # student_model.cuda()
-teacher_model.cuda()
+teacher_model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = 29,has_features=False)
+teacher_model.load_state_dict(torch.load('exps/ncrc/ncrcacc_woKD.pt'))
+teacher_model.to(device=device)
 
 # student_model.eval()
 teacher_model.eval()
@@ -102,15 +112,24 @@ with torch.no_grad():
 
 
 # compute the confusion matrix
-print(y_true)
-print(y_pred)
+y_pred = np.array(y_pred)
+y_true = np.array(y_true)
+precision, recall, f1, _ = precision_recall_fscore_support(y_true=y_true, y_pred=y_pred)
+for i in range(len(precision)):
+    print(f"Class {i}: Precision={precision[i]}, Recall={recall[i]}, F1-score={f1[i]}")
 cm = confusion_matrix(y_true, y_pred)
+
+print("----------OVERALL METRICS--------")
+print("Overall Precision: ",np.mean(precision)*100)
+print("Overall Recall: ",np.mean(recall)*100)
+print("Overall F1-score: ",np.mean(f1)*100)
+print(f"Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}%")
 
 # plot the confusion matrix
 plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
 plt.colorbar()
-plt.xticks(np.arange(2))
-plt.yticks(np.arange(2))
+plt.xticks(np.arange(num_classes))
+plt.yticks(np.arange(num_classes))
 plt.xlabel("Predicted label")
 plt.ylabel("True label")
 plt.title("Confusion Matrix")

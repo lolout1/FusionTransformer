@@ -46,6 +46,8 @@ def train(epoch, num_epochs, student_model, teacher_model, criterion, best_accur
         accuracy = 0.
         teacher_accuracy = 0.
         cnt = 0.
+        alpha = 0.7
+        T = 2.0
         for inputs, targets in training_generator:
             # Transfering the input, targets to the GPU]
             inputs = inputs.to(device) #[batch_size X ]
@@ -130,13 +132,13 @@ if __name__ == "__main__":
 
     args = parse_args()
     max_epoch = args.epochs
-    best_accuracy = 37.29
+    best_accuracy = 0 
     epoch_loss_train=[]
     epoch_loss_val=[]
     epoch_acc_train=[]
     epoch_acc_val=[]
 
-    exp = 'ncrc_KD'
+    exp = args.dataset #Assign an experiment id
     dataset = args.dataset
     mocap_frames = args.mocap
     acc_frames = args.acc_frame
@@ -165,7 +167,7 @@ if __name__ == "__main__":
             'shuffle': True,
             'num_workers': 0}
 
-    num_epochs = 200
+    num_epochs = 100
 
     # Generators
     #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
@@ -194,7 +196,7 @@ if __name__ == "__main__":
     #Define model
     print("Initiating Model...")
 
-    student_model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = 29,has_features=True, num_heads=4, acc_embed = 16, num_heads = 3)
+    student_model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = 29,has_features=True, num_heads=4, acc_embed = 16)
 
     teacher_model.to(device=device)
     student_model.to(device=device)

@@ -4,3 +4,4 @@ data_mnist/
 data/
 weights/
 exps/
+/config.py
