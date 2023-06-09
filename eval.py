@@ -36,6 +36,7 @@ mocap_frames = 100
 acc_frames = 150
 num_joints = 20
 num_classes = 27
+acc_features = 1
 
 if dataset == 'ncrc':
     tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
@@ -60,13 +61,13 @@ else:
 #Define model
 print("Initiating Model...")
 
-# student_model = ActTransformerAcc(device = device, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
-#                                   acc_features=18, has_features =True,num_classes=num_classes)
+teacher_model = model = ActTransformerAcc(device = device, acc_frames=acc_frames, num_joints = num_joints, in_chans = 2 , 
+                                          acc_features = acc_features,num_classes=num_classes, has_features = False )
 # student_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/ncrc/ncrc_ncrc_ckpt_wdistaccurate.pt'))
 
-teacher_model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
-                                  acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
-teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/myexp-utd/myexp-utd_best_ckptafter70.pt'))
+# teacher_model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=150, num_joints=num_joints, in_chans=3, acc_coords=3,
+#                                   acc_features=1, spatial_embed=32,has_features = False,num_classes=num_classes)
+teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/accwithoutkd-utd/accwithoutkd-utdutdacc_woKd_worand.pt'))
 # student_model.cuda()
 teacher_model.cuda()
 
@@ -114,4 +115,4 @@ plt.xlabel("Predicted label")
 plt.ylabel("True label")
 plt.title("Confusion Matrix")
 plt.show()
-print(f"Val accuracy:  {val_accuracy:6.2f} %, Val loss:  {val_loss:8.5f}% , Val_teach: {val_t_accuracy:8.5f}%")
+print(f"Test accuracy:  {val_accuracy:6.2f} %, Test loss:  {val_loss:8.5f}% ")

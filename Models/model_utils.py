@@ -152,7 +152,9 @@ class Block(nn.Module):
             return x
 
     def cross_forward(self,xq,xkv):
-        xkv=self.norm1(xkv);xq=self.norm1(xq); xq = xq + self.drop_path(self.attn(self.norm1(xq)))
+        xkv=self.norm1(xkv)
+        xq=self.norm1(xq)
+        xq = xq + self.drop_path(self.attn(self.norm1(xq)))
         x = xq + self.drop_path(self.cross_attn(xq,xkv))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x

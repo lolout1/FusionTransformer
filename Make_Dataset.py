@@ -23,13 +23,14 @@ acc_frames = frames from acc sensor per action
 '''
 
 class Poses3d_Dataset(torch.utils.data.Dataset):
-    def __init__(self, data, list_IDs, labels, pose2id,  **kwargs): 
+    def __init__(self, data, list_IDs, labels, pose2id,has_feature,**kwargs): 
         
         'Initialization'
         self.labels = labels
         self.list_IDs = list_IDs
         self. pose2id = pose2id
         self.data=data
+        self.has_feature = has_feature
         
         if self.data=='ncrc':
             self.partition = kwargs.get('partition', None)
@@ -141,13 +142,13 @@ class Poses3d_Dataset(torch.utils.data.Dataset):
         #df['z'] = df['z'].ewm(span=win).mean()
         
         df_segment = df.loc[df['segment_id']==segment_id,:].copy() #Extract meditag data of respective sensor, 600 x 4
+
 	
         df_segment.drop('segment_id',axis=1,inplace=True) #120 x 3
         data=df_segment.to_numpy()
         
         #Adjust if last window has less samples
         if data.shape[0]==0:
-            #print("INVALID SEGMENT: ",segment_id,'---',path)
             segment219 =  df.loc[df['segment_id'] == 219,:] #Extract segment 219, which is same act performed by same subject as missing one!
             segment219.drop('segment_id',axis=1,inplace=True)
             data219 = segment219.to_numpy()
@@ -233,22 +234,31 @@ class Poses3d_Dataset(torch.utils.data.Dataset):
             mocap_sig = torch.tensor( self.read_mocap_segment( mocap_info[0] ) ) #600 x 29 x 3
             acc_sig = torch.tensor( self.read_acc_segment( acc_info[0] , segment_id ) ) #acc_frames x 3
 
-            #Extract acceleration features
-            acc_features = self.extract_acc_features(acc_sig) #ACC_FEATURES x 4
-    
-            #Add magnitude signal to acceleration
-            acc_mag = torch.from_numpy(self.magnitude(acc_sig))
-            acc_sig = torch.cat((acc_sig,acc_mag), dim=1) #acc_frames x 4
+            if self.has_feature:
+                #Extract acceleration features
+                acc_features = self.extract_acc_features(acc_sig) #ACC_FEATURES x 4
+        
+                #Add magnitude signal to acceleration
+                acc_mag = torch.from_numpy(self.magnitude(acc_sig))
+                acc_sig = torch.cat((acc_sig,acc_mag), dim=1) #acc_frames x 4
 
-            ######## Combine the windows of both signals #######
+                ######## Combine the windows of both signals #######
 
-            #concate features and acc data
-            acc_data = torch.cat((acc_features,acc_sig),dim=0) #acc_framesx4, ACC_FEATURESx4 -> acc_frames+ACC_FEATURES x 4
-            acc_ext = torch.zeros((self.mocap_frames, self.acc_frames + ACC_FEATURES, 4))
+                #concate features and acc data
+                acc_data = torch.cat((acc_features,acc_sig),dim=0) #acc_framesx4, ACC_FEATURESx4 -> acc_frames+ACC_FEATURES x 4
+                acc_ext = torch.zeros((self.mocap_frames, self.acc_frames + ACC_FEATURES, 4))
+
+            else:
+                # acc_mag = torch.from_numpy(self.magnitude(acc_sig))
+                # acc_sig = torch.cat((acc_sig,acc_mag), dim=1) #acc_frames x 4
+                acc_data = acc_sig
+                acc_ext = torch.zeros((self.mocap_frames, self.acc_frames, 3))
+                
             acc_ext[0,:,:] = acc_data #600 x 150+18 x 4
 
             #add additional dim to mocap_data
-            mocap_ext = torch.zeros((self.mocap_frames,29,4))
+            # mocap_ext = torch.zeros((self.mocap_frames,29,4))
+            mocap_ext = torch.zeros((self.mocap_frames,29,3))
             mocap_ext[:,:,:3] = mocap_sig
 
             # data_sample = torch.cat((mocap_ext,acc_ext),dim=1) #600x29x3 + 600x168x3 = 200 x 191 x 3

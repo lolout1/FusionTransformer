@@ -43,9 +43,11 @@ def pose2idlabel(data_path,labels_path,aug_path=None,start_i=0):
             mocap_smpl_path=mocap_path+smpl
             
             if mocap_smpl_path.endswith('.csv'):
-                
                 segment_id = int(re.findall(r'\d+', smpl)[0])
                 pose2id['id-'+str(i)] = {} #pose2id['id-0']={'mocap':['segment0.csv',seg_id],'acc':['meditag_train.csv',seg_id]}
+                #Stores data path and segment_id together 
+                #for accelerometer data path is always accelerometer_train.csv
+                #for mocap it's different
                 pose2id['id-'+str(i)]['mocap'] = [mocap_smpl_path,segment_id]
                 pose2id['id-'+str(i)]['acc'] = [acc_path,segment_id]
                 id2label['id-'+str(i)] = get_ncrc_labels(segment_id,labels_path)

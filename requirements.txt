@@ -47,6 +47,7 @@ ipywidgets==8.0.4
 isoduration==20.11.0
 jedi==0.18.2
 Jinja2==3.1.2
+joblib==1.2.0
 jsonpointer==2.3
 jsonschema==4.17.3
 jupyter==1.0.0
@@ -113,6 +114,7 @@ requests-oauthlib==1.3.0
 rfc3339-validator==0.1.4
 rfc3986-validator==0.1.1
 rsa @ file:///tmp/build/80754af9/rsa_1614366226499/work
+scikit-learn==1.2.2
 scipy==1.10.0
 Send2Trash==1.8.0
 six @ file:///tmp/build/80754af9/six_1644875935023/work
@@ -123,6 +125,7 @@ tensorboard @ file:///home/builder/stiwari/miniconda3/envs/tf210/conda-bld/tenso
 tensorboard-data-server @ file:///croot/tensorboard-data-server_1670853588388/work/tensorboard_data_server-0.6.1-py3-none-manylinux2010_x86_64.whl
 tensorboard-plugin-wit @ file:///home/builder/tkoch/workspace/tensorflow/tensorboard-plugin-wit_1658918494740/work/tensorboard_plugin_wit-1.8.1-py3-none-any.whl
 terminado==0.17.1
+threadpoolctl==3.1.0
 timm==0.6.12
 tinycss2==1.2.1
 torch==1.8.1
