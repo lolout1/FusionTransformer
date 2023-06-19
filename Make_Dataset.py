@@ -308,4 +308,23 @@ class Utd_Dataset(torch.utils.data.Dataset):
         label = label.long()
         return data, label
 
+class Berkley_mhad(torch.utils.data.Dataset):
+    def __init__(self, npz_file):
+        # Load data and labels from npz file
+        dataset = np.load(npz_file)
+        self.dataset = dataset['data']
+        self.labels = dataset['labels']
+        self.num_samples = self.dataset.shape[0]
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, index):
+        # Get the batch containing the requested index
+        data = self.dataset[index, :, :]
+        data = torch.tensor(data)
+        label = self.labels[index]
+        label = torch.tensor(label)
+        label = label.long()
+        return data, label
 
