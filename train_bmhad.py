@@ -1,9 +1,11 @@
 import torch
 import numpy as np
 import pandas as pd
-from Make_Dataset import Berkley_mhad
+from einops import rearrange
+from Make_Dataset import Berkley_mhad, Utd_Dataset
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from Models.model_acc_bmhad import ActTransformerAcc
+# from Models.model_acc_bmhad import ActTransformerAcc
+from Models.tinyVit import TinyVit
 from loss import FocalLoss
 # from Tools.visualize import get_plot
 import pickle
@@ -27,15 +29,7 @@ torch.backends.cudnn.benchmark = True
 
 # Parameters
 print("Creating params....")
-<<<<<<< HEAD
-<<<<<<< HEAD
 params = {'batch_size':32,
-=======
-params = {'batch_size':64,
->>>>>>> 4318cad5f5e013e19f76d4b929e3232acb2117f8
-=======
-params = {'batch_size':64,
->>>>>>> 4318cad5f5e013e19f76d4b929e3232acb2117f8
           'shuffle': True,
           'num_workers': 0}
 max_epochs = 200
@@ -45,18 +39,27 @@ max_epochs = 200
 # pose2id, labels, partition = PreProcessing_ncrc.preprocess()
 
 print("Creating Data Generators...")
-acc_frames = 512
-num_classes = 36
-num_heads = 8
-adepth = 4
+acc_frames = 256
+num_classes = 11
+num_heads = 3
+adepth = 3
+patch_size = 16
+acc_dim = 64
+heads = 3
 
 exp_id = f'{exp}d{adepth}h{num_heads}'
 
-training_set = Berkley_mhad('/Users/tousif/Lstm_transformer/Fall_Detection_KD_Multimodal/data/berkley_mhad/berkley_mhad_train.npz')
+training_set = Berkley_mhad('/Users/tousif/Lstm_transformer/data/berkley_mhad/berkley_mhad_train.npz')
 training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-valid_set = Berkley_mhad('/Users/tousif/Lstm_transformer/Fall_Detection_KD_Multimodal/data/berkley_mhad/berkley_mhad_val.npz')
+valid_set = Berkley_mhad('/Users/tousif/Lstm_transformer/data/berkley_mhad/berkley_mhad_val.npz')
 validation_generator= torch.utils.data.DataLoader(valid_set, **params)
+
+# training_set = Utd_Dataset('/Users/tousif/Lstm_transformer/data/UTD_MAAD/randtrain_data.npz')
+# training_generator = torch.utils.data.DataLoader(training_set, **params)
+
+# validation_set = Utd_Dataset('/Users/tousif/Lstm_transformer/data/UTD_MAAD/randvalid_data.npz')
+# validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
 #Define model
@@ -64,21 +67,26 @@ print("Initiating Model...")
 # model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
 #                                   acc_features=1, spatial_embed=16,has_features = False,num_classes=num_classes, num_heads=8)
 
-model = ActTransformerAcc(adepth = adepth,device= device, acc_frames= acc_frames,has_features=False, num_heads = num_heads, num_classes=num_classes)
+# model = ActTransformerAcc(adepth = adepth,device= device, acc_frames= acc_frames,has_features=False, num_heads = num_heads, num_classes=num_classes)
+model = TinyVit(seq_len = acc_frames, patch_size = patch_size, num_classes = num_classes, dim = 64, heads = heads, channels = 3, dim_head = 64, dropout = 0.2)
 model = model.to(device)
+
+for name, param in model.named_parameters():
+    if param.requires_grad:
+        print(name, param.shape)
 
 
 print("-----------TRAINING PARAMS----------")
 #Define loss and optimizer
-lr=0.01
-wt_decay=1e-3
+lr=0.02
+wt_decay=5e-4
 # class_weights = torch.reciprocal(torch.tensor([74.23, 83.87, 56.75, 49.78, 49.05, 93.92]))
 criterion = torch.nn.CrossEntropyLoss()
 # criterion = FocalLoss(alpha=0.25, gamma=2)
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=lr,weight_decay=wt_decay)
+optimizer = torch.optim.Adam(model.parameters(), lr=lr,weight_decay=wt_decay)
 #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wt_decay)
-scheduler = CosineAnnealingLR(optimizer=optimizer,T_max=100, eta_min=1e-4,last_epoch=-1,verbose=True)
+# scheduler = CosineAnnealingLR(optimizer=optimizer,T_max=100, eta_min=1e-4,last_epoch=-1,verbose=True)
 
 #ASAM
 # rho=0.5
@@ -123,10 +131,11 @@ for epoch in range(max_epochs):
 
         # Ascent Step
         #print("labels: ",targets)
-        out, logits,predictions = model(inputs.float())
+        predictions = model(inputs.float())
+
         #print("predictions: ",torch.argmax(predictions, 1) )
-        batch_loss = criterion(predictions, targets)
-        batch_loss.mean().backward()
+        batch_loss = criterion(predictions, targets).sum()
+        batch_loss.backward()
         optimizer.step()
         # minimizer.ascent_step()
 
@@ -137,29 +146,17 @@ for epoch in range(max_epochs):
         pred_list.extend(torch.argmax(predictions, 1))
         target_list.extend(targets)
         with torch.no_grad():
-            loss += batch_loss.sum().item()
+            loss += batch_loss.item()
             accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
         cnt += len(targets)
-<<<<<<< HEAD
-<<<<<<< HEAD
-        print(cnt)
+        # print(cnt)
     loss /= cnt
     accuracy *= 100. / cnt
-    
-=======
-    loss /= cnt
-    accuracy *= 100. / cnt
-    print(loss)
->>>>>>> 4318cad5f5e013e19f76d4b929e3232acb2117f8
-=======
-    loss /= cnt
-    accuracy *= 100. / cnt
-    print(loss)
->>>>>>> 4318cad5f5e013e19f76d4b929e3232acb2117f8
+
     # print('---Train---')
     # for item1 , item2 in zip(target_list, pred_list):
     #     print(f'{item1} | {item2}')
-    scheduler.step()
+    # scheduler.step()
     print(f"Epoch: {epoch}, Train accuracy: {accuracy:6.2f} %, Train loss: {loss:8.5f}")
     epoch_loss_train.append(loss)
     epoch_acc_train.append(accuracy)
@@ -181,7 +178,7 @@ for epoch in range(max_epochs):
             inputs = inputs.to(device); #print("Validation input: ",inputs)
             targets = targets.to(device)
             
-            _,_,predictions = model(inputs.float())
+            predictions = model(inputs.float())
             val_pred_list.extend(torch.argmax(predictions, 1))
             val_trgt_list.extend(targets)
 
