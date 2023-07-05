@@ -138,7 +138,7 @@ for epoch in range(max_epochs):
         #print("labels: ",targets)
         out, logits,predictions = model(inputs.float())
         #print("predictions: ",torch.argmax(predictions, 1) )
-        batch_loss = criterion(predictions, targets)
+        batch_loss = criterion(logits, targets)
         batch_loss.mean().backward()
         optimizer.step()
         # minimizer.ascent_step()
@@ -181,7 +181,7 @@ for epoch in range(max_epochs):
             inputs = inputs.to(device); #print("Validation input: ",inputs)
             targets = targets.to(device)
             
-            _,_,predictions = model(inputs.float())
+            _,logits,predictions = model(inputs.float())
             with torch.no_grad():
                 val_loss += batch_loss.sum().item()
                 accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
@@ -189,7 +189,7 @@ for epoch in range(max_epochs):
             val_pred_list.extend(torch.argmax(predictions, 1))
             val_trgt_list.extend(targets)
 
-            loss = criterion(predictions,targets)
+            loss = criterion(logits,targets)
             val_loss += loss.sum().item()
             accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
             cnt += len(targets)
