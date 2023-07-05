@@ -148,7 +148,7 @@ class ActTransformerAcc(nn.Module):
         #Concat features along frame dimension
         out = sx
         logits = self.class_head(sx)
-        return out, logits, F.log_softmax(logits,dim=1)
+        return logits
 
 '''
 model=ActRecogTransformer()

@@ -56,10 +56,10 @@ if dataset == 'ncrc':
     test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
 
 else:
-    training_set = Utd_Dataset('/Users/tousif/Lstm_transformer/randtrain_data.npz')
+    training_set = Utd_Dataset('/Users/tousif/Lstm_transformer/data/UTD_MAAD/randtrain_data.npz')
     training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-    validation_set = Utd_Dataset('/Users/tousif/Lstm_transformer/randvalid_data.npz')
+    validation_set = Utd_Dataset('/Users/tousif/Lstm_transformer/data/UTD_MAAD/randvalid_data.npz')
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
@@ -163,7 +163,6 @@ for epoch in range(max_epochs):
     # model=model.to(device)
     with torch.no_grad():
         for inputs, targets in validation_generator:
-
             b = inputs.shape[0]
             inputs = inputs.to(device); #print("Validation input: ",inputs)
             targets = targets.to(device)
