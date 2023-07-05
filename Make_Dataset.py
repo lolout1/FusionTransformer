@@ -322,10 +322,10 @@ class Berkley_mhad(torch.utils.data.Dataset):
     def __getitem__(self, index):
         # Get the batch containing the requested index
         data = self.dataset[index, :, :]
-        data = torch.tensor(data, requires_grad=True)
+        data = torch.tensor(data)
         label = self.labels[index]
         label = label - 1
-        label = torch.tensor(label, requires_grad=True)
+        label = torch.tensor(label)
         label = label.long()
         return data, label
 

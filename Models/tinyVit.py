@@ -1,6 +1,7 @@
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
+# from model_utils import Attention
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
@@ -20,10 +21,11 @@ class Mlp(nn.Module):
         x = self.act(x)
         x = self.drop(x)
         x = self.fc2(x)
+        x = self.drop(x)
 
         return x
 
-class Attention(nn.Module):
+class SAttention(nn.Module):
     def __init__(self,dim=64, heads = 3, dim_heads = 64):
         super().__init__()
         inner_dim = dim_heads * heads 
@@ -48,24 +50,53 @@ class Attention(nn.Module):
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
+class Attention(nn.Module):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
+        self.scale = qk_scale or head_dim ** -0.5
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x):
+        B, N, C = x.shape  #Batch x Num of tokens x embed dim
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
 class Encoder(nn.Module):
     def __init__(self, num_head = 3, acc_dim = 64, acc_frames = 256):
         super().__init__()
         self.acc_dim = acc_dim
         self.num_head = num_head
-        self.msa = Attention(dim = self.acc_dim, heads = self.num_head, dim_heads = self.acc_dim)
+    #    self.msa = Attention(dim = self.acc_dim, heads = self.num_head, dim_heads = self.acc_dim)
+        self.msa = Attention(dim = acc_dim, num_heads=4)
         self.mlp_layer = Mlp(in_features=acc_dim)
         # need to add shape to layernorm 
-        self.norm_layer = nn.LayerNorm(normalized_shape=self.acc_dim,eps = 1e-6 )
+        self.norm1 = nn.LayerNorm(normalized_shape=self.acc_dim)
+        self.norm2 = nn.LayerNorm(normalized_shape=self.acc_dim)
 
     def forward(self,inputs):
+        x = self.norm1(inputs)
         x = self.msa(inputs)
-        x  += inputs
-        x = self.norm_layer(x)
+        x  = x + inputs
+        x = self.norm2(x)
         res = x
         x = self.mlp_layer(x)
-        x += res
-        x = self.norm_layer(x)
+        x = x + res
         return x
 
 
@@ -106,21 +137,27 @@ class TinyVit(nn.Module):
         b, n , _ = x.shape
         cls_token = repeat(self.cls_token, '1 1 d -> b 1 d' ,b = b) #[32, 1, 64]
         x = torch.cat((cls_token, x), dim = 1) #[32, 17, 64]
-        print(x[:,0,:])
 
         # print(f'After class token {x.shape}')
 
         x = x + self.pos_embedding #[32, 16+1, 64]
         for _, layer in enumerate(self.encoder_layers):
             x = layer(x) #[32, 17, 64]
-            
+        
         # print(f'After all 3 layers {x.shape}')
-        x = x[:, 0, :] #[32, 1, 64]
+        # print('Before only class')
+        # print(x)
+        
+
+        x = x[:,0, :] #[32, 1, 64]
+        
         # print(f'one class token {x.shape}')
         x = self.linear_head(x) #[32, 1, 11]
         # print(f'After Linear head {x.shape}')
-        x = F.log_softmax(x, dim=1)
-        print(x)
+        # x = F.log_softmax(x, dim=1)
+
+        # print(x)
+        # print('-----------xx---------')
         return x
 
 
