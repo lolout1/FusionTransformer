@@ -294,14 +294,11 @@ class ActTransformerMM(nn.Module):
         
         #Get skeletal features 
         x,cls_token = self.Spatial_forward_features(x) #in: B x Fs x num_joints x 3 , op: B x Fs x (num_joints*Se)
-
         #Pass cls token to temporal transformer
         temp_cls_token = self.proj_up_clstoken(cls_token) #in: B x mocap_frames * Se -> op: B x num_joints*Se
         temp_cls_token = torch.unsqueeze(temp_cls_token,dim=1) #op: B x 1 x num_joints*Se
         
-
         x = self.Temp_forward_features(x,temp_cls_token,cv_signals) #in: B x Fs x (num_joints*Se) , op: B x St
-
         
         #Concat features along frame dimension
         x += sx #torch.cat((x,sx), dim=1)

@@ -43,7 +43,7 @@ print("Creating Data Generators...")
 dataset = 'bmad'
 mocap_frames = 100
 acc_frames = 256
-num_joints = 20 
+num_joints = 31 
 num_classes = 11
 patch_size = 16
 

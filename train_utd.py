@@ -5,6 +5,7 @@ from Make_Dataset import Poses3d_Dataset, Utd_Dataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 import PreProcessing_ncrc
 from Models.model_crossview_fusion import ActTransformerMM
+from Models.earlyfusion import MMTransformer
 from Models.model_acc_only import ActTransformerAcc
 from loss import FocalLoss
 # from Tools.visualize import get_plot
@@ -13,7 +14,7 @@ from asam import ASAM, SAM
 # from timm.loss import LabelSmoothingCrossEntropy
 import os
 
-exp = 'ncrc' #Assign an experiment id
+exp = 'utd' #Assign an experiment id
 
 if not os.path.exists('exps/'+exp+'/'):
     os.makedirs('exps/'+exp+'/')
@@ -28,7 +29,7 @@ torch.backends.cudnn.benchmark = True
 
 # Parameters
 print("Creating params....")
-params = {'batch_size':16,
+params = {'batch_size':32,
           'shuffle': True,
           'num_workers': 0}
 max_epochs = 200
@@ -56,10 +57,10 @@ if dataset == 'ncrc':
     test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
 
 else:
-    training_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/randtrain_data.npz')
+    training_set = Utd_Dataset('/Users/tousif/Lstm_transformer/data/UTD_MAAD/randtrain_data.npz')
     training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-    validation_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/randvalid_data.npz')
+    validation_set = Utd_Dataset('/Users/tousif/Lstm_transformer/data/UTD_MAAD/randvalid_data.npz')
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
@@ -67,13 +68,14 @@ else:
 print("Initiating Model...")
 # model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
 #                                   acc_features=1, spatial_embed=16,has_features = False,num_classes=num_classes, num_heads=8)
-model = ActTransformerAcc(adepth = 3,device= device, acc_frames= acc_frames, num_joints = num_joints,has_features=False, num_heads = 2, num_classes=num_classes)
+#model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = num_joints,has_features=False, num_heads = 8, num_classes=num_classes)
+model = MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes)
 model = model.to(device)
 
 
 print("-----------TRAINING PARAMS----------")
 #Define loss and optimizer
-lr=0.001
+lr=0.01
 wt_decay=1e-3
 # class_weights = torch.reciprocal(torch.tensor([74.23, 83.87, 56.75, 49.78, 49.05, 93.92]))
 criterion = torch.nn.CrossEntropyLoss()
@@ -182,17 +184,17 @@ for epoch in range(max_epochs):
         #         print(f'{item1} | {item2}')
         if best_accuracy < accuracy:
             best_accuracy = accuracy
-            torch.save(model.state_dict(),PATH+'utdaccd3h3_woKD.pt')
-            print("Check point "+PATH+'utdaccd3h3_woKD.pt'+ ' Saved!')
+            torch.save(model.state_dict(),PATH+'utdmmd4h4_woKD_ef.pt')
+            print("Check point "+PATH+'utdmmd4h4_woKD_ef.pt'+ ' Saved!')
 
     print(f"Epoch: {epoch},Valid accuracy:  {accuracy:6.2f} %, Valid loss:  {val_loss:8.5f}")
     epoch_loss_val.append(val_loss)
     epoch_acc_val.append(accuracy)
 
 
-data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_loss_val, 'val_loss' : epoch_acc_val }
+data_dict = {'train_accuracy': epoch_acc_train, 'train_loss':epoch_loss_train, 'val_acc': epoch_acc_val , 'val_loss' :  epoch_loss_val }
 df = pd.DataFrame(data_dict)
-df.to_csv('loss_utdaccd4h8.csv')
+df.to_csv('loss_utdmmd4h4_woKD_ef.csv')
 
 print(f"Best test accuracy: {best_accuracy}")
 print("TRAINING COMPLETED :)")

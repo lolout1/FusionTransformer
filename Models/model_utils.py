@@ -78,7 +78,7 @@ class CVAttention(nn.Module):
         q = self.Wq(xq).reshape( N, -1) # B,  self.num_heads, C//self.num_heads)
         k = self.Wk(xkv).reshape( -1, n) # B,  self.num_heads, C//self.num_heads, n)
         v = self.Wv(xkv).reshape( -1, n) # B,  self.num_heads, C//self.num_heads, n)
-
+        
         #Compute attn weights
         #q - B,N,C
         #k,v - B,n,C
@@ -89,6 +89,7 @@ class CVAttention(nn.Module):
 
         #x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = torch.matmul(attn,v.T).reshape(B,N,C)
+        print(x.shape)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
