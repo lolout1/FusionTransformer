@@ -4,6 +4,7 @@ import pandas as pd
 from Make_Dataset import Poses3d_Dataset, Utd_Dataset, Bmhad_mm
 from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 import PreProcessing_ncrc
+from Models.earlyfusion import MMTransformer
 from Models.model_crossview_fusion import ActTransformerMM
 from Models.model_acc_bmhad import ActTransformerAcc
 from Models.linearmodel import LinearModel
@@ -81,7 +82,7 @@ print("Initiating Model...")
 #                                   acc_features=1, spatial_embed=16,has_features = False,num_classes=num_classes, num_heads=8)
 # model = TinyVit(seq_len = acc_frames, patch_size = patch_size, num_classes = num_classes, dim = 64, heads = 8, channels = 3, dim_head = 64, dropout = 0.2)
 # model = TinyVit(seq_len=256, patch_size=16, num_classes=11, depth=3, dim = 64, heads=3, channels=3)
-model = ActTransformerMM(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, has_features=False, num_classes=num_classes)
+model = MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes)
 model = model.to(device)
 
 

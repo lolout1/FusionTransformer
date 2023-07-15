@@ -129,7 +129,7 @@ class MMTransformer(nn.Module):
 
         for _, blk in enumerate(self.Accelerometer_blocks):
             cv_sig, x = blk(x)
-            cv_signals.append(cv_sig)
+            cv_signals.append(x)
         
         x = self.Acc_norm(x)
         cls_token = x[:,-1,:]    

@@ -57,10 +57,10 @@ if dataset == 'ncrc':
     test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
 
 else:
-    training_set = Utd_Dataset('/Users/tousif/Lstm_transformer/data/UTD_MAAD/randtrain_data.npz')
+    training_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/randtrain_data.npz')
     training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-    validation_set = Utd_Dataset('/Users/tousif/Lstm_transformer/data/UTD_MAAD/randvalid_data.npz')
+    validation_set = Utd_Dataset('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/randvalid_data.npz')
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
@@ -75,15 +75,15 @@ model = model.to(device)
 
 print("-----------TRAINING PARAMS----------")
 #Define loss and optimizer
-lr=0.01
+lr=0.0025
 wt_decay=1e-3
 # class_weights = torch.reciprocal(torch.tensor([74.23, 83.87, 56.75, 49.78, 49.05, 93.92]))
 criterion = torch.nn.CrossEntropyLoss()
 # criterion = FocalLoss(alpha=0.25, gamma=2)
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=lr,weight_decay=wt_decay)
+optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wt_decay)
-scheduler = CosineAnnealingLR(optimizer=optimizer,T_max=100, eta_min=1e-4,last_epoch=-1,verbose=True)
+# scheduler = CosineAnnealingLR(optimizer=optimizer,T_max=100, eta_min=1e-4,last_epoch=-1,verbose=True)
 
 #ASAM
 rho=0.5
@@ -148,7 +148,7 @@ for epoch in range(max_epochs):
     # print('---Train---')
     # for item1 , item2 in zip(target_list, pred_list):
     #     print(f'{item1} | {item2}')
-    scheduler.step()
+    # scheduler.step()
     print(f"Epoch: {epoch}, Train accuracy: {accuracy:6.2f} %, Train loss: {loss:8.5f}")
     epoch_loss_train.append(loss)
     epoch_acc_train.append(accuracy)
