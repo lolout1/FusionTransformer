@@ -368,6 +368,7 @@ class UTD_mm(torch.utils.data.Dataset):
         self.skl_data = dataset['skl_data']
         self.labels = dataset['labels']
         self.num_samples = self.acc_data.shape[0]
+        print(self.num_samples)
         self.acc_seq = self.acc_data.shape[1]
         self.skl_joints = self.skl_data.shape[2]
         self.skl_seq = self.skl_data.shape[1]

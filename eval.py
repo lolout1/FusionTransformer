@@ -79,7 +79,7 @@ print("Initiating Model...")
 #teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/myexp-utd/myexp-utd_best_ckptafter70.pt'))
 # student_model.cuda()
 #teacher_model = ActTransformerAcc(adepth = 3,device= device, acc_frames= acc_frames, num_joints = num_joints,has_features=False, num_heads = 2, num_classes=num_classes) 
-teacher_model = MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes, acc_coords=6, )
+teacher_model = MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes, acc_coords=3 )
 teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/utd/utdmmd4h4_woKD_ef.pt'))
 teacher_model.to(device=device)
 

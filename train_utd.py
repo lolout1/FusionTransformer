@@ -39,11 +39,16 @@ max_epochs = 200
 # pose2id, labels, partition = PreProcessing_ncrc.preprocess()
 
 print("Creating Data Generators...")
+#arguments
 dataset = 'utd'
 mocap_frames = 100
 acc_frames = 100
 num_joints = 20 
 num_classes = 27
+
+#hyperparameters
+lr = 0.001
+wt_decay=1e-3
 
 if dataset == 'ncrc':
     tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
@@ -57,10 +62,10 @@ if dataset == 'ncrc':
     test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
 
 else:
-    training_set = UTD_mm('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/utd_trainwg100.npz', batch_size=params['batch_size'])
+    training_set = UTD_mm('data/UTD_MAAD/utd_train4p.npz', batch_size=params['batch_size'])
     training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-    validation_set = UTD_mm('/home/bgu9/Fall_Detection_KD_Multimodal/data/UTD_MAAD/utd_validwg100.npz',  batch_size=params['batch_size'])
+    validation_set = UTD_mm('data/UTD_MAAD/utd_val2p.npz',  batch_size=params['batch_size'])
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
@@ -69,14 +74,13 @@ print("Initiating Model...")
 # model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
 #                                   acc_features=1, spatial_embed=16,has_features = False,num_classes=num_classes, num_heads=8)
 #model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = num_joints,has_features=False, num_heads = 8, num_classes=num_classes)
-model = MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes, acc_coords=6)
+model = MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes, acc_coords=3)
 model = model.to(device)
 
 
 print("-----------TRAINING PARAMS----------")
 #Define loss and optimizer
-lr = 0.001
-wt_decay=1e-3
+
 # class_weights = torch.reciprocal(torch.tensor([74.23, 83.87, 56.75, 49.78, 49.05, 93.92]))
 criterion = torch.nn.CrossEntropyLoss()
 # criterion = FocalLoss(alpha=0.25, gamma=2)
