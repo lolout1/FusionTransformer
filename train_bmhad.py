@@ -1,11 +1,12 @@
 import torch
 import numpy as np
 import pandas as pd
-from Make_Dataset import Poses3d_Dataset, Utd_Dataset, Berkley_mhad
+from Make_Dataset import Poses3d_Dataset, Utd_Dataset, Berkley_mhad, Bmhad_mm
 from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 import PreProcessing_ncrc
 from Models.model_crossview_fusion import ActTransformerMM
-from Models.model_acc_bmhad import ActTransformerAcc
+#rom Models.model_acc_bmhad import ActTransformerAcc
+from Models.model_acc_only import  ActTransformerAcc
 from Models.linearmodel import LinearModel
 from Models.tinyVit import TinyVit
 from loss import FocalLoss
@@ -67,10 +68,10 @@ elif dataset == 'utd':
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 else : 
-    training_set = Berkley_mhad('/Users/tousif/Lstm_transformer/data/berkley_mhad/berkley_mhad_train.npz')
+    training_set = Bmhad_mm('data/berkley_mhad/bmhad_7person_train.npz', params['batch_size'])
     training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-    validation_set = Berkley_mhad('/Users/tousif/Lstm_transformer/data/berkley_mhad/berkley_mhad_train.npz')
+    validation_set = Bmhad_mm('data/berkley_mhad/bmhad_2person_val.npz', params['batch_size'])
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
