@@ -1,11 +1,12 @@
 import torch
 import numpy as np
 import torch.nn.functional as F
-from Make_Dataset import Poses3d_Dataset, Utd_Dataset, UTD_mm
+from Make_Dataset import Poses3d_Dataset, Utd_Dataset, UTD_mm, Bmhad_mm
 import torch.nn as nn
 import PreProcessing_ncrc
 from Models.model_crossview_fusion import ActTransformerMM
-from Models.model_acc_only import ActTransformerAcc
+#from Models.model_acc_only import ActTransformerAcc
+from Models.earlyconcat import ActTransformerAcc
 from Models.earlyfusion import MMTransformer
 import numpy as np
 import matplotlib.pyplot as plt
@@ -32,17 +33,19 @@ num_epochs = 250
 #pose2id,labels,partition = PreProcessing_ncrc_losocv.preprocess_losocv(8)
 
 
+
+
 # dataset = 'utd'
 # mocap_frames = 100
-# acc_frames = 150
+# acc_frames = 100
 # num_joints = 20
 # num_classes = 27
 
-dataset = 'utd'
-mocap_frames = 100
-acc_frames = 100
-num_joints = 20
-num_classes = 27
+dataset = 'bmad'
+mocap_frames = 600
+acc_frames = 256
+num_joints = 31
+num_classes = 11
 
 if dataset == 'ncrc':
     tr_pose2id,tr_labels,valid_pose2id,valid_labels,pose2id,labels,partition = PreProcessing_ncrc.preprocess()
@@ -55,14 +58,13 @@ if dataset == 'ncrc':
     test_set = Poses3d_Dataset(data='ncrc',list_IDs=partition['test'], labels=labels, pose2id=pose2id, mocap_frames=mocap_frames, acc_frames=acc_frames,has_features=False,normalize=False)
     test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
 
-
-
-else:
-
-    test_set = UTD_mm('/home/bgu9/Fall_Detection_KD_Multimodal/utd_testwg100.npz',  batch_size=32)
+elif dataset == 'utd':
+    test_set = UTD_mm('data/UTD_MAAD/utd_test2p.npz',  batch_size=32)
     test_generator = torch.utils.data.DataLoader(test_set, **params)
 
-
+else :                                                        
+    test_set = Bmhad_mm('data/berkley_mhad/bmhad_3person_test.npz', params['batch_size'])
+    test_generator = torch.utils.data.DataLoader(test_set, **params)
 #
 #Define model
 print("Initiating Model...")
@@ -79,8 +81,9 @@ print("Initiating Model...")
 #teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/myexp-utd/myexp-utd_best_ckptafter70.pt'))
 # student_model.cuda()
 #teacher_model = ActTransformerAcc(adepth = 3,device= device, acc_frames= acc_frames, num_joints = num_joints,has_features=False, num_heads = 2, num_classes=num_classes) 
-teacher_model = MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes, acc_coords=3 )
-teacher_model.load_state_dict(torch.load('/home/bgu9/Fall_Detection_KD_Multimodal/exps/utd/utdmmd4h4_woKD_ef.pt'))
+#teacher_model =MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes)
+#teacher_model.load_state_dict(torch.load('exps/bmhad/bhmadmmd4h8_woKD_norandom.pt'))
+teacher_model = ActTransformerAcc(acc_embed=16,adepth = 2,device= device, acc_frames= acc_frames, num_joints = num_joints,has_features=False, num_heads = 2, num_classes=num_classes)
 teacher_model.to(device=device)
 
 # student_model.eval()

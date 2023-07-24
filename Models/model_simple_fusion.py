@@ -245,8 +245,8 @@ class ActRecogTransformer(nn.Module):
         x = inputs[:,:, :self.num_joints, :self.joint_coords] #B x Fs x num_joints x 3
         
         #Extract acc signal from input
-        sxf = inputs[:, 0, self.num_joints:self.num_joints+self.acc_features, 0 ] #B x 1 x acc_features x 1
-        sx = inputs[:, 0 , self.num_joints+self.acc_features:, :self.acc_coords] #B x 1 x Fa x 3
+        sxf = inputs[:, 0, self.num_joints:self.num_joints, 0 ] #B x 1 x acc_features x 1
+        sx = inputs[:, 0 , self.num_joints:, :self.acc_coords] #B x 1 x Fa x 3
         sx = torch.reshape(sx, (b,-1,1,self.acc_coords) ) #B x Fa x 1 x 3
         
         #Get skeletal features 
@@ -260,7 +260,7 @@ class ActRecogTransformer(nn.Module):
 
         #Get acceleration features 
         sx = self.Acc_forward_features(sx) #in: F x Fa x 3 x 1,  op: B x St
-        sxf = self.acc_features_embed(sxf)
+        #sxf = self.acc_features_embed(sxf)
         if self.fuse_acc_features:
             sx+= sxf #Add the features signal to acceleration signal
 

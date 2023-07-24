@@ -4,9 +4,11 @@ import pandas as pd
 from Make_Dataset import Poses3d_Dataset, Utd_Dataset, UTD_mm
 from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 import PreProcessing_ncrc
+from Models.earlyconcat import ActTransformerAcc
 from Models.model_crossview_fusion import ActTransformerMM
+from Models.model_simple_fusion import ActRecogTransformer
 from Models.earlyfusion import MMTransformer
-from Models.model_acc_only import ActTransformerAcc
+#from Models.model_acc_only import ActTransformerAcc
 from loss import FocalLoss
 # from Tools.visualize import get_plot
 import pickle
@@ -29,7 +31,7 @@ torch.backends.cudnn.benchmark = True
 
 # Parameters
 print("Creating params....")
-params = {'batch_size':32,
+params = {'batch_size':4,
           'shuffle': True,
           'num_workers': 0}
 max_epochs = 200
@@ -62,10 +64,10 @@ if dataset == 'ncrc':
     test_generator = torch.utils.data.DataLoader(test_set, **params) #Each produced sample is 6000 x 229 x 3
 
 else:
-    training_set = UTD_mm('data/UTD_MAAD/utd_train4p.npz', batch_size=params['batch_size'])
+    training_set = UTD_mm('data/UTD_MAAD/utd_train100.npz', batch_size=params['batch_size'])
     training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-    validation_set = UTD_mm('data/UTD_MAAD/utd_val2p.npz',  batch_size=params['batch_size'])
+    validation_set = UTD_mm('data/UTD_MAAD/utd_valid100.npz',  batch_size=params['batch_size'])
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
@@ -73,8 +75,9 @@ else:
 print("Initiating Model...")
 # model = ActTransformerMM(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_joints=num_joints, in_chans=3, acc_coords=3,
 #                                   acc_features=1, spatial_embed=16,has_features = False,num_classes=num_classes, num_heads=8)
-#model = ActTransformerAcc(adepth = 4,device= device, acc_frames= acc_frames, num_joints = num_joints,has_features=False, num_heads = 8, num_classes=num_classes)
-model = MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes, acc_coords=3)
+model = ActTransformerAcc(acc_embed=16,adepth = 2,device= device, acc_frames= acc_frames, num_joints = num_joints,has_features=False, num_heads = 2, num_classes=num_classes)
+#model = MMTransformer(device=device, mocap_frames=mocap_frames, acc_frames=acc_frames,num_joints=num_joints,num_classes=num_classes)
+#model= ActRecogTransformer(device = device, mocap_frames=mocap_frames, acc_frames=acc_frames, num_classes = 27, num_joints=num_joints)
 model = model.to(device)
 
 
@@ -162,7 +165,7 @@ for epoch in range(max_epochs):
     # Test
     model.eval()
     val_loss = 0.
-    accuracy = 0.
+    val_accuracy = 0.
     cnt = 0.
     val_pred_list = []
     val_trgt_list = []
@@ -179,19 +182,19 @@ for epoch in range(max_epochs):
 
             loss = criterion(logits,targets)
             val_loss += loss.sum().item()
-            accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
+            val_accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
             cnt += len(targets)
         val_loss /= cnt
-        accuracy *= 100. / cnt
+        val_accuracy *= 100. / cnt
         # print('---Val---')
         # for item1 , item2 in zip(val_trgt_list, val_pred_list):
         #         print(f'{item1} | {item2}')
-        if best_accuracy < accuracy:
-            best_accuracy = accuracy
+        if best_accuracy < val_accuracy:
+            best_accuracy = val_accuracy
             torch.save(model.state_dict(),PATH+'utdmmd4h4_woKD_ef.pt')
             print("Check point "+PATH+'utdmmd4h4_woKD_ef.pt'+ ' Saved!')
 
-    print(f"Epoch: {epoch},Valid accuracy:  {accuracy:6.2f} %, Valid loss:  {val_loss:8.5f}")
+    print(f"Epoch: {epoch},Valid accuracy:  {val_accuracy:6.2f} %, Valid loss:  {val_loss:8.5f}")
     epoch_loss_val.append(val_loss)
     epoch_acc_val.append(accuracy)
 

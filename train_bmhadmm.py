@@ -16,7 +16,7 @@ from asam import ASAM, SAM
 # from timm.loss import LabelSmoothingCrossEntropy
 import os
 
-exp = 'ncrc' #Assign an experiment id
+exp = 'bmhad' #Assign an experiment id
 
 if not os.path.exists('exps/'+exp+'/'):
     os.makedirs('exps/'+exp+'/')
@@ -68,10 +68,10 @@ elif dataset == 'utd':
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 else : 
-    training_set = Bmhad_mm('/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/bmhad_mm_train.npz', params['batch_size'])
+    training_set = Bmhad_mm('data/berkley_mhad/bmhad_7person_train.npz', params['batch_size'])
     training_generator = torch.utils.data.DataLoader(training_set, **params)
 
-    validation_set = Bmhad_mm('/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/bmhad_mm_val.npz',params['batch_size'] )
+    validation_set = Bmhad_mm('data/berkley_mhad/bmhad_2person_val.npz',params['batch_size'] )
     validation_generator = torch.utils.data.DataLoader(validation_set, **params)
 
 
@@ -199,8 +199,8 @@ for epoch in range(max_epochs):
         #         print(f'{item1} | {item2}')
         if best_accuracy < accuracy:
             best_accuracy = accuracy
-            torch.save(model.state_dict(),PATH+'bhmadmmd4h8_woKD.pt')
-            print("Check point "+PATH+'bhmadmmd4h8_woKD.pt'+ ' Saved!')
+            torch.save(model.state_dict(),PATH+'bhmadmmd4h8_woKD_norandom.pt')
+            print("Check point "+PATH+'bhmadmmd4h8_woKD_norandom.pt'+ ' Saved!')
 
     print(f"Epoch: {epoch},Valid accuracy:  {accuracy:6.2f} %, Valid loss:  {val_loss:8.5f}")
     epoch_loss_val.append(val_loss)
