@@ -21,3 +21,14 @@ batch_size: 16
 test_batch_size: 16
 val_batch_size : 16
 epochs: 200
+
+#dataloader
+feeder: Make_Dataset.UTD_mm
+
+train_feeder_args:
+  npz_file: data/UTD_MAAD/utd_train4p.npz
+  batch_size: 16
+
+val_feeder_args:
+  npz_file: data/UTD_MAAD/utd_val2p.npz
+  batch_size: 16
