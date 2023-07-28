@@ -8,7 +8,6 @@ import math
 import logging
 from functools import partial
 from collections import OrderedDict
-from this import s
 from einops import rearrange, repeat
 import numpy as np
 import torch

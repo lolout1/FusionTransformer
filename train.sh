@@ -1,3 +1,3 @@
 #!/bin/bash
 
-python3 main.py --config ./config/utd/student.yaml
+python3 main.py --config ./config/utd/student.yaml 
