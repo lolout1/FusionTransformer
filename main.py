@@ -1,11 +1,14 @@
 import argparse
 import yaml
-import torch
 import traceback
 import random 
-import numpy as np 
 import sys
+import os
 import time
+
+#local import
+import numpy as np 
+import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
@@ -22,6 +25,8 @@ def get_args():
                         help = 'input batch size for training (default: 8)')
 
     parser.add_argument('--test-batch-size', type = int, default = 8, 
+                        metavar = 'N', help = 'input batch size for testing(default: 1000)')
+    parser.add_argument('--val-batch-size', type = int, default = 8, 
                         metavar = 'N', help = 'input batch size for testing(default: 1000)')
 
     parser.add_argument('--num-epoch', type = int , default = 70, metavar = 'N', 
@@ -70,7 +75,7 @@ def get_args():
     parser.add_argument('--work-dir', type = str, default = 'simple', metavar = 'F', help = "Working Directory")
     parser.add_argument('--print-log',type=str2bool,default=True,help='print logging or not')
     
-    parser.ad_arguments('--phase', type = str, default = 'train')
+    parser.add_argument('--phase', type = str, default = 'train')
     
     parser.add_argument('--num-worker', type = int, default= 0)
     parser.add_argument('--result-file', type = str, help = 'Name of resutl file')
@@ -113,6 +118,10 @@ class Trainer():
         # self.save_arg()
         self.load_model()
         self.load_optimizer()
+        self.load_data()
+        self.arg.model_saved_name = 'test'
+        if not os.path.exists(self.arg.work_dir):
+            os.makedirs(self.arg.work_dir)
 
         if self.arg.phase == 'test':
             self.load_weights()
@@ -123,7 +132,7 @@ class Trainer():
         self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
         Model = import_class(self.arg.model)
         self.model = Model(**self.arg.model_args).to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
-        self.loss = nn.CrossEntropyLoss().cuda(self.output_device)
+        self.criterion= nn.CrossEntropyLoss().cuda(self.output_device)
     
     def load_weights(self, weights):
         self.model.load_state_dict(torch.load(self.arg.weights))
@@ -154,29 +163,19 @@ class Trainer():
                 dataset=Feeder(**self.arg.train_feeder_args),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
-                pin_memory=True,
-                prefetch_factor=16,
-                num_workers=self.arg.num_worker,
-                drop_last=True,
-                worker_init_fn=init_seed)
+                num_workers=self.arg.num_worker)
             
             self.data_loader['val'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.val_feeder_args),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
-                pin_memory=True,
-                prefetch_factor=16,
-                num_workers=self.arg.num_worker,
-                drop_last=True,
-                worker_init_fn=init_seed)
+                num_workers=self.arg.num_worker)
         else:
             self.data_loader['test'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.test_feeder_args),
                 batch_size=self.arg.test_batch_size,
                 shuffle=False,
-                num_workers=self.arg.num_worker,
-                drop_last=False,
-                worker_init_fn=init_seed)
+                num_workers=self.arg.num_worker)
     
 
 
@@ -199,14 +198,13 @@ class Trainer():
         self.model.train()
         self.record_time()
         loader = self.data_loader['train']
-        timer = dict(dataloader = 0.001, model = 0.001, statistics = 0.001)
+        timer = dict(dataloader = 0.001, model = 0.001, stats = 0.001)
         loss_value = []
         acc_value = []
         accuracy = 0
         cnt = 0
         train_loss = 0
-        self.best_accuracy  = 0
-        process = tqdm(loader, ncols = 40)
+        process = tqdm(loader, ncols = 80)
 
         for batch_idx, (inputs, targets) in enumerate(process):
             with torch.no_grad():
@@ -229,12 +227,12 @@ class Trainer():
             with torch.no_grad():
                 train_loss += loss.sum().item()
                 accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
-            cnt += len(targets)
-            train_loss /= cnt
-            accuracy *= 100. / cnt 
-            time['statistics'] += self.split_time()
+            cnt += len(targets) 
+            timer['stats'] += self.split_time()
+        train_loss /= cnt
+        accuracy *= 100. / cnt
         loss_value.append(train_loss)
-        acc_value.append[accuracy] 
+        acc_value.append(accuracy) 
         proportion = {
             k: '{:02d}%'.format(int(round(v * 100 / sum(timer.values()))))
             for k, v in timer.items()
@@ -265,16 +263,16 @@ class Trainer():
         label_list = []
         pred_list = []
         
-        process = tqdm(self.data_loader[loader_name], ncols=40)
+        process = tqdm(self.data_loader[loader_name], ncols=80)
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(process):
                 label_list.extend(targets.tolist())
-                data = data.cuda(self.output_device)
+                inputs = inputs.cuda(self.output_device)
                 targets = targets.cuda(self.output_device)
 
                 _,logits,predictions = self.model(inputs.float())
 
-                batch_loss = self.loss(logits, targets)
+                batch_loss = self.criterion(logits, targets)
                 loss += batch_loss.sum().item()
                 accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
                 pred_list.extend(torch.argmax(predictions ,1).tolist())
@@ -289,18 +287,19 @@ class Trainer():
             for i, x in enumerate(predict):
                 f_r.write(str(x) +  '==>' + str(true[i]) + '\n')
         
-        print('Accuracy:' , accuracy, 'loss:', loss)
+        self.print_log('\tValidation Loss: {:4f}. Validaiton Acc: {:2f}%'.format(loss, accuracy))
 
         if self.arg.phase == 'train':
             if accuracy > self.best_accuracy :
                 self.best_accuracy = accuracy
                 state_dict = self.model.state_dict()
                 #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
-                torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name + '-' + str(epoch+1) + '.pt')
-            
+                torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name+ '.pt')
+                self.print_log('Weights Saved')        
 
     def start(self):
         if self.arg.phase == 'train':
+            self.best_accuracy  = 0
             self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
             self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
 
@@ -309,7 +308,7 @@ class Trainer():
             
             num_params = count_parameters(self.model)
             self.print_log(f'# Parameters: {num_params}')
-            for epoch in range(self.arg.start_epoch, self.arg.num_epoch)
+            for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
                 self.train(epoch)
                 self.eval(epoch, loader_name='val', result_file=self.arg.result_file)
             self.print_log(f'Best accuracy: {self.best_acc}')
@@ -348,4 +347,5 @@ if __name__ == "__main__":
 
     arg = parser.parse_args()
     init_seed(arg.seed)
-    Trainer(arg)
+    trainer = Trainer(arg)
+    trainer.start()

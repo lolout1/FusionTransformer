@@ -3,12 +3,13 @@ model: Models.model_acc_only.ActTransformerAcc
 
 #model_args
 model_args:
-  acc_frames : 256
-  num_joints : 31 
-  num_classes : 11
+  acc_frames : 150
+  num_joints : 25 
+  num_classes : 27
   acc_embed : 32 
   adepth : 4
   num_heads : 4
+  # mocap_frames: 50
 
 
 #optim
@@ -20,17 +21,17 @@ base_lr: 0.001
 batch_size: 16
 test_batch_size: 16
 val_batch_size : 16
-epochs: 200
+num_epoch: 200
 
 #dataloader
 feeder: Make_Dataset.UTD_mm
 
 train_feeder_args:
-  npz_file: data/UTD_MAAD/utd_train4p.npz
+  npz_file: data/UTD_MAAD/utd_train_op_mf50_acc150.npz
   batch_size: 16
 
 val_feeder_args:
-  npz_file: data/UTD_MAAD/utd_val2p.npz
+  npz_file: data/UTD_MAAD/utd_val_op_mf50_acc150.npz
   batch_size: 16
 
 test_feeder_args: 
