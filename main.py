@@ -124,7 +124,7 @@ class Trainer():
             os.makedirs(self.arg.work_dir)
 
         if self.arg.phase == 'test':
-            self.load_weights()
+            self.load_weights(self.arg.weights)
 
     
     def load_model(self):

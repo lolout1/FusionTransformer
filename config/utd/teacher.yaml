@@ -36,7 +36,8 @@ val_feeder_args:
   batch_size: 16
 
 test_feeder_args: 
-  npz_file: data/UTD_MAAD/utd_test2p.npz
+  npz_file: data/UTD_MAAD/utd_test_op_mf50_acc150.npz
+  batch_size: 16
 
 seed: 2 
 optimizer: Adam
