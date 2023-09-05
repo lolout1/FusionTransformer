@@ -213,16 +213,17 @@ class MMTransformer(nn.Module):
             x = torch.reshape(x, (b,St))
             return x #b x St 
 
-    def forward(self, inputs):
+    def forward(self, acc_data, skl_data):
 
         #Input: B X Mocap_frames X Num_joints X in_channs
-        b, _, _, c = inputs.shape
+        b, _, _, c = skl_data.shape
 
         #Extract skeletal signal from input 
-        x = inputs[:,:, :self.num_joints , :self.joint_coords]
-
+        #x = inputs[:,:, :self.num_joints , :self.joint_coords]
+        x = skl_data
         #Extract acc_signal from input 
-        sx = inputs[:, 0, self.num_joints:, :self.acc_coords]
+        #sx = inputs[:, 0, self.num_joints:, :self.acc_coords]
+        sx = acc_data
         sx = torch.reshape(sx, (b,-1,1,self.acc_coords)) #batch X acc_frames X 1 X acc_channel
 
         #Get acceleration features 

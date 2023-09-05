@@ -197,7 +197,8 @@ class Trainer():
 
         for batch_idx, (inputs, targets) in enumerate(process):
             with torch.no_grad():
-                inputs = inputs.cuda(self.output_device) #print("Input batch: ",inputs)
+                acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
+                skl_data = inputs['skl_data'].cuda(self.output_device)
                 targets = targets.cuda(self.output_device)
             
             timer['dataloader'] += self.split_time()
@@ -206,7 +207,7 @@ class Trainer():
 
             # Ascent Step
             #print("labels: ",targets)
-            out, logits,predictions = self.model(inputs.float())
+            out, logits,predictions = self.model(acc_data.float(), skl_data.float())
             #print("predictions: ",torch.argmax(predictions, 1) )
             loss = self.criterion(logits, targets)
             loss.mean().backward()
@@ -256,11 +257,13 @@ class Trainer():
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(process):
                 label_list.extend(targets.tolist())
-                inputs = inputs.cuda(self.output_device)
+                #inputs = inputs.cuda(self.output_device)
+                acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
+                skl_data = inputs['skl_data'].cuda(self.output_device)
                 targets = targets.cuda(self.output_device)
 
-                _,logits,predictions = self.model(inputs.float())
-
+                #_,logits,predictions = self.model(inputs.float())
+                _,logits,predictions = self.model(acc_data.float(), skl_data.float())
                 batch_loss = self.criterion(logits, targets)
                 loss += batch_loss.sum().item()
                 accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
