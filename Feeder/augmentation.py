@@ -20,6 +20,7 @@ class TSFilpper(object):
         print('Initiating the Flipper class')
     
     def __call__(self, acc_data, skl_data):
+        print('Calling the Filpper class')
         acc_data = -1 * acc_data
         skl_data = -1 * skl_data
 
