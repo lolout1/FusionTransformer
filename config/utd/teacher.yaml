@@ -1,6 +1,6 @@
 #Model
 model: Models.earlyfusion.MMTransformer
-
+model_saved_name : no_kd_mm
 #model_args
 model_args:
   acc_frames : 150
@@ -25,7 +25,7 @@ val_batch_size : 16
 num_epoch: 200
 
 #dataloader
-feeder: Make_Dataset.UTD_mm
+feeder: Feeder.Make_Dataset.UTD_mm
 
 train_feeder_args:
   npz_file: data/UTD_MAAD/utd_train_op_mf50_acc150.npz
