@@ -4,12 +4,12 @@ model_saved_name : no_kd_aug
 #model_args
 model_args:
   acc_frames : 150
-  num_joints : 25 
+  num_joints : 25
   num_classes : 27
   spatial_embed : 32 
   adepth : 4
   sdepth : 4
-  num_heads : 8
+  num_heads : 4
   mocap_frames: 50
 
 
@@ -22,7 +22,7 @@ base_lr: 0.001
 batch_size: 16
 test_batch_size: 16
 val_batch_size : 16
-num_epoch: 200
+num_epoch: 100
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm

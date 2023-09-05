@@ -121,7 +121,7 @@ class UTD_mm(torch.utils.data.Dataset):
         data['skl_data'] = skl_data
         data['acc_data'] = acc_data 
         label = self.labels[index]
-        data, label = self.transform(data, label)
+        #data, label = self.transform(data, label)
         label = torch.tensor(label)
         label = label.long()
         return data, label
