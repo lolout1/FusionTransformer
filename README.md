@@ -4,7 +4,7 @@
 
 ## Get the Dataset
 
-- Find all the datasets and npz files [here](). 
+- Find all the datasets and npz files [here](https://txst-my.sharepoint.com/:f:/g/personal/bgu9_txstate_edu/EgHHgZoUISxDoY5uBHCwfOQBhQj89or79AC2A5Z98vToSA?e=98nB7i). 
 - Download the data and put it under the root directory. 
 - The datasets can processed from the scartch using the Processing_data.ipynb file.
 
