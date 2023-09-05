@@ -6,14 +6,18 @@ import sys
 import os
 import time
 
-#local import
+#environmental import
 import numpy as np 
 import torch
 import torch.nn as nn
+import torchvision.transforms as transforms
 import torch.optim as optim
 from tqdm import tqdm
 import warnings
 import json
+
+#local import 
+from Feeder.augmentation import TSFilpper
 
 def get_args():
 
@@ -146,10 +150,14 @@ class Trainer():
         
     def load_data(self):
         Feeder = import_class(self.arg.feeder)
+        ## need to change it to dynamic import 
+        transforms = transforms.Compose([
+            TSFilpper()
+        ])
         self.data_loader = dict()
         if self.arg.phase == 'train':
             self.data_loader['train'] = torch.utils.data.DataLoader(
-                dataset=Feeder(**self.arg.train_feeder_args),
+                dataset=Feeder(**self.arg.train_feeder_args, transform = transforms),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)

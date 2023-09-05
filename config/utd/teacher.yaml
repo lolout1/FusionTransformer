@@ -1,6 +1,6 @@
 #Model
 model: Models.earlyfusion.MMTransformer
-model_saved_name : no_kd_mm
+model_saved_name : no_kd_aug
 #model_args
 model_args:
   acc_frames : 150
