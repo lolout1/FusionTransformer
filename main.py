@@ -151,13 +151,10 @@ class Trainer():
     def load_data(self):
         Feeder = import_class(self.arg.feeder)
         ## need to change it to dynamic import 
-        transform = transforms.Compose([
-            TSFilpper()
-        ])
         self.data_loader = dict()
         if self.arg.phase == 'train':
             self.data_loader['train'] = torch.utils.data.DataLoader(
-                dataset=Feeder(**self.arg.train_feeder_args, transform = transforms.Compose([TSFilpper])),
+                dataset=Feeder(**self.arg.train_feeder_args, transform = transforms.Compose([TSFilpper()])),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
