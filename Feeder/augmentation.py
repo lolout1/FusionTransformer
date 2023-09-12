@@ -21,8 +21,8 @@ class TSFilpper(object):
     def __call__(self, data):
         
         acc_data , skl_data = data[0], data[1]
-        rand_int = torch.randint(acc_data.shape[0], (int(acc_data.shape[0]/2),))
-        acc_data[rand_int] = -1 * acc_data[rand_int]
-        skl_data[rand_int] = -1 * skl_data[rand_int]
+        if torch.randint(10,(1,)) > 4:
+            acc_data = -1 * acc_data
+            skl_data = -1 * skl_data
 
         return acc_data, skl_data
