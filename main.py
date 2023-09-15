@@ -191,6 +191,7 @@ class Trainer():
                 print(string, file = f)
 
     def train(self, epoch):
+        self.best_accuracy = 0 
         self.model.train()
         self.record_time()
         loader = self.data_loader['train']
@@ -240,6 +241,7 @@ class Trainer():
         self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
 
         if not self.include_val and accuracy > self.best_accuracy:
+                self.best_accuracy = accuracy
                 state_dict = self.model.state_dict()
                 #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
                 torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name+ '.pt')
