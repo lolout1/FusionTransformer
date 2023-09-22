@@ -147,7 +147,7 @@ class MMTransformer(nn.Module):
     def Spatial_forward_features(self, x):
 
         b, f, p , c = x.shape 
-        x = rearrange(x, 'b f p c -> (b f) p c')
+        x = rearrange(x, 'b f p c -> (b f) p c') # B  = b x f
 
 
         if self.embed_type == 'conv':
@@ -163,10 +163,10 @@ class MMTransformer(nn.Module):
         x += self.Spatial_pos_embed 
         x = self.pos_drop(x)
 
-        for blk in self.Spatial_blocks:
-            x = blk(x)
+        # for blk in self.Spatial_blocks:
+        #     x = blk(x)
         
-        x = self.Spatial_norm(x)
+        # x = self.Spatial_norm(x)
 
         #extract class token 
         Se = x.shape[-1]
@@ -228,11 +228,11 @@ class MMTransformer(nn.Module):
 
         #Get acceleration features 
         sx, cv_signals = self.Acc_forward_features(sx)
-
+        print(f'Output from accelerometed {sx.shape}')
         #Get skeletal features
         x, cls_token = self.Spatial_forward_features(x) # in: B x mocap_frames x num_joints x in_chann  out: x = b x mocap_frame x (num_joints*Se) cls_token b x mocap_frames*Se
 
-        
+        print(f'Output from spatial transformer {x.shape}')       
 
         #Pass cls  token to temporal transformer
         # print(f'Class token {cls_token.shape}')
