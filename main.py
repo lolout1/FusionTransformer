@@ -15,6 +15,8 @@ import torch.optim as optim
 from tqdm import tqdm
 import warnings
 import json
+import torch.nn.functional as F
+from torchsummary import summary
 
 #local import 
 from Feeder.augmentation import TSFilpper
@@ -138,7 +140,7 @@ class Trainer():
             self.optimizer = optim.Adam(
                 self.model.parameters(), 
                 lr = self.arg.base_lr,
-                weight_decay=self.arg.weight_decay
+                # weight_decay=self.arg.weight_decay
             )
         elif self.arg.optimizer == "AdamW":
             self.optimizer = optim.AdamW(
@@ -156,7 +158,7 @@ class Trainer():
         self.data_loader = dict()
         if self.arg.phase == 'train':
             self.data_loader['train'] = torch.utils.data.DataLoader(
-                dataset=Feeder(**self.arg.train_feeder_args, transform = transforms.Compose([TSFilpper()])),
+                dataset=Feeder(**self.arg.train_feeder_args, transform =None),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
@@ -216,6 +218,7 @@ class Trainer():
             # Ascent Step
             #print("labels: ",targets)
             out, logits,predictions = self.model(acc_data.float(), skl_data.float())
+            #logits = self.model(acc_data.float(), skl_data.float())
             #print("predictions: ",torch.argmax(predictions, 1) )
             loss = self.criterion(logits, targets)
             loss.mean().backward()
@@ -224,7 +227,8 @@ class Trainer():
             timer['model'] += self.split_time()
             with torch.no_grad():
                 train_loss += loss.sum().item()
-                accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
+                #accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
+                accuracy += (torch.argmax(F.log_softmax(logits,dim =1), 1) == targets).sum().item()
             cnt += len(targets) 
             timer['stats'] += self.split_time()
         train_loss /= cnt
@@ -282,10 +286,13 @@ class Trainer():
 
                 #_,logits,predictions = self.model(inputs.float())
                 _,logits,predictions = self.model(acc_data.float(), skl_data.float())
+                #logits = self.model(acc_data.float(), skl_data.float())
                 batch_loss = self.criterion(logits, targets)
                 loss += batch_loss.sum().item()
-                accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
-                pred_list.extend(torch.argmax(predictions ,1).tolist())
+                # accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
+                # pred_list.extend(torch.argmax(predictions ,1).tolist())
+                accuracy += (torch.argmax(F.log_softmax(logits,dim =1), 1) == targets).sum().item()
+                pred_list.extend(torch.argmax(F.log_softmax(logits,dim =1) ,1).tolist())
                 cnt += len(targets)
             loss /= cnt
             accuracy *= 100./cnt
@@ -308,6 +315,8 @@ class Trainer():
                 self.print_log('Weights Saved')        
 
     def start(self):
+        model_args = self.arg.model_args
+        summary(self.model,[(model_args['acc_frames'],3), (model_args['mocap_frames'], model_args['num_joints'],3)] , dtypes=[torch.float, torch.float] )
         if self.arg.phase == 'train':
             self.best_accuracy  = 0
             self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
