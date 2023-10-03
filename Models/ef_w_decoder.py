@@ -24,7 +24,7 @@ class MMTransformer(nn.Module):
         self.embed_type = embed_type
         self.sdepth = sdepth
         self.adepth = adepth 
-        self.tdepth = tdepth
+        self.tdepth = sdepth 
         self.num_joints = num_joints
         self.joint_coords = in_chans
         self.acc_frames = acc_frames
@@ -79,8 +79,6 @@ class MMTransformer(nn.Module):
                 nn.ReLU(),
                 nn.Linear(256, 128),
                 nn.ReLU())
-                # nn.Linear(128, 64),
-                # nn.ReLU(), 
                 # nn.Linear(64,32))
 
         #temporal encoder block 
@@ -105,7 +103,7 @@ class MMTransformer(nn.Module):
                 nn.Linear(self.acc_patch_size * self.acc_coords, 32),
                 nn.ReLU(),
                 nn.Linear(32, 64),
-                nn.ReLU(), 
+                nn.ReLU(),
                 nn.Linear(64, 128),
                 nn.ReLU()
         )
@@ -208,7 +206,7 @@ class MMTransformer(nn.Module):
         for idx, blk in enumerate(self.Temporal_blocks):
             # print(f' In temporal {x.shape}')
             # skl_data = self.frame_reduce(x)
-            
+            # print(idx)
             acc_data = cv_signals[idx]
             # if x.shape[1] > cv_signals[1].shape[1]-1:
             #     x = self.frame_reduce_mf(x)
@@ -255,7 +253,6 @@ class MMTransformer(nn.Module):
         sx, cv_signals = self.Acc_forward_features(sx)
         #Get skeletal features
         #x, cls_token = self.Spatial_forward_features(x) # in: B x mocap_frames x num_joints x in_chann  out: x = b x mocap_frame x (num_joints*Se) cls_token b x mocap_frames*Se     
-
         #Pass cls  token to temporal transformer
         # print(f'Class token {cls_token.shape}')
         # temp_cls_token = self.proj_up_clstoken(cls_token) # in b x mocap_frames * se -> #out: b x num_joints*Se
