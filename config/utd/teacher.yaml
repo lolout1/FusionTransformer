@@ -1,17 +1,19 @@
 #Model
 model: Models.ef_w_decoder.MMTransformer
-model_saved_name : no_kd_aug
+model_saved_name : no_kd_aug_sw
+
 #model_args
 model_args:
-  acc_frames : 100
+  acc_frames : 128
   num_joints : 25
   num_classes : 27
   spatial_embed : 128
-  adepth : 4
-  sdepth : 4
-  num_heads : 8
-  mocap_frames: 50
-  num_patch: 10
+  adepth : 2
+  sdepth : 2
+  num_heads : 4
+  mocap_frames: 32
+  num_patch: 8
+  acc_coords: 6
 
 
 #optim
@@ -20,25 +22,25 @@ base_lr: 0.001
 
 
 # training
-batch_size: 16
-test_batch_size: 16
-val_batch_size : 16
-num_epoch: 100
+batch_size: 32
+test_batch_size: 32
+val_batch_size : 32
+num_epoch: 200
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
 
 train_feeder_args:
-  npz_file: data/UTD_MAAD/utd_train_op_mf50.npz
-  batch_size: 16
+  # npz_file: data/UTD_MAAD/utd_train_op_mf50_norm.npz
+  batch_size: 32
 
 val_feeder_args:
-  npz_file: data/UTD_MAAD/utd_val_op_mf50.npz
-  batch_size: 16
+  # npz_file: data/UTD_MAAD/utd_val_op_mf50_norm.npz
+  batch_size: 32
 
 test_feeder_args: 
-  npz_file: data/UTD_MAAD/utd_test_op_mf50.npz
-  batch_size: 16
+  # npz_file: data/UTD_MAAD/utd_test_op_mf50_norm.npz
+  batch_size: 32
 
 seed: 2 
 optimizer: Adam
