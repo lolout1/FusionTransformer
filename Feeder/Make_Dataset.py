@@ -4,8 +4,10 @@ import math
 import torch
 import random
 import torch.nn.functional as F
-pd.options.mode.chained_assignment = None  # default='warn'
 import scipy.stats as s
+from einops import rearrange
+from tsaug import TimeWarp, Reverse, Drift, AddNoise
+
 
 #################### MAIN #####################
 
@@ -92,9 +94,9 @@ class Bmhad_mm(torch.utils.data.Dataset):
     
 
 class UTD_mm(torch.utils.data.Dataset):
-    def __init__(self, npz_file, batch_size, transform = None):
+    def __init__(self, dataset, batch_size, transform = None):
         # Load data and labels from npz file
-        dataset = np.load(npz_file)
+        #dataset = np.load(npz_file)
         self.acc_data = dataset['acc_data']
         self.skl_data = dataset['skl_data']
         self.labels = dataset['labels']
@@ -105,8 +107,18 @@ class UTD_mm(torch.utils.data.Dataset):
         self.skl_channels = self.skl_data.shape[3]
         self.channels = self.acc_data.shape[2]
         self.batch_size = batch_size
-        self.transform = transform
+        self.transform = None
+        # self.transform =  (
+        #      AddNoise(scale=(0.01, 0.05)) @ 0.5  # random quantize to 10-, 20-, or 30- level sets
+        #     + Drift(max_drift=(0.1, 0.5)) @ 0.4  # with 80% probability, random drift the signal up to 10% - 50%
+        #     + Reverse() @ 0.5 ) # with 50% probability, reverse the sequence 
 
+    def augment(self, data): 
+        data = torch.transpose(data, -2, -1)
+        transformed_data = self.transform.augment(data.numpy())
+        data = torch.tensor(np.transpose(transformed_data))
+        return data 
+    
     def __len__(self):
         return self.num_samples
 
@@ -118,10 +130,18 @@ class UTD_mm(torch.utils.data.Dataset):
         # data[:, :self.skl_joints, :self.skl_channels] = skl_data
         # data[ 0, self.skl_joints:, :self.channels] = acc_data
         data = dict()
+
+
+        if self.transform and np.random.random() > 0.6:
+            T, N , C = skl_data.shape
+            skl_data = rearrange(skl_data, 'T N C -> T (N C)')
+            aug_skl = self.augment(skl_data)
+            aug_skl = rearrange(aug_skl, 'T (N C) -> T N C', N = N , C = C)
+            skl_data = aug_skl
+            acc_data = self.augment(acc_data)
+                
+        data['acc_data'] = acc_data    
         data['skl_data'] = skl_data
-        data['acc_data'] = acc_data 
-        if self.transform:
-            acc_data, skl_data = self.transform([acc_data, skl_data])
         label = self.labels[index]
         #data, label = self.transform(data, label)
         label = torch.tensor(label)
