@@ -20,6 +20,7 @@ from torchsummary import summary
 
 #local import 
 from Feeder.augmentation import TSFilpper
+from utils.dataprocessing import utd_processing , normalization
 
 def get_args():
 
@@ -157,14 +158,21 @@ class Trainer():
         ## need to change it to dynamic import 
         self.data_loader = dict()
         if self.arg.phase == 'train':
+            train_data =  utd_processing(mode = arg.phase)
+            norm_train, acc_scaler, skl_scaler =  normalization(data = train_data, mode = 'fit')
+            self.acc_scaler = acc_scaler
+            self.skl_scaler = skl_scaler
             self.data_loader['train'] = torch.utils.data.DataLoader(
-                dataset=Feeder(**self.arg.train_feeder_args, transform =None),
+                dataset=Feeder(**self.arg.train_feeder_args,dataset = norm_train, transform =None),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
             
+            val_data =  utd_processing(mode = 'val')
+            norm_val, _, _ =  normalization(data = val_data,acc_scaler=self.acc_scaler,
+                                               skl_scaler=self.skl_scaler, mode = 'transform')
             self.data_loader['val'] = torch.utils.data.DataLoader(
-                dataset=Feeder(**self.arg.val_feeder_args),
+                dataset=Feeder(**self.arg.val_feeder_args, dataset = norm_val),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
@@ -193,7 +201,6 @@ class Trainer():
                 print(string, file = f)
 
     def train(self, epoch):
-        self.best_accuracy = 0 
         self.model.train()
         self.record_time()
         loader = self.data_loader['train']
@@ -243,13 +250,13 @@ class Trainer():
             '\tTraining Loss: {:4f}. Training Acc: {:2f}%'.format(train_loss, accuracy)
         )
         self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
-
-        if not self.include_val and accuracy > self.best_accuracy:
-                self.best_accuracy = accuracy
-                state_dict = self.model.state_dict()
-                #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
-                torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name+ '.pt')
-                self.print_log('Weights Saved') 
+        if not self.include_val:
+                if accuracy > self.best_accuracy:
+                    self.best_accuracy = accuracy
+                    state_dict = self.model.state_dict()
+                    #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
+                    torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name+ '.pt')
+                    self.print_log('Weights Saved') 
         
         else: 
             self.eval(epoch, loader_name='val', result_file=self.arg.result_file)
@@ -305,18 +312,17 @@ class Trainer():
                 f_r.write(str(x) +  '==>' + str(true[i]) + '\n')
         
         self.print_log('\tValidation Loss: {:4f}. Validaiton Acc: {:2f}%'.format(loss, accuracy))
-
         if self.arg.phase == 'train':
             if accuracy > self.best_accuracy :
-                self.best_accuracy = accuracy
-                state_dict = self.model.state_dict()
-                #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
-                torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name+ '.pt')
-                self.print_log('Weights Saved')        
+                    self.best_accuracy = accuracy
+                    state_dict = self.model.state_dict()
+                    #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
+                    torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name+ '.pt')
+                    self.print_log('Weights Saved')        
 
     def start(self):
         model_args = self.arg.model_args
-        summary(self.model,[(model_args['acc_frames'],3), (model_args['mocap_frames'], model_args['num_joints'],3)] , dtypes=[torch.float, torch.float] )
+        summary(self.model,[(model_args['acc_frames'],6), (model_args['mocap_frames'], model_args['num_joints'],3)] , dtypes=[torch.float, torch.float] )
         if self.arg.phase == 'train':
             self.best_accuracy  = 0
             self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
