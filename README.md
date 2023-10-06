@@ -1,6 +1,9 @@
 # Fall Detection KD Multimodal 
 ## Getting started 
 - Create an conda environment and use the requirements.txt to install all the neccasary files.
+```bash
+pip install -r requirements.txt
+```
 
 ## Get the Dataset
 
