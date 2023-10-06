@@ -64,22 +64,23 @@ class MMTransformer(nn.Module):
         tdpr = [x.item() for x in torch.linspace(0, drop_path_rate, self.tdepth)]
 
         #spatial encoder block 
-        self.Spatial_blocks = nn.ModuleList([
-            Block(
-                dim = spatial_embed, num_heads=num_heads, mlp_ratio= mlp_ratio, qkv_bias  = qkv_bias, qk_scale= qk_scale, 
-                drop = drop_rate, attn_drop=attn_drop_rate, drop_path=sdpr[i], norm_layer=norm_layer
-            ) 
-            for i in range(self.sdepth)
-        ])
+        # self.Spatial_blocks = nn.ModuleList([
+        #     Block(
+        #         dim = spatial_embed, num_heads=num_heads, mlp_ratio= mlp_ratio, qkv_bias  = qkv_bias, qk_scale= qk_scale, 
+        #         drop = drop_rate, attn_drop=attn_drop_rate, drop_path=sdpr[i], norm_layer=norm_layer
+        #     ) 
+        #     for i in range(self.sdepth)
+        # ])
 
         self.Spatial_encoder = nn.Sequential(
-                nn.Linear(self.skl_patch_size * self.num_joints * in_chans, 512),
-                nn.ReLU(), 
-                nn.Linear(512,256),
-                nn.ReLU(),
-                nn.Linear(256, 128),
+                # nn.Linear(self.skl_patch_size * self.num_joints, 128),
+                # nn.ReLU(), 
+                # nn.Linear(512,256),
+                # nn.ReLU(),
+                # nn.Linear(256, 128),
+                # nn.ReLU(),
+                nn.Linear(36,64),
                 nn.ReLU())
-                # nn.Linear(64,32))
 
         #temporal encoder block 
         self.Temporal_blocks = nn.ModuleList([
@@ -104,8 +105,8 @@ class MMTransformer(nn.Module):
                 nn.ReLU(),
                 nn.Linear(32, 64),
                 nn.ReLU(),
-                nn.Linear(64, 128),
-                nn.ReLU()
+                # nn.Linear(64, 128),
+                # nn.ReLU()
         )
         #norm layer 
         self.Spatial_norm = norm_layer(spatial_embed)
@@ -124,6 +125,17 @@ class MMTransformer(nn.Module):
         # self.spatial_frame_reduce = nn.Conv1d(self.mocap_frames, self.acc_frames, 1,1)
         self.frame_reduce_mf = nn.Conv1d(self.mocap_frames, self.acc_frames, 1,1)
         self.frame_reduce_acc = nn.Conv1d(self.acc_frames+1, self.mocap_frames+1, 1, 1)
+
+        self.acc_conv = nn.Sequential(nn.Conv2d(acc_coords, acc_coords, (1, acc_coords), 1), 
+                                        nn.BatchNorm2d(acc_coords),
+                                        nn.ReLU())
+
+        self.spatial_conv = nn.Sequential(nn.Conv2d(in_chans, in_chans, (1, 9), 1 ),
+                                          nn.BatchNorm2d(in_chans),
+                                          nn.ReLU(), 
+                                          nn.Conv2d(in_chans, 1, (1, 9), 1), 
+                                          nn.BatchNorm2d(1),
+                                          nn.ReLU() )
 
     def Acc_forward_features(self, x):
         b,f,e = x.shape
@@ -238,15 +250,20 @@ class MMTransformer(nn.Module):
 
         #Extract skeletal signal from input 
         #x = inputs[:,:, :self.num_joints , :self.joint_coords]
-        x = skl_data.view(b, self.num_patch ,-1)
+        x = rearrange(skl_data, 'b f j c -> b c f j')
+        x = self.spatial_conv(x)
+        x = rearrange(x, 'b c f j -> b f j c')
+        x = x.view(b, self.num_patch ,-1)
         #x = rearrange(x, 'b f j c -> b np (j pl c)' , np = 10, pl = 5)
         x = self.Spatial_encoder(x)
         #Extract acc_signal from input 
         #sx = inputs[:, 0, self.num_joints:, :self.acc_coords]
         sx = acc_data
+        # sx = rearrange(acc_data,'b f c -> b c f' )
+        # sx = self.acc_conv(sx)
+        # sx = rearrange(sx,'b c f -> b f c' )
         sx = sx.view(b, self.num_patch, -1)
         sx = self.Acc_encoder(sx)
-
         #sx = torch.reshape(sx, (b,-1,1,self.acc_coords)) #batch X acc_frames X 1 X acc_channel
 
         #Get acceleration features 
@@ -269,9 +286,13 @@ class MMTransformer(nn.Module):
 
 
 if __name__ == "__main__" :
-    skl_data = torch.randn(size=(16, 50, 25, 3))
-    acc_data = torch.randn(size = (16, 100, 3))
-    model = MMTransformer(device = 'cpu', mocap_frames= 50, acc_frames = 100, num_joints = 25, in_chans = 3, acc_coords = 3, spatial_embed = 32, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'cls', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
-    model(acc_data, skl_data)
+    skl_data = torch.randn(size=(16, 3, 32, 25))
+    layer = nn.Sequential(nn.Conv2d(3, 3, (1, 9), 1), 
+                                          nn.Conv2d(3, 1, (1, 9), 1))
+    transformed = layer(skl_data)
+    print(transformed.shape)
+    # acc_data = torch.randn(size = (16, 100, 3))
+    # model = MMTransformer(device = 'cpu', mocap_frames= 50, acc_frames = 100, num_joints = 25, in_chans = 3, acc_coords = 3, spatial_embed = 32, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'cls', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
+    # model(acc_data, skl_data)
 
 

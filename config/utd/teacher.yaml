@@ -7,7 +7,7 @@ model_args:
   acc_frames : 128
   num_joints : 25
   num_classes : 27
-  spatial_embed : 128
+  spatial_embed : 64
   adepth : 2
   sdepth : 2
   num_heads : 4
@@ -25,7 +25,7 @@ base_lr: 0.001
 batch_size: 32
 test_batch_size: 32
 val_batch_size : 32
-num_epoch: 200
+num_epoch: 40
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
