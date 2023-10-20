@@ -28,7 +28,70 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
+class PredictorLG(nn.Module):
+    """ Image to Patch Embedding from DydamicVit
+    """
+    def __init__(self, embed_dim=384):
+        super().__init__()
+        self.score_nets = nn.ModuleList([nn.Sequential(
+            nn.LayerNorm(embed_dim),
+            nn.Linear(embed_dim, embed_dim),
+            nn.GELU(),
+            nn.Linear(embed_dim, embed_dim // 2),
+            nn.GELU(),
+            nn.Linear(embed_dim // 2, embed_dim // 4),
+            nn.GELU(),
+            nn.Linear(embed_dim // 4, 2),
+            nn.LogSoftmax(dim=-1))
+        for _ in range(2)])
+        #should change the 2 here to dynamic 
+    def forward(self, x):
+        out = []
+        for i in range(2):
+            score = self.score_nets[i](x[i])
+            out.append(score)  
+        return out
+
+class TokenExchange(nn.Module):
+    def __init__(self):
+        super(TokenExchange, self).__init__()
+
+    def forward(self, x, mask, mask_threshold):
+        # x: [B, N, C], mask: [B, N, 2]
+        x0, x1 = torch.zeros_like(x[0]), torch.zeros_like(x[1])
+        x0[mask[0] >= mask_threshold] = x[0][mask[0] >= mask_threshold]
+        x0[mask[0] < mask_threshold] = x[1][mask[0] < mask_threshold]
+        x1[mask[1] >= mask_threshold] = x[1][mask[1] >= mask_threshold]
+        x1[mask[1] < mask_threshold] = x[0][mask[1] < mask_threshold]
+        return [x0, x1]
 #Attention computation
+# class Attention(nn.Module):
+#     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
+#         super().__init__()
+#         self.num_heads = num_heads
+#         head_dim = dim // num_heads
+#         # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
+#         self.scale = qk_scale or head_dim ** -0.5
+
+#         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+#         self.attn_drop = nn.Dropout(attn_drop)
+#         self.proj = nn.Linear(dim, dim)
+#         self.proj_drop = nn.Dropout(proj_drop)
+
+#     def forward(self, x):
+#         B, N, C = x.shape  #Batch x Num of tokens x embed dim
+#         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+#         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
+
+#         attn = (q @ k.transpose(-2, -1)) * self.scale
+#         attn = attn.softmax(dim=-1)
+#         attn = self.attn_drop(attn)
+
+#         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+#         x = self.proj(x)
+#         x = self.proj_drop(x)
+#         return x
+
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
@@ -37,14 +100,18 @@ class Attention(nn.Module):
         # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
         self.scale = qk_scale or head_dim ** -0.5
 
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv = nn.Conv1d(in_channels=dim, out_channels=dim * 3, kernel_size= 3, stride=1 , padding=1) 
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
+        # self.proj = nn.Linear(dim, dim)
+        self.proj = nn.Conv1d(in_channels=dim, out_channels=dim , kernel_size= 3, stride=1 , padding=1)
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x):
         B, N, C = x.shape  #Batch x Num of tokens x embed dim
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        x = rearrange(x, 'b n c -> b c n')
+        qkv = self.qkv(x)
+        qkv = rearrange(qkv , 'b c n -> b n c')
+        qkv = qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
@@ -52,7 +119,9 @@ class Attention(nn.Module):
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = rearrange(x, 'b n c -> b c n')
         x = self.proj(x)
+        x = rearrange(x , 'b c n -> b n c')
         x = self.proj_drop(x)
         return x
 
@@ -142,7 +211,8 @@ class Block(nn.Module):
 
     def forward(self, x):
         cv_signal = None
-        x = x + self.drop_path(self.attn(self.norm1(x)))
+        atn_out = self.attn(self.norm1(x))
+        x = x + self.drop_path(atn_out)
         if self.blocktype=='Sensor':
             cv_signal=x.detach().clone()
         x = x + self.drop_path(self.mlp(self.norm2(x)))
