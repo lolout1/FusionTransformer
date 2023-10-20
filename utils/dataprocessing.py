@@ -8,11 +8,19 @@ import re
 import torch
 import shutil
 import os
+from bvh import Bvh
 import torch.nn.functional as F
 from bvh import Bvh
 from sklearn.preprocessing import StandardScaler
 from einops import rearrange
 
+def bvh2arr(file_path):
+    with open(file = file_path, mode='r') as f: 
+        bvh_data = Bvh(f.read())
+        data = bvh_data.frames
+        arr = np.array(data).astype(float)
+    return arr      
+  
 def sliding_window(data, clearing_time_index, max_time, sub_window_size, stride_size):
 
     assert clearing_time_index >= sub_window_size - 1 , "Clearing value needs to be greater or equal to (window size - 1)"
@@ -37,6 +45,55 @@ def process_data(raw_data, window_size, stride):
     # labels = dataframe['outcome'].to_numpy()
     data = sliding_window(raw_data, window_size - 1,raw_data.shape[0],window_size,stride)
     return data
+
+def bmhad_processing(data_dir = 'data/berkley_mhad', mode = 'train'):
+    file_paths = glob.glob(f'{data_dir}/{mode}_acc/*')
+    skl_paths = f'{data_dir}/{mode}_skeleton/skl_'
+    pattern = r's\d+_a\d+_r\d+'
+    act_pattern = r'(a\d+)'
+    label_pattern = r'(\d+)'
+    skl_set =[]
+    acc_set = []
+    label_set = []
+    acc_window_size = 32
+    acc_stride = 3
+
+    skl_window_size = 512
+    skl_stride = 48
+
+    for idx, path in enumerate(file_paths):
+        data = np.genfromtxt(path)
+        if np.size(data) == 0 : 
+            continue
+
+        acc_data = data[:, :3]
+
+        desp = re.findall(pattern, file_paths[idx])[0]
+        act_label = re.findall(act_pattern, path)[0]
+        label = int(re.findall(label_pattern, act_label)[0])-1
+        skl_file = skl_paths + desp + '.bvh'
+        skl_data = bvh2arr(skl_file)
+        processed_acc = process_data(acc_data, acc_window_size, acc_stride)
+        processed_skl = process_data(skl_data , skl_window_size, skl_stride)
+        n,l, nc = processed_skl.shape
+        processed_skl = processed_skl.reshape((n, l, -1, 3 ))
+        sync_size = min(processed_skl.shape[0],processed_acc.shape[0])
+        skl_set.append(processed_skl[:sync_size, ::2, : , :])
+        acc_set.append(processed_acc[:sync_size, : , :])
+        label_set.append(np.repeat(label, sync_size))
+    concat_acc = np.concatenate(acc_set, axis = 0)
+    concat_skl = np.concatenate(skl_set, axis = 0)
+    concat_label = np.concatenate(label_set, axis = 0)
+    print(np.unique(concat_label))
+    dataset = { 'acc_data' : concat_acc,
+                'skl_data' : concat_skl,  
+                'labels': concat_label}
+
+    np.savez(file = f'/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/bhmad_sliding_{mode}', acc_data = concat_acc, skl_data = concat_skl, labels = concat_label )
+
+    return dataset
+
+
 
 def utd_processing(data_dir = 'data/UTD_MAAD', mode = 'val'):
     skl_set = []
@@ -72,11 +129,10 @@ def utd_processing(data_dir = 'data/UTD_MAAD', mode = 'val'):
     concat_acc = np.concatenate(acc_set, axis = 0)
     concat_skl = np.concatenate(skl_set, axis = 0)
     concat_label = np.concatenate(label_set, axis = 0)
-
     dataset = { 'acc_data' : concat_acc,
                 'skl_data' : concat_skl, 
                 'labels': concat_label}
-
+    
     return dataset
 
 def normalization(data_path = None,data = None,  new_path = None, acc_scaler = StandardScaler(), skl_scaler = StandardScaler(), mode = 'fit'):
@@ -107,5 +163,7 @@ def normalization(data_path = None,data = None,  new_path = None, acc_scaler = S
 
 
 
-    
-    
+if __name__ == "__main__":
+    bmhad_processing(data_dir= '/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/')
+    bmhad_processing(data_dir= '/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/',mode = 'val')
+    bmhad_processing(data_dir= '/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/',mode = 'test')
