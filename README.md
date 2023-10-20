@@ -2,6 +2,12 @@
 ## Getting started 
 - Create an conda environment and use the requirements.txt to install all the neccasary files.
 ```bash
+conda create --name test1
+```
+```bash
+conda activate test1
+```
+```bash
 pip install -r requirements.txt
 ```
 
