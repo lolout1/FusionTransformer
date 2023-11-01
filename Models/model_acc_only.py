@@ -132,28 +132,28 @@ class ActTransformerAcc(nn.Module):
             x = torch.reshape(x, (b,Sa))
             return x #b x Sa
 
-    def forward(self, inputs):
+    def forward(self, acc_data, skl_data):
         #Input: B x MOCAP_FRAMES X  119 x 3
-        b,_,_,c = inputs.shape #[8 X 600 X 197 X 4]
+        b,_,c = acc_data.shape #[8 X 600 X 197 X 4]
 
-        #Extract skeletal signal from input
-        x = inputs[:,:, :self.num_joints, :self.joint_coords] #B x Fs x num_jo nts x 3
-        # print(f'\n Input before accelerometer {x.shape}')
-        #Extract acc signal from input
-        if self.has_features:
-            sxf = inputs[:, 0, self.num_joints:self.num_joints+self.acc_features, 0 ] #B x 1 x acc_features x 1
-            sx = inputs[:, 0 , self.num_joints+self.acc_features:, :self.acc_coords] #B x 1 x Fa x 3
-            sxf = self.acc_features_embed(sxf)
-        # print(f'\n Only accelerometer input {sx.shape}')
-        else: 
-            sx = inputs[:, 0 , self.num_joints:, :self.acc_coords]
-        sx = torch.reshape(sx, (b,-1,1,self.acc_coords) ) #B x Fa x 1 x 3
+        # #Extract skeletal signal from input
+        # x = inputs[:,:, :self.num_joints, :self.joint_coords] #B x Fs x num_jo nts x 3
+        # # print(f'\n Input before accelerometer {x.shape}')
+        # #Extract acc signal from input
+        # if self.has_features:
+        #     sxf = inputs[:, 0, self.num_joints:self.num_joints+self.acc_features, 0 ] #B x 1 x acc_features x 1
+        #     sx = inputs[:, 0 , self.num_joints+self.acc_features:, :self.acc_coords] #B x 1 x Fa x 3
+        #     sxf = self.acc_features_embed(sxf)
+        # # print(f'\n Only accelerometer input {sx.shape}')
+        # else: 
+        #     sx = inputs[:, 0 , self.num_joints:, :self.acc_coords]
+        sx = torch.reshape(acc_data, (b,-1,1,self.acc_coords) ) #B x Fa x 1 x 3
 
         #Get acceleration features
         sx = self.Acc_forward_features(sx); #print("Input to ACC Transformer: ",sx) #in: F x Fa x 3 x 1,  op: B x St
         
-        if self.fuse_acc_features:
-            sx+= sxf #Add the features signal to acceleration signal
+        # if self.fuse_acc_features:
+        #     sx+= sxf #Add the features signal to acceleration signal
 
         #Concat features along frame dimension
         out = sx
