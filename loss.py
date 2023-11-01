@@ -9,10 +9,11 @@ class SemanticLoss(nn.Module):
         super(SemanticLoss, self).__init__()
         self.T = T
         self.focal_loss = FocalLoss(alpha = 0.25, gamma=2)
+        self.kd_loss = nn.KLDivLoss(reduction = 'batchmean', log_target = True).cuda()
         self.cross_entropy = nn.CrossEntropyLoss()
         self.alpha = alpha
     
-    def distillation_loss(self,logits, labels, teacher_logits):
+    def distillation_loss(self,logits, teacher_logits, labels):
        
         #Softmax of student prediciton
         pred_hard = F.softmax(logits, dim = 1)
@@ -22,7 +23,7 @@ class SemanticLoss(nn.Module):
         teacher_soft = F.log_softmax(teacher_logits/self.T, dim = 1)
 
         #KLDivergence of this two
-        kl_div = nn.KLDivLoss(reduction = 'batchmean', log_target = True)(pred_soft, teacher_soft) * (self.alpha * self.T * self.T )
+        kl_div = self.kd_loss(pred_soft, teacher_soft) * (self.alpha * self.T * self.T )
         # #cross entropy loss 
         # loss_y_label = F.cross_entropy(pred, labels) * (1.0 - alpha)
 
@@ -74,17 +75,17 @@ class SemanticLoss(nn.Module):
         loss = F.smooth_l1_loss(d, t_d, reduction='mean')
         return loss
 
-    def forward(self,stud_logits, labels, teacher_logits):
-        gamma = 0.1
-        beta = 0.2
-        sigma = 1 - gamma - beta
+    def forward(self,stud_logits, teacher_logits, labels):
+        # gamma = 0.1
+        # beta = 0.2
+        # sigma = 1 - gamma - beta
         kd_loss = self.distillation_loss(logits = stud_logits, labels = labels, teacher_logits = teacher_logits)
-        y = F.log_softmax(stud_logits, dim = 1)
-        teacher_y = F.log_softmax(teacher_logits, dim = 1)
-        angular_loss = self.angular_dist(y, teacher_y)
-        dist_loss = self.distance(y, teacher_y)
+        # y = F.log_softmax(stud_logits, dim = 1)
+        # teacher_y = F.log_softmax(teacher_logits, dim = 1)
+        # angular_loss = self.angular_dist(y, teacher_y)
+        # dist_loss = self.distance(y, teacher_y)
 
-        loss = (sigma*kd_loss) + (beta*angular_loss) + (gamma*dist_loss)
+        # loss = (sigma*kd_loss) + (beta*angular_loss) + (gamma*dist_loss)
         return kd_loss
     
 class FocalLoss(nn.Module):
@@ -98,3 +99,28 @@ class FocalLoss(nn.Module):
         pt = torch.exp(-ce_loss)  # Compute the softmax probability
         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
         return focal_loss
+
+class MaskedBCE(nn.Module):
+    def __init__(self,output_device, beta):
+         super().__init__()
+         self.slim_penalty = lambda var: torch.abs(var).sum().cuda()
+         self.beta = beta
+         self.criterion = nn.CrossEntropyLoss().cuda(self.output_device)
+    
+    def forward(self, masks, logits, targets):
+        bce_loss = self.criterion(logits, targets)
+        slim_loss = 0
+        for mask in masks: 
+            slim_loss += sum([self.slim_penalty(m) for m in mask])
+        loss = bce_loss + (self.beta*slim_loss)
+
+        return loss
+
+class BCE(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.critetrion = nn.CrossEntropyLoss().cuda()
+    
+    def forward(self, masks, logits, targets):
+        bce_loss = self.critetrion(logits, targets)
+        return bce_loss
