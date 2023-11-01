@@ -7,18 +7,18 @@ import torch.nn.functional as F
 from .model_utils import Block
 
 class MMTransformer(nn.Module):
-    def __init__(self, device = 'cpu', mocap_frames= 600, acc_frames = 256, num_joints = 31, in_chans = 3, num_patch = 10 ,  acc_coords = 3, spatial_embed = 32, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'cls', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =11):
+    def __init__(self, device = 'cpu', mocap_frames= 600, acc_frames = 256, num_joints = 31, in_chans = 3, num_patch = 10 ,  acc_coords = 3, spatial_embed = 32, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'all', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =11):
         super().__init__()
         norm_layer = partial(nn.LayerNorm, eps = 1e-6)
 
         ##### I might change temp_embed later to 512
         temp_embed = spatial_embed
         acc_embed = temp_embed
-        
         self.num_patch = num_patch
         self.mocap_frames = mocap_frames
         self.skl_patch_size = mocap_frames // num_patch
         self.acc_patch_size = acc_frames // num_patch
+        self.skl_patch = self.skl_patch_size * (num_joints-8-8)
         self.temp_frames = mocap_frames
         self.op_type = op_type
         self.embed_type = embed_type
@@ -29,6 +29,7 @@ class MMTransformer(nn.Module):
         self.joint_coords = in_chans
         self.acc_frames = acc_frames
         self.acc_coords = acc_coords
+        self.skl_encode_size = (self.skl_patch//temp_embed)* (temp_embed//2)
         
         #Spatial postional embedding
         # self.Spatial_pos_embed = nn.Parameter(torch.zeros((1, num_patch+1, spatial_embed)))
@@ -72,15 +73,46 @@ class MMTransformer(nn.Module):
         #     for i in range(self.sdepth)
         # ])
 
+        # self.Spatial_encoder = nn.Sequential(
+        #         nn.Linear(240, 256),
+        #         nn.ReLU(), 
+        #         # nn.Linear(512,256),
+        #         # nn.ReLU(),
+        #         nn.Linear(256, 128),
+        #         nn.ReLU(),
+        #         nn.Linear(128, 64),
+        #         nn.ReLU(),
+        #         #best for utd
+        #         # nn.Linear(18,16),
+        #         #experiment for berkley
+        #         nn.Linear(64, 32),
+        #         nn.ReLU(), )
+        #         #nn.Linear(32, 16), 
+        #         #nn.ReLU())
+        # self.Spatial_encoder = nn.Sequential(
+        #     nn.Conv1d(120, 64, 3, 1 , 1),
+        #     #nn.Conv1d(72, 64,3,1,1),
+        #     nn.BatchNorm1d(64),
+        #     nn.ReLU(),
+        #     nn.Conv1d(64, 32, 3, 1, 1),
+        #     nn.BatchNorm1d(32),
+        #     nn.ReLU(),
+        #     nn.Conv1d(32, 16, 3, 1, 1),
+        #     nn.BatchNorm1d(16),
+        #     nn.ReLU(),
+
+        # )
         self.Spatial_encoder = nn.Sequential(
-                # nn.Linear(self.skl_patch_size * self.num_joints, 128),
-                # nn.ReLU(), 
-                # nn.Linear(512,256),
-                # nn.ReLU(),
-                # nn.Linear(256, 128),
-                # nn.ReLU(),
-                nn.Linear(36,64),
-                nn.ReLU())
+            nn.Conv1d(self.skl_patch, self.skl_encode_size, 3, 1, 1), 
+            nn.BatchNorm1d((self.skl_encode_size)), 
+            nn.ReLU(), 
+            nn.Conv1d(self.skl_encode_size ,self.skl_encode_size//2 , 3, 1, 1),
+            nn.BatchNorm1d((self.skl_encode_size//2)),
+            nn.ReLU(),
+            nn.Conv1d(self.skl_encode_size//2, temp_embed, 3, 1 , 1),
+            nn.BatchNorm1d(temp_embed),
+            nn.ReLU()
+        )
 
         #temporal encoder block 
         self.Temporal_blocks = nn.ModuleList([
@@ -101,10 +133,10 @@ class MMTransformer(nn.Module):
         ])
 
         self.Acc_encoder = nn.Sequential(
-                nn.Linear(self.acc_patch_size * self.acc_coords, 32),
+                nn.Linear(self.acc_patch_size * self.acc_coords, acc_embed),
                 nn.ReLU(),
-                nn.Linear(32, 64),
-                nn.ReLU(),
+                # nn.Linear(32, 16),
+                # nn.ReLU(),
                 # nn.Linear(64, 128),
                 # nn.ReLU()
         )
@@ -112,6 +144,7 @@ class MMTransformer(nn.Module):
         self.Spatial_norm = norm_layer(spatial_embed)
         self.Acc_norm = norm_layer(acc_embed)
         self.Temporal_norm = norm_layer(temp_embed)
+        self.intermediate_norm = nn.BatchNorm1d(9)
 
         #positional dropout 
         self.pos_drop = nn.Dropout(p = drop_rate)
@@ -154,7 +187,7 @@ class MMTransformer(nn.Module):
 
         x += self.Acc_pos_embed
         x = self.pos_drop(x)
-        ##get cross fusion indexes
+        ##get cross fusion indexe s
         cv_signals = []
         for _, blk in enumerate(self.Accelerometer_blocks):
             cv_sig, x = blk(x)
@@ -213,7 +246,7 @@ class MMTransformer(nn.Module):
         b,f,St = x.shape
         cv_idx = 0 
         class_token = torch.tile(self.temp_token, (b, 1, 1))
-        x = torch.cat((x, class_token), dim = 1)
+        x = torch.cat((class_token , x), dim = 1)
         x += self.Temporal_pos_embed
         for idx, blk in enumerate(self.Temporal_blocks):
             # print(f' In temporal {x.shape}')
@@ -228,11 +261,12 @@ class MMTransformer(nn.Module):
            
             x = blk(x) #output 3
             x= x + acc_data #merged both 3
+            x = self.intermediate_norm(x)
         x = self.Temporal_norm(x)
 
         ###Extract Class token head from the output
         if self.op_type=='cls':
-            cls_token = x[:,-1,:]
+            cls_token = x[:,1,:]
             cls_token = cls_token.view(b, -1) # (Batch_size, temp_embed)
             return cls_token
 
@@ -247,7 +281,7 @@ class MMTransformer(nn.Module):
 
         #Input: B X Mocap_frames X Num_joints X in_channs
         b, f, j, c = skl_data.shape
-
+        skl_data = skl_data
         #Extract skeletal signal from input 
         #x = inputs[:,:, :self.num_joints , :self.joint_coords]
         x = rearrange(skl_data, 'b f j c -> b c f j')
@@ -255,7 +289,9 @@ class MMTransformer(nn.Module):
         x = rearrange(x, 'b c f j -> b f j c')
         x = x.view(b, self.num_patch ,-1)
         #x = rearrange(x, 'b f j c -> b np (j pl c)' , np = 10, pl = 5)
+        x = rearrange(x, 'b t c -> b c t')
         x = self.Spatial_encoder(x)
+        x = rearrange(x, 'b c t -> b t c ')
         #Extract acc_signal from input 
         #sx = inputs[:, 0, self.num_joints:, :self.acc_coords]
         sx = acc_data
@@ -286,13 +322,14 @@ class MMTransformer(nn.Module):
 
 
 if __name__ == "__main__" :
-    skl_data = torch.randn(size=(16, 3, 32, 25))
-    layer = nn.Sequential(nn.Conv2d(3, 3, (1, 9), 1), 
-                                          nn.Conv2d(3, 1, (1, 9), 1))
-    transformed = layer(skl_data)
-    print(transformed.shape)
-    # acc_data = torch.randn(size = (16, 100, 3))
-    # model = MMTransformer(device = 'cpu', mocap_frames= 50, acc_frames = 100, num_joints = 25, in_chans = 3, acc_coords = 3, spatial_embed = 32, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'cls', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
+    skl_data = torch.randn(size=(1, 128, 25, 3))
+    # layer = nn.Sequential(nn.Conv2d(3, 3, (1, 9), 1), 
+    #                                       nn.Conv2d(3, 1, (1, 9), 1))
+    # transformed = layer(skl_data)
+    # print(transformed.shape)
+    acc_data = torch.randn(size = (1, 128, 3))
+    model = MMTransformer(device = 'cpu', mocap_frames= 128, num_patch=16, acc_frames = 128, num_joints = 25, in_chans = 3, acc_coords = 3, spatial_embed = 16, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'cls', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
+    model(acc_data, skl_data)
     # model(acc_data, skl_data)
 
 
