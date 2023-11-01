@@ -63,17 +63,16 @@ class Berkley_mhad(torch.utils.data.Dataset):
         return data, label
 
 class Bmhad_mm(torch.utils.data.Dataset):
-    def __init__(self, npz_file, batch_size):
+    def __init__(self, dataset, batch_size, transform = None):
         # Load data and labels from npz file
-        dataset = np.load(npz_file)
+        #dataset = np.load(npz_file)
         self.acc_data = dataset['acc_data']
         self.skl_data = dataset['skl_data']
         self.labels = dataset['labels']
         self.num_samples = self.acc_data.shape[0]
         self.acc_seq = self.acc_data.shape[1]
-        self.skl_joints = self.skl_data.shape[2]
-        self.skl_seq = self.skl_data.shape[1]
-        self.channels = self.skl_data.shape[3]
+        # self.skl_joints = self.skl_data.shape[2]
+        # self.skl_seq = self.skl_data.shape[1]
         self.batch_size = batch_size
 
     def __len__(self):
@@ -81,13 +80,13 @@ class Bmhad_mm(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         # Get the batch containing the requested index
-        skl_data = torch.tensor(self.skl_data[index, :, :,:])
+        data = dict()
+        skl_data = torch.tensor(self.skl_data[index, :, :, :])
+        #skl_data = skl_data.reshape((l, -1, 3))
         acc_data = torch.tensor(self.acc_data[index, : , :])
-        data = torch.zeros(self.skl_seq, self.skl_joints+self.acc_seq, self.channels)
-        data[:, :self.skl_joints, :] = skl_data
-        data[ 0, self.skl_joints:, :] = acc_data
+        data['skl_data'] = skl_data
+        data['acc_data'] =  acc_data
         label = self.labels[index]
-        label = label - 1
         label = torch.tensor(label)
         label = label.long()
         return data, label
@@ -113,11 +112,11 @@ class UTD_mm(torch.utils.data.Dataset):
         #     + Drift(max_drift=(0.1, 0.5)) @ 0.4  # with 80% probability, random drift the signal up to 10% - 50%
         #     + Reverse() @ 0.5 ) # with 50% probability, reverse the sequence 
 
-    def augment(self, data): 
-        data = torch.transpose(data, -2, -1)
-        transformed_data = self.transform.augment(data.numpy())
-        data = torch.tensor(np.transpose(transformed_data))
-        return data 
+    # def augment(self, data): 
+    #     data = torch.transpose(data, -2, -1)
+    #     transformed_data = self.transform.augment(data.numpy())
+    #     data = torch.tensor(np.transpose(transformed_data))
+    #     return data 
     
     def __len__(self):
         return self.num_samples
