@@ -17,6 +17,8 @@ import warnings
 import json
 import torch.nn.functional as F
 from torchsummary import summary
+import matplotlib.pyplot as plt
+from typing import List
 
 #local import 
 from Feeder.augmentation import TSFilpper
@@ -166,6 +168,11 @@ class Trainer():
                 lr = self.arg.base_lr, 
                 weight_decay=self.arg.weight_decay
             )
+        elif self.arg.optimizer == "SGD":
+            self.optimizer = optim.SGD(
+                self.model.parameters(), 
+                lr = self.arg.base_lr,
+            )
         
         else :
            raise ValueError()
@@ -231,17 +238,26 @@ class Trainer():
         if self.arg.print_log:
             with open('{}/log.txt'.format(self.arg.work_dir), 'a') as f:
                 print(string, file = f)
+    def loss_viz(self, train_loss : List[float], val_loss: List[float]) :
+        epochs = range(len(train_loss))
+        plt.plot(epochs, train_loss,'b', label = "Training Loss")
+        plt.plot(epochs, val_loss, 'r', label = "Validation Loss")
+        plt.title('Train Vs Val Loss')
+        plt.legend()
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.savefig(self.arg.work_dir+'/'+'trainvsval.png')
 
     def train(self, epoch):
         self.model.train()
         self.record_time()
         loader = self.data_loader['train']
         timer = dict(dataloader = 0.001, model = 0.001, stats = 0.001)
-        loss_value = []
         acc_value = []
         accuracy = 0
         cnt = 0
         train_loss = 0
+
         process = tqdm(loader, ncols = 80)
 
         for batch_idx, (inputs, targets) in enumerate(process):
@@ -270,14 +286,17 @@ class Trainer():
 
             timer['model'] += self.split_time()
             with torch.no_grad():
-                train_loss += loss.sum().item()
+                train_loss += loss.mean().item()
                 #accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
                 accuracy += (torch.argmax(F.log_softmax(logits,dim =1), 1) == targets).sum().item()
+                
             cnt += len(targets) 
             timer['stats'] += self.split_time()
+        
         train_loss /= cnt
         accuracy *= 100. / cnt
-        loss_value.append(train_loss)
+
+        self.train_loss_summary.append(train_loss)
         acc_value.append(accuracy) 
         proportion = {
             k: '{:02d}%'.format(int(round(v * 100 / sum(timer.values()))))
@@ -296,7 +315,9 @@ class Trainer():
                     self.print_log('Weights Saved') 
         
         else: 
-            self.eval(epoch, loader_name='val', result_file=self.arg.result_file)
+            val_loss = self.eval(epoch, loader_name='val', result_file=self.arg.result_file)
+            self.val_loss_summary.append(val_loss)
+        
 
         #Still need to work with this one
         # if save_model:
@@ -360,11 +381,14 @@ class Trainer():
                     state_dict = self.model.state_dict()
                     #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
                     torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name+ '.pt')
-                    self.print_log('Weights Saved')        
+                    self.print_log('Weights Saved')
+        return loss        
 
     def start(self):
         #summary(self.model,[(model_args['acc_frames'],3), (model_args['mocap_frames'], model_args['num_joints'],3)] , dtypes=[torch.float, torch.float] )
         if self.arg.phase == 'train':
+            self.train_loss_summary = []
+            self.val_loss_summary = []
             self.best_accuracy  = 0
             self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
             self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
@@ -379,11 +403,12 @@ class Trainer():
             self.print_log(f'Base LR: {self.arg.base_lr}')
             self.print_log(f'Batch Size: {self.arg.batch_size}')
             self.print_log(f'seed: {self.arg.seed}')
+            self.loss_viz(self.train_loss_summary, self.val_loss_summary)
         
         elif self.arg.phase == 'test' :
             if self.arg.weights is None: 
                 raise ValueError('Please appoint --weights')
-            self.eval(epoch=0, loader_name='test', result_file=self.arg.result_file)
+            loss = self.eval(epoch=0, loader_name='test', result_file=self.arg.result_file)
 
     # def save_arg(self):
     #     #save arg
