@@ -19,6 +19,8 @@ import torch.nn.functional as F
 from torchsummary import summary
 import matplotlib.pyplot as plt
 from typing import List
+from sklearn.utils.class_weight import compute_sample_weight
+from sklearn.metrics import confusion_matrix, accuracy_score
 
 #local import 
 from Feeder.augmentation import TSFilpper
@@ -216,6 +218,8 @@ class Trainer():
                 test_data = np.load('data/berkley_mhad/bhmad_sliding_stride10_test.npz')
 
             norm_test, _, _ =  normalization(data = test_data, mode = 'fit')
+            self.sample_weight = compute_sample_weight(class_weight='balanced', y=norm_test['labels'])
+            self.distribution_viz(norm_test['labels'])
             self.data_loader['test'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.test_feeder_args, dataset = norm_test),
                 batch_size=self.arg.test_batch_size,
@@ -247,6 +251,29 @@ class Trainer():
         plt.xlabel('Epochs')
         plt.ylabel('Loss')
         plt.savefig(self.arg.work_dir+'/'+'trainvsval.png')
+    
+    def cm_viz(self, y_pred : List[int], y_true : List[int]): 
+        cm = confusion_matrix(y_true, y_pred)
+
+        # plot the confusion matrix
+        plt.figure(figsize=(10,6))
+        plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+        plt.colorbar()
+        plt.xticks(np.unique(y_true))
+        plt.yticks(np.unique(y_true))
+        plt.xlabel("Predicted label")
+        plt.ylabel("True label")
+        plt.title("Confusion Matrix")
+        plt.savefig(self.arg.work_dir + '/' + 'Confusion Matrix')
+    
+    def distribution_viz(self, labels:List[int]):
+        values, count = np.unique(labels, return_counts = True)
+        plt.bar(x = values,data = count, height = count)
+        plt.xlabel('Labels')
+        plt.ylabel('Count')
+        plt.savefig(self.arg.work_dir + '/' + 'Label Distribution')
+
+        
 
     def train(self, epoch):
         self.model.train()
@@ -343,12 +370,11 @@ class Trainer():
         process = tqdm(self.data_loader[loader_name], ncols=80)
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(process):
-                label_list.extend(targets.tolist())
                 #inputs = inputs.cuda(self.output_device)
                 acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
                 skl_data = inputs['skl_data'].cuda(self.output_device)
                 targets = targets.cuda(self.output_device)
-
+                
                 #_,logits,predictions = self.model(inputs.float())
                 masks,logits,predictions = self.model(acc_data.float(), skl_data.float())
                 #logits = self.model(acc_data.float(), skl_data.float())
@@ -362,11 +388,13 @@ class Trainer():
                 # accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
                 # pred_list.extend(torch.argmax(predictions ,1).tolist())
                 accuracy += (torch.argmax(F.log_softmax(logits,dim =1), 1) == targets).sum().item()
+                label_list.extend(targets.tolist())
                 pred_list.extend(torch.argmax(F.log_softmax(logits,dim =1) ,1).tolist())
+                # print(len(pred_list))
                 cnt += len(targets)
             loss /= cnt
             accuracy *= 100./cnt
-        
+        accuracy = accuracy_score(label_list, pred_list, sample_weight=self.sample_weight) * 100
         if result_file is not None:
             predict = pred_list
             true = label_list
@@ -382,6 +410,8 @@ class Trainer():
                     #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
                     torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name+ '.pt')
                     self.print_log('Weights Saved')
+        else: 
+            return pred_list, label_list
         return loss        
 
     def start(self):
@@ -407,8 +437,10 @@ class Trainer():
         
         elif self.arg.phase == 'test' :
             if self.arg.weights is None: 
-                raise ValueError('Please appoint --weights')
-            loss = self.eval(epoch=0, loader_name='test', result_file=self.arg.result_file)
+                raise ValueError('Please add --weights')
+            y_pred, y_true = self.eval(epoch=0, loader_name='test', result_file=self.arg.result_file)
+            self.cm_viz(y_pred, y_true)
+
 
     # def save_arg(self):
     #     #save arg
