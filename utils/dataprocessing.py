@@ -96,7 +96,7 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
                     skl_window_size = 32, num_windows = 10,
                     num_joints = 32, num_channels = 3):
     skl_set = []
-    # acc_set = []
+    acc_set = []
     label_set = []
 
     file_paths = glob.glob(f'{data_dir}/{mode}/skeleton/*.csv')
@@ -140,9 +140,11 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
 
     # concat_acc = np.concatenate(acc_set, axis = 0)
     concat_skl = np.concatenate(skl_set, axis = 0)
+    s,w,j,c = concat_skl.shape
+    concat_acc = np.random.randn(s,w,3)
     concat_label = np.concatenate(label_set, axis = 0)
     _,count  = np.unique(concat_label, return_counts = True)
-    dataset = { 'acc_data' : {},
+    dataset = { 'acc_data' : concat_acc,
                 'skl_data' : concat_skl, 
                 'labels': concat_label}
     
