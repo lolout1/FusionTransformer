@@ -272,13 +272,15 @@ class Trainer():
             elif self.arg.dataset == 'smartfallmm':
 
                 train_data = sf_processing(mode = 'train',
-                                            skl_window_size=self.arg.model_args['spatial_embed'], 
+                                            acc_window_size= = self.arg.model_args['acc_frames'],
+                                            skl_window_size=self.arg.model_args['mocap_frames'], 
                                             num_windows = 10)
                 
                 norm_train, acc_scaler, skl_scaler =  normalization(data=train_data, mode = 'fit')
 
                 val_data = sf_processing(mode='test', 
-                                          skl_window_size=self.arg.model_args['spatial_embed'], 
+                                          acc_window_size= = self.arg.model_args['acc_frames'],
+                                          skl_window_size=self.arg.model_args['mocap_frames'], 
                                           num_windows=10)
                 norm_val, acc_scaler, skl_scaler =  normalization(data=val_data, mode = 'fit')
                 

@@ -16,8 +16,7 @@ model_args:
   num_classes: 2
   sdepth: 4
   tdepth: 4
-  
-  # acc_frames : 32
+  acc_frames : 32
   # num_joints : 20
   # num_classes : 27
   # spatial_embed : 32
@@ -25,8 +24,8 @@ model_args:
   # sdepth : 2
   # num_heads : 4
   # mocap_frames: 32
-  # num_patch: 8
-  # acc_coords: 6 
+  num_patch: 8
+  acc_coords: 3
   # drop_path_rate: 0.4
   # drop_rate: 0.4
   # attn_drop_rate: 0.4
