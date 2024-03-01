@@ -128,7 +128,10 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
         acc_data = acc_df.values[:, -3:]
         processed_acc = process_data(acc_data, acc_window_size, acc_stride)
         skl_df  = pd.read_csv(path).dropna()
-        skl_data = skl_df.iloc[: , 1:]
+        if skl_data.shape[1] == 97:
+            skl_data = skl_df.iloc[: , 1:]
+        else:
+            skl_data = skl_df.iloc[:, 2:]
         #skl_data = np.delete(skl_data, np.s_[3::4], axis = 1)
 
         skl_data = rearrange(skl_data.values, 't (j c) -> t j c' , j = num_joints, c = num_channels)
