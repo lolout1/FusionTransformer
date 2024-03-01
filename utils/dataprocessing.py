@@ -93,7 +93,9 @@ def bmhad_processing(data_dir = 'data/berkley_mhad', mode = 'train', acc_window_
     return dataset
 
 def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
-                    skl_window_size = 32, num_windows = 10,
+                    skl_window_size = 32, 
+                    num_windows = 10,
+                    acc_window_size = 32,
                     num_joints = 32, num_channels = 3):
     skl_set = []
     acc_set = []
@@ -103,6 +105,7 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
     print("file paths {}".format(len(file_paths)))
     #skl_path = f"{data_dir}/{mode}_skeleton_op/"
     #skl_path = f"{data_dir}/{mode}/skeleton/"
+    acc_dir = f"data_dir/{mode}/intertial/"
     pattern = r'S\d+A\d+T\d+'
     act_pattern = r'(A\d+)'
     label_pattern = r'(\d+)'
@@ -110,38 +113,40 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
         desp = re.findall(pattern, file_paths[idx])[0]
         act_label = re.findall(act_pattern, path)[0]
         label = int(re.findall(label_pattern, act_label)[0])-1
+        if label < 10 : 
+            label = 0
+        else : 
+            label = 1
 
-        # acc_data = loadmat(path)['sensor'][1][0]
+        acc_path = f'{acc_dir}/{desp}.csv'
+        acc_df = pd.read_csv(acc_path).dropna()
 
-        # acc_stride = (acc_data.shape[0] - acc_window_size) // num_windows
-        # acc_data = acc_data[::2, :-1]
-        # processed_acc = process_data(acc_data, acc_window_size, acc_stride)
+        acc_stride = (acc_df.shape[0] - acc_window_size) // num_windows
+        acc_data = acc_data[:, -3:]
+        processed_acc = process_data(acc_data, acc_window_size, acc_stride)
         skl_df  = pd.read_csv(path).dropna()
-        if skl_df.shape[1] > 97:
-            continue
         skl_data = skl_df.iloc[: , 1:]
         #skl_data = np.delete(skl_data, np.s_[3::4], axis = 1)
 
         skl_data = rearrange(skl_data.values, 't (j c) -> t j c' , j = num_joints, c = num_channels)
         
         skl_stride =(skl_data.shape[0] - skl_window_size) // num_windows
-        # if acc_stride <= 0 or skl_stride <= 0:
-        #     print(path)
-        #     continue
+        if acc_stride <= 0 or skl_stride <= 0:
+            print(path)
+            continue
         #skl_data = np.squeeze(np.load(skl_file))
         t, j , c = skl_data.shape
         skl_data = rearrange(skl_data, 't j c -> t (j c)')
         processed_skl = process_data(skl_data, skl_window_size, skl_stride)
         skl_data = rearrange(processed_skl, 'n t (j c) -> n t j c', j =j, c =c)
-        # sync_size = min(skl_data.shape[0],processed_acc.shape[0])
+        sync_size = min(skl_data.shape[0],processed_acc.shape[0])
         skl_set.append(skl_data[:, :, : , :])
-        # acc_set.append(processed_acc[:sync_size, : , :])
+        acc_set.append(processed_acc[:sync_size, : , :])
         label_set.append(np.repeat(label, skl_data.shape[0]))
 
-    # concat_acc = np.concatenate(acc_set, axis = 0)
+    concat_acc = np.concatenate(acc_set, axis = 0)
     concat_skl = np.concatenate(skl_set, axis = 0)
     s,w,j,c = concat_skl.shape
-    concat_acc = np.random.randn(s,w,3)
     concat_label = np.concatenate(label_set, axis = 0)
     _,count  = np.unique(concat_label, return_counts = True)
     dataset = { 'acc_data' : concat_acc,
