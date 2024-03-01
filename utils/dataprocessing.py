@@ -105,7 +105,7 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
     print("file paths {}".format(len(file_paths)))
     #skl_path = f"{data_dir}/{mode}_skeleton_op/"
     #skl_path = f"{data_dir}/{mode}/skeleton/"
-    acc_dir = f"{data_dir}/{mode}/intertial/"
+    acc_dir = f"{data_dir}/{mode}/inertial/"
     pattern = r'S\d+A\d+T\d+'
     act_pattern = r'(A\d+)'
     label_pattern = r'(\d+)'
@@ -119,7 +119,10 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
             label = 1
 
         acc_path = f'{acc_dir}/{desp}.csv'
-        acc_df = pd.read_csv(acc_path).dropna()
+        if os.path.exists(acc_path):
+            acc_df = pd.read_csv(acc_path).dropna()
+        else: 
+            continue
 
         acc_stride = (acc_df.shape[0] - acc_window_size) // num_windows
         acc_data = acc_data[:, -3:]
