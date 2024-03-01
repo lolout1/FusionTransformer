@@ -1,7 +1,7 @@
 
 
 #Model
-model: Models.model_skeleton_only.ActRecogTransformer
+model: Models.ef_w_decoder.MMTransformer
 # model : Models.model_crossview_fusion.ActRecogTransformer
 # model_saved_name : tokenfusion_AdamW_avgpool
 # work_dir: exps/UTD_woKD/with_AdamW
@@ -13,7 +13,7 @@ model_args:
   num_joints: 32
   in_chans: 3 
   spatial_embed: 32 
-  num_classes: 14
+  num_classes: 2
   sdepth: 4
   tdepth: 4
   
