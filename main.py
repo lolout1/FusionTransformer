@@ -128,15 +128,20 @@ class Trainer():
         # self.save_arg()
         if not os.path.exists(self.arg.work_dir):
             os.makedirs(self.arg.work_dir)
-        self.model = self.load_model(arg.model, arg.model_args)
+        if self.arg.phase == 'train':
+            self.model = self.load_model(arg.model, arg.model_args)
+        else: 
+            use_cuda = torch.cuda.is_available()
+            self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
+            self.model = torch.load(self.arg.weights)
         self.load_loss()
         self.load_optimizer()
         self.load_data()
         self.include_val = arg.include_val
 
-        if self.arg.phase == 'test':
-            # self.load_weights(self.arg.weights)
-            self.model.load_state_dict(torch.load(self.arg.weights))
+        # if self.arg.phase == 'test':
+        #     # self.load_weights(self.arg.weights)
+        #     self.model.load_state_dict(torch.load(self.arg.weights))
         
         num_params = self.count_parameters(self.model)
         self.print_log(f'# Parameters: {num_params}')
@@ -164,7 +169,7 @@ class Trainer():
     
     def load_optimizer(self):
         
-        if self.arg.optimizer == "adam" :
+        if self.arg.optimizer == "Adam" :
             self.optimizer = optim.Adam(
                 self.model.parameters(), 
                 lr = self.arg.base_lr,
@@ -202,14 +207,14 @@ class Trainer():
             if self.arg.dataset == 'utd':
                 train_data =  utd_processing(mode = self.arg.phase, 
                                              acc_window_size = self.arg.model_args['acc_frames'], 
-                                             skl_window_size = self.arg.model_args['spatial_embed'], 
+                                             #skl_window_size = self.arg.model_args['spatial_embed'], 
                                              num_windows = 15)
 
                 #self.distribution_viz(train_data['labels'], self.arg.work_dir, 'train')
                 norm_train, acc_scaler, skl_scaler =  normalization(data = train_data, mode = 'fit')
-                val_data =  utd_processing(mode = 'test', 
+                val_data =  utd_processing(mode = 'val', 
                                              acc_window_size = self.arg.model_args['acc_frames'], 
-                                             skl_window_size = self.arg.model_args['spatial_embed'], 
+                                             #skl_window_size = self.arg.model_args['spatial_embed'], 
                                              num_windows = 15)
                 norm_val, _, _ =  normalization(data = val_data,#acc_scaler=acc_scaler,
                                                #skl_scaler=skl_scaler,
@@ -218,7 +223,7 @@ class Trainer():
 
                 test_data =  utd_processing(mode = 'test', 
                                             acc_window_size = self.arg.model_args['acc_frames'], 
-                                             skl_window_size = self.arg.model_args['spatial_embed'], 
+                                             #skl_window_size = self.arg.model_args['spatial_embed'], 
                                              num_windows = 15)
                 norm_test, _, _ =  normalization(data = test_data, mode = 'fit' )
                 self.distribution_viz(test_data['labels'], self.arg.work_dir, 'test')
@@ -272,14 +277,14 @@ class Trainer():
             elif self.arg.dataset == 'smartfallmm':
 
                 train_data = sf_processing(mode = 'train',
-                                            acc_window_size= = self.arg.model_args['acc_frames'],
+                                            acc_window_size= self.arg.model_args['acc_frames'],
                                             skl_window_size=self.arg.model_args['mocap_frames'], 
                                             num_windows = 10)
                 
                 norm_train, acc_scaler, skl_scaler =  normalization(data=train_data, mode = 'fit')
 
                 val_data = sf_processing(mode='test', 
-                                          acc_window_size= = self.arg.model_args['acc_frames'],
+                                          acc_window_size=self.arg.model_args['acc_frames'],
                                           skl_window_size=self.arg.model_args['mocap_frames'], 
                                           num_windows=10)
                 norm_val, acc_scaler, skl_scaler =  normalization(data=val_data, mode = 'fit')
@@ -323,7 +328,7 @@ class Trainer():
             if self.arg.dataset == 'utd':
                 self.test_data =  utd_processing(mode = 'test', 
                                             acc_window_size = self.arg.model_args['acc_frames'], 
-                                             skl_window_size = self.arg.model_args['spatial_embed'], 
+                                             #skl_window_size = self.arg.model_args['spatial_embed'], 
                                              num_windows = 15)
                 #self.distribution_viz(test_data['labels'], self.arg.work_dir, 'test')
             elif self.arg.dataset == 'czu':
@@ -333,7 +338,7 @@ class Trainer():
                                     num_windows = 15)
             else:
                 self.test_data = np.load('data/berkley_mhad/bhmad_uniformdis_skl50_test.npz')
-            self.distribution_viz(self.test_data['labels'], self.arg.work_dir, 'test')
+            #self.distribution_viz(self.test_data['labels'], self.arg.work_dir, 'test')
             norm_test, _, _ =  normalization(data = self.test_data, mode = 'fit')
             self.data_loader['test'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.test_feeder_args, dataset = norm_test),
@@ -540,6 +545,7 @@ class Trainer():
                 # print(len(pred_list))
                 cnt += len(targets)
             loss /= cnt
+            print(loss)
             accuracy *= 100./cnt
         # accuracy = accuracy_score(label_list, pred_list) * 100
         if result_file is not None:
@@ -553,9 +559,9 @@ class Trainer():
         if self.arg.phase == 'train':
             if accuracy > self.best_accuracy :
                     self.best_accuracy = accuracy
-                    state_dict = self.model.state_dict()
+                    #state_dict = self.model.state_dict()
                     #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
-                    torch.save(state_dict, self.arg.weights)
+                    torch.save(self.model, f'{self.arg.work_dir}/{self.arg.model_saved_name}')
                     self.print_log('Weights Saved')
         else: 
             return pred_list, label_list, wrong_idx
