@@ -1,5 +1,5 @@
 #Model
-model: Models.model_crossview_fusion.ActRecogTransformer
+model: Models.st_cvtransformer.MMTransformer
 # model : Models.model_crossview_fusion.ActRecogTransformer
 # model_saved_name : tokenfusion_AdamW_avgpool
 # work_dir: exps/UTD_woKD/with_AdamW

@@ -16,7 +16,7 @@ result_file="result.txt"
 
 #Utd teacher 
 python3 main.py --config ./config/utd/teacher.yaml --work-dir $work_dir --model-saved-name $teacher_weights  --device 7  --base-lr 2.5e-3 --phase 'train' --result-file $work_dir/$result_file  --include-val True
-python3 main.py --config ./config/utd/teacher.yaml --work-dir $work_dir  --weights "$work_dir/$teacher_weights" --device 7 --base-lr 2.5e-3 --phase 'test'
+#python3 main.py --config ./config/utd/teacher.yaml --work-dir $work_dir  --weights "$work_dir/$teacher_weights" --device 7 --base-lr 2.5e-3 --phase 'test'
 
 #berkley_student
 #python3 main.py --config ./config/berkley/student.yaml --work-dir "$work_dir" --weights "$work_dir/$weights" --model-saved-name "$weights" --device 3 --base-lr 2.5e-3 --phase test

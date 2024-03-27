@@ -109,8 +109,9 @@ class Distiller(Trainer):
         if self.arg.phase == "train":
             self.model = {}
             self.arg.model_args = arg.teacher_args
-            self.load_model('teacher', arg.teacher_model, arg.teacher_args)
-            self.load_weights(name='teacher', weight = self.arg.teacher_weight)
+            # self.load_model('teacher', arg.teacher_model, arg.teacher_args)
+            # self.load_weights(name='teacher', weight = self.arg.teacher_weight)
+            self.model['teacher'] = torch.load(self.arg.teacher_weight)
             teacher_params = self.count_parameters(self.model['teacher'])
             print(f'# Teacher Parameters: {teacher_params}')
             self.load_model('student', arg.student_model, arg.student_args)
@@ -124,10 +125,14 @@ class Distiller(Trainer):
             os.makedirs(self.arg.work_dir)
         
         if self.arg.phase == 'test':
+            use_cuda = torch.cuda.is_available()
+            self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
             self.model = {}
-            self.load_model('student', arg.student_model, arg.student_args)
+            self.model['student'] = torch.load(self.arg.weights)
             self.load_loss(name='student', loss= arg.student_loss)
-            self.load_weights(name = 'student', weight=self.arg.weights)
+            self.arg.model_args = arg.student_args
+            self.arg.model_args['spatial_embed'] =  self.arg.model_args['acc_embed']
+            #self.load_weights(name = 'student', weight=self.arg.weights)
         
         self.load_data()
         self.load_optimizer()
@@ -299,8 +304,10 @@ class Distiller(Trainer):
                     self.best_accuracy = accuracy
                     state_dict = self.model['student'].state_dict()
                     #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
-                    torch.save(state_dict, self.arg.work_dir + '/' + self.arg.model_saved_name+ '.pt')
-                    self.print_log('Weights Saved')       
+                    torch.save(self.model['student'], self.arg.work_dir + '/' + self.arg.model_saved_name)
+                    self.print_log('Weights Saved')
+        else:
+            return pred_list, label_list , []     
 
 
 if __name__ == "__main__":
