@@ -29,8 +29,7 @@ class MMTransformer(nn.Module):
         self.joint_coords = in_chans
         self.acc_frames = acc_frames
         self.acc_coords = acc_coords
-        self.skl_encode_size = (self.skl_patch//(temp_embed//2))* (temp_embed)
-        print(self.skl_patch)
+        self.skl_encode_size = (self.skl_patch//(temp_embed//8))* (temp_embed)
         #Spatial postional embedding
         # self.Spatial_pos_embed = nn.Parameter(torch.zeros((1, num_patch+1, spatial_embed)))
         self.temp_token = nn.Parameter(torch.zeros(1, 1, spatial_embed))
@@ -304,14 +303,9 @@ class MMTransformer(nn.Module):
 
 
         #Extract acc_signal from input 
-        #sx = inputs[:, 0, self.num_joints:, :self.acc_coords]
         sx = acc_data
-        # sx = rearrange(acc_data,'b f c -> b c f' )
-        # sx = self.acc_conv(sx)
-        # sx = rearrange(sx,'b c f -> b f c' )
         sx = sx.view(b, self.num_patch, -1)
         sx = self.Acc_encoder(sx)
-        #sx = torch.reshape(sx, (b,-1,1,self.acc_coords)) #batch X acc_frames X 1 X acc_channel
 
         #Get acceleration features 
         sx, cv_signals = self.Acc_forward_features(sx)
@@ -340,5 +334,3 @@ if __name__ == "__main__" :
     model = MMTransformer(device = 'cpu', mocap_frames= 128, num_patch=16, acc_frames = 128, num_joints = 25, in_chans = 3, acc_coords = 3, spatial_embed = 16, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'cls', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
     model(acc_data, skl_data)
     # model(acc_data, skl_data)
-
-

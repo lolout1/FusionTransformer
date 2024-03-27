@@ -1,12 +1,11 @@
 
 
 #Model
-model: Models.model_skeleton_only.ActRecogTransformer
+model: Models.ef_w_decoder.MMTransformer
 # model : Models.model_crossview_fusion.ActRecogTransformer
 # model_saved_name : tokenfusion_AdamW_avgpool
 # work_dir: exps/UTD_woKD/with_AdamW
 dataset: 'smartfallmm'
-
 
 
 model_args:
@@ -14,11 +13,10 @@ model_args:
   num_joints: 32
   in_chans: 3 
   spatial_embed: 32 
-  num_classes: 14
+  num_classes: 2
   sdepth: 4
   tdepth: 4
-  
-  # acc_frames : 32
+  acc_frames : 32
   # num_joints : 20
   # num_classes : 27
   # spatial_embed : 32
@@ -26,8 +24,8 @@ model_args:
   # sdepth : 2
   # num_heads : 4
   # mocap_frames: 32
-  # num_patch: 8
-  # acc_coords: 6 
+  num_patch: 8
+  acc_coords: 3
   # drop_path_rate: 0.4
   # drop_rate: 0.4
   # attn_drop_rate: 0.4

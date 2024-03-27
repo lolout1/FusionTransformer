@@ -1,5 +1,5 @@
 #Model
-model: Models.ef_w_decoder.MMTransformer
+model: Models.st_cvtransformer.MMTransformer
 # model : Models.model_crossview_fusion.ActRecogTransformer
 # model_saved_name : tokenfusion_AdamW_avgpool
 # work_dir: exps/UTD_woKD/with_AdamW
@@ -7,13 +7,13 @@ dataset: 'utd'
 
 
 model_args:
-  acc_frames : 32
+  acc_frames : 64
   num_joints : 20
   num_classes : 27
-  spatial_embed : 32
+  spatial_embed : 64
   adepth : 2
   sdepth : 2
-  num_heads : 4
+  num_heads : 2
   mocap_frames: 32
   num_patch: 8
   acc_coords: 6 
@@ -70,4 +70,4 @@ test_feeder_args:
   batch_size: 16
 
 seed: 2 
-optimizer: adam
+optimizer: sgd
