@@ -19,8 +19,8 @@ class MMTransformer(nn.Module):
         self.num_patch = num_patch
         self.mocap_frames = mocap_frames
         self.skl_patch_size = mocap_frames // num_patch
+        self.skl_patch = self.skl_patch_size * (num_joints-8-8)        
         #print(self.skl_patch_size)
-        self.skl_patch = self.skl_patch_size * num_joints
         #print(self.skl_patch)
         self.acc_patch_size = acc_frames // num_patch
         self.temp_frames = mocap_frames
@@ -108,7 +108,7 @@ class MMTransformer(nn.Module):
 
         # )
         self.Spatial_encoder = nn.Sequential(
-            nn.Conv1d(84, self.skl_encode_size, 3, 1, 1), 
+            nn.Conv1d(self.skl_patch, self.skl_encode_size, 3, 1, 1), 
             nn.BatchNorm1d((self.skl_encode_size)), 
             nn.ReLU(), 
             nn.Conv1d(self.skl_encode_size ,self.skl_encode_size//2 , 3, 1, 1),
@@ -118,7 +118,6 @@ class MMTransformer(nn.Module):
             nn.BatchNorm1d(temp_embed),
             nn.ReLU()
         )
-
         #temporal encoder block 
         self.Temporal_blocks = nn.ModuleList([
             Block(
@@ -169,13 +168,14 @@ class MMTransformer(nn.Module):
                                         nn.BatchNorm2d(acc_coords),
                                         nn.ReLU())
 
+
         self.spatial_conv = nn.Sequential(nn.Conv2d(in_chans, in_chans, (1, 9), 1 ),
                                           nn.BatchNorm2d(in_chans),
                                           nn.ReLU(), 
-                                          nn.Conv2d(in_chans, in_chans//2, (1, 3), 1), 
-                                          nn.BatchNorm2d(in_chans//2),
+                                          nn.Conv2d(in_chans, 1, (1, 9), 1), 
+                                          nn.BatchNorm2d(1),
                                           nn.ReLU() )
-        
+
         #score net 
         self.score_net = nn.ModuleList([PredictorLG(embed_dim= acc_embed) for i in range(self.adepth)])
         self.exchange_net = nn.ModuleList([TokenExchange() for i in range(self.adepth)])
