@@ -93,7 +93,9 @@ def bmhad_processing(data_dir = 'data/berkley_mhad', mode = 'train', acc_window_
     return dataset
 
 def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
-                    skl_window_size = 32, num_windows = 10,
+                    skl_window_size = 32, 
+                    num_windows = 10,
+                    acc_window_size = 32,
                     num_joints = 32, num_channels = 3):
     skl_set = []
     acc_set = []
@@ -103,6 +105,7 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
     print("file paths {}".format(len(file_paths)))
     #skl_path = f"{data_dir}/{mode}_skeleton_op/"
     #skl_path = f"{data_dir}/{mode}/skeleton/"
+    acc_dir = f"{data_dir}/{mode}/inertial/"
     pattern = r'S\d+A\d+T\d+'
     act_pattern = r'(A\d+)'
     label_pattern = r'(\d+)'
@@ -110,38 +113,46 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
         desp = re.findall(pattern, file_paths[idx])[0]
         act_label = re.findall(act_pattern, path)[0]
         label = int(re.findall(label_pattern, act_label)[0])-1
+        if label < 10 : 
+            label = 0
+        else : 
+            label = 1
 
-        # acc_data = loadmat(path)['sensor'][1][0]
-
-        # acc_stride = (acc_data.shape[0] - acc_window_size) // num_windows
-        # acc_data = acc_data[::2, :-1]
-        # processed_acc = process_data(acc_data, acc_window_size, acc_stride)
-        skl_df  = pd.read_csv(path).dropna()
-        if skl_df.shape[1] > 97:
+        acc_path = f'{acc_dir}/{desp}.csv'
+        if os.path.exists(acc_path):
+            acc_df = pd.read_csv(acc_path).dropna()
+        else: 
             continue
-        skl_data = skl_df.iloc[: , 1:]
+
+        acc_stride = (acc_df.shape[0] - acc_window_size) // num_windows
+        acc_data = acc_df.values[:, -3:]
+        processed_acc = process_data(acc_data, acc_window_size, acc_stride)
+        skl_df  = pd.read_csv(path).dropna()
+        if skl_data.shape[1] == 97:
+            skl_data = skl_df.iloc[: , 1:]
+        else:
+            skl_data = skl_df.iloc[:, 2:]
         #skl_data = np.delete(skl_data, np.s_[3::4], axis = 1)
 
         skl_data = rearrange(skl_data.values, 't (j c) -> t j c' , j = num_joints, c = num_channels)
         
         skl_stride =(skl_data.shape[0] - skl_window_size) // num_windows
-        # if acc_stride <= 0 or skl_stride <= 0:
-        #     print(path)
-        #     continue
+        if acc_stride <= 0 or skl_stride <= 0:
+            print(path)
+            continue
         #skl_data = np.squeeze(np.load(skl_file))
         t, j , c = skl_data.shape
         skl_data = rearrange(skl_data, 't j c -> t (j c)')
         processed_skl = process_data(skl_data, skl_window_size, skl_stride)
         skl_data = rearrange(processed_skl, 'n t (j c) -> n t j c', j =j, c =c)
-        # sync_size = min(skl_data.shape[0],processed_acc.shape[0])
+        sync_size = min(skl_data.shape[0],processed_acc.shape[0])
         skl_set.append(skl_data[:, :, : , :])
-        # acc_set.append(processed_acc[:sync_size, : , :])
+        acc_set.append(processed_acc[:sync_size, : , :])
         label_set.append(np.repeat(label, skl_data.shape[0]))
 
-    # concat_acc = np.concatenate(acc_set, axis = 0)
+    concat_acc = np.concatenate(acc_set, axis = 0)
     concat_skl = np.concatenate(skl_set, axis = 0)
     s,w,j,c = concat_skl.shape
-    concat_acc = np.random.randn(s,w,3)
     concat_label = np.concatenate(label_set, axis = 0)
     _,count  = np.unique(concat_label, return_counts = True)
     dataset = { 'acc_data' : concat_acc,
@@ -237,7 +248,6 @@ def utd_processing(data_dir = 'data/UTD_MAAD', mode = 'val', acc_window_size = 3
         #     acc_stride = 10
         #     skl_stride = 3
         acc_data = loadmat(path)['d_iner']
-
         acc_stride = (acc_data.shape[0] - acc_window_size) // num_windows
         acc_data = acc_data[::2, :]
         # print(acc_stride)
@@ -249,8 +259,9 @@ def utd_processing(data_dir = 'data/UTD_MAAD', mode = 'val', acc_window_size = 3
         skl_data = rearrange(skl_data, 'j c t -> t j c')
         
         skl_stride =(skl_data.shape[0] - skl_window_size) // num_windows
+
         if acc_stride == 0 or skl_stride == 0:
-            print(path)
+            # print(path)
             continue
         #skl_data = np.squeeze(np.load(skl_file))
         t, j , c = skl_data.shape
@@ -298,6 +309,48 @@ def normalization(data_path = None,data = None,  new_path = None, acc_scaler = S
     dataset = {'acc_data' : norm_acc, 'skl_data': norm_skl, 'labels': data['labels']}
     return dataset, acc_scaler, skl_scaler
 
+def find_match_elements(pattern, elements): 
+    #compile the regular expression
+    try:
+        regex_pattern = re.compile(pattern)
+        #filtering the elements that match the regex pattern
+        matching_elements = [element for element in elements if regex_pattern.search(element)]
+        return matching_elements
+    except:
+        print(f'Error: {e}')
+        
+    return []
+
+def move_files(source_folder, destination_folder, pattern):
+    try:
+        
+        # Check if the source folder exists
+        if not os.path.exists(source_folder):
+            raise FileNotFoundError("Source folder does not exist.")
+        
+        # Check if the destination folder exists, if not, create it
+        if not os.path.exists(destination_folder):
+            os.makedirs(destination_folder)
+
+        # Get a list of files in the source folder
+        files = os.listdir(source_folder)
+        matched_files = find_match_elements( pattern, files)
+        
+        if not matched_files:
+            raise Exception('Couldn\'t find files with the pattern')
+
+        
+        for file in matched_files:
+            
+            source_file_path = os.path.join(source_folder, file)
+            destination_file_path = os.path.join(destination_folder, file)
+
+            # Perform the move operation
+            shutil.move(source_file_path, destination_file_path)
+        print("Files moved successfully.")
+        
+    except Exception as e:
+        print(f"Error: {e}")
 
 
 if __name__ == "__main__":

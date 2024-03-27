@@ -5,12 +5,12 @@ model: Models.model_acc_only.ActTransformerAcc
 model_saved_name : student_sliding
 
 model_args:
-  acc_frames : 128
+  acc_frames : 64
   num_joints : 25 
   num_classes : 27
-  acc_embed : 32 
-  adepth : 4
-  num_heads : 4
+  acc_embed : 16
+  adepth : 2
+  num_heads : 2
   acc_coords: 6
   # mocap_frames: 50
 
@@ -18,7 +18,7 @@ model_args:
 batch_size: 16
 test_batch_size: 16
 val_batch_size : 16
-num_epoch: 25
+num_epoch: 250
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
@@ -36,4 +36,4 @@ test_feeder_args:
   batch_size: 16
 
 seed: 2 
-optimizer: Adam
+optimizer: sgd
