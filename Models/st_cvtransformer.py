@@ -29,8 +29,7 @@ class MMTransformer(nn.Module):
         self.joint_coords = in_chans
         self.acc_frames = acc_frames
         self.acc_coords = acc_coords
-        self.skl_encode_size = (self.skl_patch//(temp_embed//2))* (temp_embed)
-        print(self.skl_patch)
+        self.skl_encode_size = (self.skl_patch//(temp_embed//8))* (temp_embed)
         #Spatial postional embedding
         # self.Spatial_pos_embed = nn.Parameter(torch.zeros((1, num_patch+1, spatial_embed)))
         self.temp_token = nn.Parameter(torch.zeros(1, 1, spatial_embed))
