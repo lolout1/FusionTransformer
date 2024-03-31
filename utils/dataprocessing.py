@@ -144,7 +144,7 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
         #sync_size = min(skl_data.shape[0],processed_acc.shape[0])
         skl_set.append(skl_data[:, :, : , :])
         
-        acc_set.append(np.random.rand(skl_data.shape[0], 3))
+        acc_set.append(np.random.rand(skl_data.shape[0],skl_window_size, 3))
         label_set.append(np.repeat(label, skl_data.shape[0]))
 
     concat_acc = np.concatenate(acc_set, axis = 0)
