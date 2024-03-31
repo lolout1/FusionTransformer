@@ -113,20 +113,15 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
         desp = re.findall(pattern, file_paths[idx])[0]
         act_label = re.findall(act_pattern, path)[0]
         label = int(re.findall(label_pattern, act_label)[0])-1
-        if label < 10 : 
-            label = 0
-        else : 
-            label = 1
+        # acc_path = f'{acc_dir}/{desp}.csv'
+        # if os.path.exists(acc_path):
+        #     acc_df = pd.read_csv(acc_path).dropna()
+        # else: 
+        #     continue
 
-        acc_path = f'{acc_dir}/{desp}.csv'
-        if os.path.exists(acc_path):
-            acc_df = pd.read_csv(acc_path).dropna()
-        else: 
-            continue
-
-        acc_stride = (acc_df.shape[0] - acc_window_size) // num_windows
-        acc_data = acc_df.values[:, -3:]
-        processed_acc = process_data(acc_data, acc_window_size, acc_stride)
+        # acc_stride = (acc_df.shape[0] - acc_window_size) // num_windows
+        # acc_data = acc_df.values[:, -3:]
+        # processed_acc = process_data(acc_data, acc_window_size, acc_stride)
         skl_df  = pd.read_csv(path).dropna()
         if skl_df.shape[1] == 98:
             skl_data = skl_df.iloc[: , 2:]
@@ -138,17 +133,17 @@ def sf_processing(data_dir = 'data/smartfallmm', mode = 'train',
         skl_data = rearrange(skl_data.values, 't (j c) -> t j c' , j = num_joints, c = num_channels)
         
         skl_stride =(skl_data.shape[0] - skl_window_size) // num_windows
-        if acc_stride <= 0 or skl_stride <= 0:
-            print(path)
+        # if acc_stride <= 0 or skl_stride <= 0:
+        if skl_stride <= 0: 
             continue
         #skl_data = np.squeeze(np.load(skl_file))
         t, j , c = skl_data.shape
         skl_data = rearrange(skl_data, 't j c -> t (j c)')
         processed_skl = process_data(skl_data, skl_window_size, skl_stride)
         skl_data = rearrange(processed_skl, 'n t (j c) -> n t j c', j =j, c =c)
-        sync_size = min(skl_data.shape[0],processed_acc.shape[0])
+        #sync_size = min(skl_data.shape[0],processed_acc.shape[0])
         skl_set.append(skl_data[:, :, : , :])
-        acc_set.append(processed_acc[:sync_size, : , :])
+        acc_set.append(np.random.rand(skl_data.shape))
         label_set.append(np.repeat(label, skl_data.shape[0]))
 
     concat_acc = np.concatenate(acc_set, axis = 0)
