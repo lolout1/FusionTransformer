@@ -13,7 +13,7 @@ model_args:
   num_joints: 32
   in_chans: 3 
   spatial_embed: 32 
-  num_classes: 2
+  num_classes: 8
   sdepth: 4
   tdepth: 4
   acc_frames : 32

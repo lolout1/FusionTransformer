@@ -241,7 +241,7 @@ class MMTransformer(nn.Module):
         
         return x, cls_token
     
-    def Temp_forward_features(self, x, cv_signals):
+    def Temp_forward_features(self, x):
 
         b,f,St = x.shape
         cv_idx = 0 
