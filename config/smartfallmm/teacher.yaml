@@ -1,7 +1,7 @@
 
 
 #Model
-model: Models.ef_w_decoder.MMTransformer
+model: Models.st_cvtransformer.MMTransformer
 # model : Models.model_crossview_fusion.ActRecogTransformer
 # model_saved_name : tokenfusion_AdamW_avgpool
 # work_dir: exps/UTD_woKD/with_AdamW
@@ -65,4 +65,4 @@ test_feeder_args:
   batch_size: 16
 
 seed: 2 
-optimizer: adam
+optimizer: sgd
