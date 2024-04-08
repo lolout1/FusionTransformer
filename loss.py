@@ -124,3 +124,15 @@ class BCE(nn.Module):
     def forward(self, masks, logits, targets):
         bce_loss = self.critetrion(logits, targets)
         return bce_loss
+
+class HuberLoss(nn.Module):
+    def __init__(self, delta=1.0):
+        super(HuberLoss, self).__init__()
+        self.delta = delta
+
+    def forward(self, mask, y_pred, y_true):
+        residual = torch.abs(y_true - torch.argmax(y_pred, dim = 1))
+        small_res = 0.5 * residual ** 2
+        large_res = self.delta * (residual - 0.5 * self.delta)
+        loss = torch.where(residual < self.delta, small_res, large_res)
+        return loss
