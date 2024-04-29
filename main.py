@@ -29,8 +29,8 @@ from Feeder.augmentation import TSFilpper
 from utils.dataprocessing import utd_processing , bmhad_processing, czu_processing, sf_processing,normalization
 from utils.dataset_loader import load_inertial_data, load_skeleton_data
 
-TRAIN_SUBJECT = [2, 4, 5, 6, 7, 10, 11]
-TEST_SUBJECT = [16, 17, 19, 21]
+TRAIN_SUBJECT = [2, 4, 5, 6, 7,8, 10, 11,14, 15, 16, 17,]
+TEST_SUBJECT = [19, 21, 23, 26]
 
 def get_args():
 
@@ -428,23 +428,17 @@ class Trainer():
         for batch_idx, (inputs, targets, idx) in enumerate(process):
         # for batch_idx, [acc_data, skl_data, targets] in enumerate(process):
  
-            # print(data)
             with torch.no_grad():
                 acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
                 skl_data = inputs['skl_data'].cuda(self.output_device)
                 targets = targets.cuda(self.output_device)
-                # acc_data = acc_data.long().cuda(self.output_device)
-                # skl_data = rearrange(skl_data, 'b f (j c) -> b f j c', c = 3, j = 20)
-                # skl_data = skl_data.long().cuda(self.output_device)
-                # targets = targets.cuda(self.output_device)
+
             
             timer['dataloader'] += self.split_time()
 
             self.optimizer.zero_grad()
-
-            # Ascent Step
-            #print("labels: ",targets)
             masks, logits,predictions = self.model(acc_data.float(), skl_data.float())
+
             #logits = self.model(acc_data.float(), skl_data.float())
             #print("predictions: ",torch.argmax(predictions, 1) )
             # bce_loss = self.criterion(logits, targets)
@@ -538,10 +532,9 @@ class Trainer():
                 # print(len(pred_list))
                 cnt += len(targets)
             loss /= cnt
-            print(loss)
             accuracy *= 100./cnt
         # accuracy = accuracy_score(label_list, pred_list) * 100
-        if result_file is not None:
+        if result_file is not None: 
             predict = pred_list
             true = label_list
 

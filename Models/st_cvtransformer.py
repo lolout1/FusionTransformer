@@ -241,7 +241,7 @@ class MMTransformer(nn.Module):
         
         return x, cls_token
     
-    def Temp_forward_features(self, x):
+    def Temp_forward_features(self, x, cv_signals):
 
         b,f,St = x.shape
         cv_idx = 0 
@@ -252,7 +252,7 @@ class MMTransformer(nn.Module):
             # print(f' In temporal {x.shape}')
             # skl_data = self.frame_reduce(x)
             # print(idx)
-            #acc_data = cv_signals[idx]
+            acc_data = cv_signals[idx]
             # if x.shape[1] > cv_signals[1].shape[1]-1:
             #     x = self.frame_reduce_mf(x)
             # elif x.shape[1] < cv_signals[1].shape[1] -1:
@@ -260,7 +260,7 @@ class MMTransformer(nn.Module):
             #     x = x
            
             x = blk(x) #output 3
-            # x= x + acc_data #merged both 3
+            x= x + acc_data #merged both 3
 
             #x = self.intermediate_norm(x)
         x = self.Temporal_norm(x)
@@ -277,7 +277,6 @@ class MMTransformer(nn.Module):
             x = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x St x 1
             x = torch.reshape(x, (b,St))
             return x #b x St 
-
     def forward(self, acc_data, skl_data):
 
         #Input: B X Mocap_frames X Num_joints X in_channs
@@ -302,13 +301,11 @@ class MMTransformer(nn.Module):
         spatial_out = torch.reshape(spatial_out, (b,St))
         x = rearrange(x, 'b c t -> b t c ')
 
-
-        # #Extract acc_signal from input 
         sx = acc_data
         sx = sx.view(b, self.num_patch, -1)
         sx = self.Acc_encoder(sx)
 
-        # #Get acceleration features 
+        #Get acceleration features 
         sx, cv_signals = self.Acc_forward_features(sx)
         #Get skeletal features
         #x, cls_token = self.Spatial_forward_features(x) # in: B x mocap_frames x num_joints x in_chann  out: x = b x mocap_frame x (num_joints*Se) cls_token b x mocap_frames*Se     
@@ -316,7 +313,7 @@ class MMTransformer(nn.Module):
         # print(f'Class token {cls_token.shape}')
         # temp_cls_token = self.proj_up_clstoken(cls_token) # in b x mocap_frames * se -> #out: b x num_joints*Se
         # temp_cls_token = torch.unsqueeze(temp_cls_token, dim = 1) #in: B x 1 x num_joints*Se)
-        x = self.Temp_forward_features(x) #in: B x mocap_frames x ()
+        x = self.Temp_forward_features(x, cv_signals) #in: B x mocap_frames x ()
         x = x + sx 
         logits = self.class_head(x)
         return x , logits, F.log_softmax(logits,dim =1)

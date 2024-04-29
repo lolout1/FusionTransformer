@@ -120,7 +120,6 @@ def sf_processing(data_dir = 'data/smartfallmm', subjects = None,
              acc_df = pd.read_csv(acc_path).dropna()
         else: 
              continue
-
         acc_stride = (acc_df.shape[0] - acc_window_size) // num_windows
         acc_data = acc_df.values[:, -3:]
         
@@ -135,10 +134,10 @@ def sf_processing(data_dir = 'data/smartfallmm', subjects = None,
 
         skl_data = rearrange(skl_df.values[:, -96:], 't (j c) -> t j c' , j = num_joints, c = num_channels)
         
-        #skl_stride =(skl_data.shape[0] - skl_window_size) // num_windows
-        skl_stride  = int(skl_window_size / 2)
+        skl_stride =(skl_data.shape[0] - skl_window_size) // num_windows
+        #skl_stride  = int(skl_window_size / 2)
         # if acc_stride <= 0 or skl_stride <= 0:
-        if skl_stride <= 0: 
+        if skl_stride <= 0 or acc_stride <= 0: 
             continue
         #skl_data = np.squeeze(np.load(skl_file))
         t, j , c = skl_data.shape
@@ -309,8 +308,8 @@ def normalization(data_path = None,data = None,  new_path = None, acc_scaler = S
     norm_skl = skl_scaler.transform(reshape_skl).reshape(skl_ct, skl_ln, joints, skl_cl)
     
     #np.savez(new_path, acc_data = norm_acc, skl_data = norm_skl, labels = data['labels'] )
-    dataset = {'acc_data': acc_data.astype(np.float64), 'skl_data': skl_data.astype(np.float64), 'labels': data['labels']}
-    #dataset = {'acc_data' : norm_acc, 'skl_data': norm_skl, 'labels': data['labels']}
+    #dataset = {'acc_data': acc_data.astype(np.float64), 'skl_data': skl_data.astype(np.float64), 'labels': data['labels']}
+    dataset = {'acc_data' : norm_acc, 'skl_data': norm_skl, 'labels': data['labels']}
     return dataset, acc_scaler, skl_scaler
 
 def find_match_elements(pattern, elements): 

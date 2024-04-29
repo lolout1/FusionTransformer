@@ -7,7 +7,7 @@ dataset: smartfallmm
 
 model_args:
   mocap_frames: 128
-  acc_frames : 64
+  acc_frames : 128
   num_joints : 32
   num_classes : 8
   acc_embed : 64

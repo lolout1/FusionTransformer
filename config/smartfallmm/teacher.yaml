@@ -14,8 +14,8 @@ model_args:
   in_chans: 3
   spatial_embed: 32
   num_classes: 8
-  sdepth: 12
-  tdepth: 12
+  sdepth: 4
+  tdepth: 4
   acc_frames : 32
   # num_joints : 20
   # num_classes : 27
@@ -44,9 +44,9 @@ weight_decay: 0.0004
 
 # training
 #changeable
-batch_size: 16
-test_batch_size: 16
-val_batch_size : 16
+batch_size: 8
+test_batch_size: 8
+val_batch_size : 8
 num_epoch: 250
 
 #dataloader
@@ -54,15 +54,15 @@ feeder: Feeder.Make_Dataset.UTD_mm
 
 train_feeder_args:
   # npz_file: data/UTD_MAAD/utd_train_op_mf50_norm.npz
-  batch_size: 16
+  batch_size: 8
 
 val_feeder_args:
   # npz_file: data/UTD_MAAD/utd_val_op_mf50_norm.npz
-  batch_size: 16
+  batch_size: 8
 
 test_feeder_args: 
   # npz_file: data/UTD_MAAD/utd_test_op_mf50_norm.npz
-  batch_size: 16
+  batch_size: 8
 
 seed: 2 
 optimizer: sgd
