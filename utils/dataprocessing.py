@@ -303,12 +303,14 @@ def normalization(data_path = None,data = None,  new_path = None, acc_scaler = S
     if mode == 'fit' :
         acc_scaler.fit(reshape_acc)
         skl_scaler.fit(reshape_skl)
+
         
     norm_acc = acc_scaler.transform(reshape_acc). reshape(acc_ct, acc_ln, acc_cl)
     norm_skl = skl_scaler.transform(reshape_skl).reshape(skl_ct, skl_ln, joints, skl_cl)
     
     #np.savez(new_path, acc_data = norm_acc, skl_data = norm_skl, labels = data['labels'] )
-    dataset = {'acc_data' : norm_acc, 'skl_data': norm_skl, 'labels': data['labels']}
+    dataset = {'acc_data': acc_data.astype(np.float64), 'skl_data': skl_data.astype(np.float64), 'labels': data['labels']}
+    #dataset = {'acc_data' : norm_acc, 'skl_data': norm_skl, 'labels': data['labels']}
     return dataset, acc_scaler, skl_scaler
 
 def find_match_elements(pattern, elements): 

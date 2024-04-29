@@ -282,14 +282,14 @@ class Trainer():
                 train_data = sf_processing(subjects= TRAIN_SUBJECT,
                                             acc_window_size= self.arg.model_args['acc_frames'],
                                             skl_window_size=self.arg.model_args['mocap_frames'], 
-                                            num_windows = 10)
+                                            num_windows = 20)
                 
                 norm_train, acc_scaler, skl_scaler =  normalization(data=train_data, mode = 'fit')
 
                 val_data = sf_processing(subjects = TEST_SUBJECT, 
                                           acc_window_size=self.arg.model_args['acc_frames'],
                                           skl_window_size=self.arg.model_args['mocap_frames'], 
-                                          num_windows=10)
+                                          num_windows=20)
                 norm_val, acc_scaler, skl_scaler =  normalization(data=val_data, mode = 'fit')
                 
                 norm_test = norm_val
@@ -452,6 +452,8 @@ class Trainer():
             # for mask in masks: 
             #     slim_loss += sum([self.slim_penalty(m) for m in mask])
             # loss = bce_loss + (0.3*slim_loss)
+            #print(torch.argmax(F.log_softmax(logits,dim =1), 1))
+            #print(targets)
             loss = self.criterion(masks, logits, targets)
             loss.mean().backward()
             self.optimizer.step()
@@ -521,20 +523,8 @@ class Trainer():
                 acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
                 skl_data = inputs['skl_data'].cuda(self.output_device)
                 targets = targets.cuda(self.output_device)
-                # acc_data = acc_data.long().cuda(self.output_device)
-                # skl_data = rearrange(skl_data, 'b f (j c) -> b f j c', c = 3, j = 20)
-                # skl_data = skl_data.long().cuda(self.output_device)
-                # targets = targets.cuda(self.output_device)
-                            
-                
-                #_,logits,predictions = self.model(inputs.float())
+
                 masks,logits,predictions = self.model(acc_data.float(), skl_data.float())
-                #logits = self.model(acc_data.float(), skl_data.float())
-                # bce_loss = self.criterion(logits, targets)
-                # slim_loss = 0
-                # for mask in masks: 
-                #     slim_loss += sum([self.slim_penalty(m) for m in mask])
-                # batch_loss = bce_loss + (0.3*slim_loss)
                 batch_loss = self.criterion(masks, logits, targets)
                 #batch_loss = self.criterion(logits, targets)
                 loss += batch_loss.sum().item()
@@ -577,6 +567,7 @@ class Trainer():
             self.val_loss_summary = []
             self.best_accuracy  = 0
             self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
+            print(self.model)
             self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
             for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
                 self.train(epoch)
