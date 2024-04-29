@@ -135,13 +135,15 @@ def sf_processing(data_dir = 'data/smartfallmm', subjects = None,
 
         skl_data = rearrange(skl_df.values[:, -96:], 't (j c) -> t j c' , j = num_joints, c = num_channels)
         
-        skl_stride =(skl_data.shape[0] - skl_window_size) // num_windows
+        #skl_stride =(skl_data.shape[0] - skl_window_size) // num_windows
+        skl_stride  = int(skl_window_size / 2)
         # if acc_stride <= 0 or skl_stride <= 0:
         if skl_stride <= 0: 
             continue
         #skl_data = np.squeeze(np.load(skl_file))
         t, j , c = skl_data.shape
         skl_data = rearrange(skl_data, 't j c -> t (j c)')
+        acc_stride = int(acc_window_size / 2)
         processed_acc = process_data(acc_data, acc_window_size, acc_stride)
         processed_skl = process_data(skl_data, skl_window_size, skl_stride)
         skl_data = rearrange(processed_skl, 'n t (j c) -> n t j c', j =j, c =c)
