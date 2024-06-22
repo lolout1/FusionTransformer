@@ -23,13 +23,13 @@ class SemanticLoss(nn.Module):
         teacher_soft = F.log_softmax(teacher_logits/self.T, dim = 1)
 
         #KLDivergence of this two
-        kl_div = self.kd_loss(pred_soft, teacher_soft) * (self.alpha * self.T * self.T )
+        kl_div = self.kd_loss(pred_soft, teacher_soft) *  ( self.T * self.T )
         # #cross entropy loss 
         # loss_y_label = F.cross_entropy(pred, labels) * (1.0 - alpha)
 
         #focal loss
-        loss_y_label = self.cross_entropy(logits, labels) * (1 - self.alpha)
-        distill_loss = kl_div + loss_y_label
+        loss_y_label = self.cross_entropy(logits, labels) 
+        distill_loss = self.alpha * kl_div + (1.0- self.alpha) * loss_y_label
 
         return distill_loss
     
@@ -76,17 +76,17 @@ class SemanticLoss(nn.Module):
         return loss
 
     def forward(self,stud_logits, teacher_logits, labels):
-        # gamma = 0.1
-        # beta = 0.2
-        # sigma = 1 - gamma - beta
+        gamma = 0.1
+        beta = 0.1
+        sigma = 1 - gamma - beta
         kd_loss = self.distillation_loss(logits = stud_logits, labels = labels, teacher_logits = teacher_logits)
-        # y = F.log_softmax(stud_logits, dim = 1)
-        # teacher_y = F.log_softmax(teacher_logits, dim = 1)
-        # angular_loss = self.angular_dist(y, teacher_y)
-        # dist_loss = self.distance(y, teacher_y)
+        y = F.log_softmax(stud_logits, dim = 1)
+        teacher_y = F.log_softmax(teacher_logits, dim = 1)
+        angular_loss = self.angular_dist(y, teacher_y)
+        dist_loss = self.distance(y, teacher_y)
 
-        # loss = (sigma*kd_loss) + (beta*angular_loss) + (gamma*dist_loss)
-        return kd_loss
+        loss = (sigma*kd_loss) + (beta*angular_loss) + (gamma*dist_loss)
+        return loss
     
 class FocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2):
@@ -121,6 +121,6 @@ class BCE(nn.Module):
         super().__init__()
         self.critetrion = nn.CrossEntropyLoss().cuda()
     
-    def forward(self, masks, logits, targets):
+    def forward(self,logits, targets):
         bce_loss = self.critetrion(logits, targets)
         return bce_loss

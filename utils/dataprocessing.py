@@ -8,11 +8,37 @@ import re
 import torch
 import shutil
 import os
+from typing import Sequence
 from bvh import Bvh
 import torch.nn.functional as F
 from bvh import Bvh
 from sklearn.preprocessing import StandardScaler
 from einops import rearrange
+# TRAIN_SUBJECT = [2, 4, 5, 7,8, 10, 11,14, 15, 16, 17,19, 21, 23, 26]
+# TEST_SUBJECT = [6]
+TRAIN_SUBJECT = [ i for i in range(30, 37)]
+TEST_SUBJECT = [37]
+
+def avg_pool(sequence, window_size = 5, stride=1, max_length = 512 , shape = None):
+    shape = sequence.shape
+    sequence = sequence.reshape(shape[0], -1)
+    sequence = np.expand_dims(sequence, axis = 0).transpose(0,2, 1)
+    sequence = torch.tensor(sequence, dtype=torch.float32)
+    stride =  ((sequence.shape[2]//max_length)+1 if max_length < sequence.shape[2] else 1)
+    sequence = F.avg_pool1d(sequence,kernel_size=window_size, stride=stride)
+    sequence = sequence.squeeze(0).numpy().transpose(1,0)
+    sequence = sequence.reshape(-1, *shape[1:])
+    return sequence
+
+
+def pad_sequence_numpy(sequence: np.ndarray, max_sequence_length: int, input_shape: Sequence[int]) -> np.ndarray:
+    shape = list(input_shape)
+    shape[0] = max_sequence_length
+    pooled_sequence = avg_pool(sequence=sequence, max_length = max_sequence_length, 
+                               shape = input_shape)
+    new_sequence = np.zeros(shape, sequence.dtype)
+    new_sequence[:len(pooled_sequence)] = pooled_sequence
+    return new_sequence
 
 def bvh2arr(file_path):
     with open(file = file_path, mode='r') as f: 
@@ -101,65 +127,64 @@ def sf_processing(data_dir = 'data/smartfallmm', subjects = None,
     acc_set = []
     label_set = []
 
-    file_paths = glob.glob(f'{data_dir}/skeleton/*.csv')
+    file_paths = glob.glob(f'{data_dir}/old_participant/skeleton/*.csv')
     print("file paths {}".format(len(file_paths)))
     #skl_path = f"{data_dir}/{mode}_skeleton_op/"
     #skl_path = f"{data_dir}/{mode}/skeleton/"
-    acc_dir = f"{data_dir}/meta_wrist/"
+    acc_dir = f"{data_dir}/old_participant/phonewatch/w_accel"
     pattern = r'S\d+A\d+T\d+'
     act_pattern = r'(A\d+)'
     label_pattern = r'(\d+)'
+
     for idx,path in enumerate(file_paths):
         desp = re.findall(pattern, file_paths[idx])[0]
         if not int(desp[1:3]) in subjects:
             continue
         act_label = re.findall(act_pattern, path)[0]
-        label = int(re.findall(label_pattern, act_label)[0])-1
+        label = int(int(re.findall(label_pattern, act_label)[0])-1)
+
         acc_path = f'{acc_dir}/{desp}.csv'
         if os.path.exists(acc_path):
-             acc_df = pd.read_csv(acc_path).dropna()
+             acc_df = pd.read_csv(acc_path, header = 0).dropna()
         else: 
              continue
-        acc_stride = (acc_df.shape[0] - acc_window_size) // num_windows
-        acc_data = acc_df.values[:, -3:]
+
+        acc_data = acc_df.bfill().iloc[2:, -3:].to_numpy(dtype=np.float32)
         
         skl_df  = pd.read_csv(path, index_col =False).dropna()
+        skl_data = skl_df.bfill().iloc[:, -96:].to_numpy(dtype=np.float32)
+        ######## avg poolin #########
+        padded_acc = pad_sequence_numpy(sequence=acc_data, input_shape= acc_data.shape, max_sequence_length=acc_window_size)
 
-        # if skl_df.shape[1] == 98:
-        #     skl_data = skl_df.iloc[: , 2:]
-        # elif skl_df.shape[1] < 96:
-        #     continue
-        # else:
-        #     skl_data = skl_df
+        padded_skl = pad_sequence_numpy(sequence=skl_data, input_shape=skl_data.shape, max_sequence_length=skl_window_size)
 
-        skl_data = rearrange(skl_df.values[:, -96:], 't (j c) -> t j c' , j = num_joints, c = num_channels)
         
-        skl_stride =(skl_data.shape[0] - skl_window_size) // num_windows
-        #skl_stride  = int(skl_window_size / 2)
-        # if acc_stride <= 0 or skl_stride <= 0:
-        if skl_stride <= 0 or acc_stride <= 0: 
-            continue
-        #skl_data = np.squeeze(np.load(skl_file))
-        t, j , c = skl_data.shape
-        skl_data = rearrange(skl_data, 't j c -> t (j c)')
-        acc_stride = int(acc_window_size / 2)
-        processed_acc = process_data(acc_data, acc_window_size, acc_stride)
-        processed_skl = process_data(skl_data, skl_window_size, skl_stride)
-        skl_data = rearrange(processed_skl, 'n t (j c) -> n t j c', j =j, c =c)
-        sync_size = min(skl_data.shape[0],processed_acc.shape[0])
-        skl_set.append(skl_data[:sync_size, :, : , :])
-        acc_set.append(processed_acc[:sync_size, : , :])
-        label_set.append(np.repeat(label, skl_data.shape[0]))
+        skl_data = rearrange(padded_skl, 't (j c) -> t j c' , j = 32, c = 3)
+        acc_set.append(padded_acc)
+        skl_set.append(skl_data)
+        label_set.append(label)
+        #skl_data = rearrange(skl_df.values[:, -96:], 't (j c) -> t j c' , j = 32, c = 3)
 
-    concat_acc = np.concatenate(acc_set, axis = 0)
-    concat_skl = np.concatenate(skl_set, axis = 0)
-    s,w,j,c = concat_skl.shape
-    concat_label = np.concatenate(label_set, axis = 0)
-    _,count  = np.unique(concat_label, return_counts = True)
+    #     acc_stride = 10
+    #     processed_acc = process_data(acc_data, acc_window_size, acc_stride)
+    #     processed_skl = process_data(skl_data, skl_window_size, acc_stride)
+    #     sync_size = min(processed_acc.shape[0],processed_skl.shape[0])
+    #     skl_set.append(processed_skl[:sync_size, :, : , :])
+    #     acc_set.append(processed_acc[:sync_size, : , :])
+    #     label_set.append(np.repeat(label, processed_acc.shape[0]))
+
+    concat_acc = np.stack(acc_set, axis = 0)
+    concat_skl = np.stack(skl_set, axis = 0)
+    # #s,w,j,c = concat_skl.shape
+    concat_label = np.stack(label_set, axis = 0)
+     #print(concat_acc.shape[0], concat_label.shape[0])
+    # _,count  = np.unique(concat_label, return_counts = True)
+    # print(concat_acc.shape)
+    # print(concat_skl.shape)
+    # #np.savez('/home/bgu9/KD_Multimodal/train.npz' , data = concat_acc, labels = concat_label)
     dataset = { 'acc_data' : concat_acc,
-                'skl_data' : concat_skl, 
-                'labels': concat_label}
-    
+                 'skl_data' : concat_skl, 
+                 'labels': concat_label}
     return dataset
 
 
@@ -359,5 +384,6 @@ def move_files(source_folder, destination_folder, pattern):
 if __name__ == "__main__":
     # bmhad_processing(data_dir= '/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/',  acc_window_size = 50, skl_window_size = 50)
     # bmhad_processing(data_dir= '/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/',mode = 'val', acc_window_size = 50, skl_window_size = 50)
-    bmhad_processing(data_dir= '/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/',mode = 'test', acc_window_size = 50, skl_window_size = 50)
-    #dataset = sf_processing()
+    #bmhad_processing(data_dir= '/home/bgu9/Fall_Detection_KD_Multimodal/data/berkley_mhad/',mode = 'test', acc_window_size = 50, skl_window_size = 50)
+    dataset = sf_processing(subjects=TRAIN_SUBJECT)
+

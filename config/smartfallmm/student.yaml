@@ -1,9 +1,14 @@
 #Model
-model: Models.vit.AccelerometerTransformer
+model: Models.transformer.TransModel
 # file name of weights 
 #work_dir: exps/UTD_woKD/acc_modal
 #model_saved_name : student_sliding
 dataset: smartfallmm
+
+# train_subjects: [4, 5, 6, 7, 9,10 ,11,14, 15,16,17,19,21,23,22,25,26]
+# test_subjects: [18]
+# subjects: [29,31, 32, 34, 35, 36, 37]
+subjects: [5,7,10,11,15,16,17,18,19,21,22,23]
 
 model_args:
   mocap_frames: 128
@@ -11,8 +16,8 @@ model_args:
   num_joints : 32
   num_classes : 8
   acc_embed : 64
-  adepth : 4
-  num_heads : 4
+  adepth : 2
+  num_heads : 2
   acc_coords: 3
   # mocap_frames: 50
 
@@ -20,11 +25,10 @@ model_args:
 batch_size: 8
 test_batch_size: 8
 val_batch_size : 8
-num_epoch: 250
+num_epoch: 120
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
-
 train_feeder_args:
   # npz_file: data/UTD_MAAD/utd_train_op_mf50_norm.npz
   batch_size: 8

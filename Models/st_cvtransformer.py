@@ -29,15 +29,16 @@ class MMTransformer(nn.Module):
         self.joint_coords = in_chans
         self.acc_frames = acc_frames
         self.acc_coords = acc_coords
-        self.skl_encode_size = (self.skl_patch//(temp_embed//8))* (temp_embed)
+        #self.skl_encode_size = (self.skl_patch//(temp_embed//8))* (temp_embed)
+        self.skl_encoder_size = temp_embed
         #Spatial postional embedding
         # self.Spatial_pos_embed = nn.Parameter(torch.zeros((1, num_patch+1, spatial_embed)))
         self.temp_token = nn.Parameter(torch.zeros(1, 1, spatial_embed))
         # self.proj_up_clstoken = nn.Linear(mocap_frames*spatial_embed, self.num_joints* spatial_embed)
 
         #Temporal Embedding  
-        #adds postion info to every elementa
-        self.Temporal_pos_embed = nn.Parameter(torch.zeros(1, num_patch + 1,spatial_embed)) 
+        #adds postion info to every element
+        self.Temporal_pos_embed = nn.Parameter(torch.zeros(1, 1,spatial_embed)) 
 
         #accelerometer positional embedding
         self.Acc_pos_embed = nn.Parameter(torch.zeros(1, 1,acc_embed))
@@ -102,13 +103,13 @@ class MMTransformer(nn.Module):
 
         # )
         self.Spatial_encoder = nn.Sequential(
-            nn.Conv1d(self.skl_patch, self.skl_encode_size, 3, 1, 1), 
-            nn.BatchNorm1d((self.skl_encode_size)), 
+            nn.Conv1d(self.mocap_frames, self.skl_encoder_size, 3, 1, 1,), 
+            nn.BatchNorm1d((self.skl_encoder_size)), 
             nn.ReLU(), 
-            nn.Conv1d(self.skl_encode_size ,self.skl_encode_size//2 , 3, 1, 1),
-            nn.BatchNorm1d((self.skl_encode_size//2)),
+            nn.Conv1d(self.skl_encoder_size ,self.skl_encoder_size , 3, 1, 1),
+            nn.BatchNorm1d((self.skl_encoder_size)),
             nn.ReLU(),
-            nn.Conv1d(self.skl_encode_size//2, temp_embed, 3, 1 , 1),
+            nn.Conv1d(self.skl_encoder_size, temp_embed, 3, 1 , 1),
             nn.BatchNorm1d(temp_embed),
             nn.ReLU()
         )
@@ -121,24 +122,33 @@ class MMTransformer(nn.Module):
             )
             for i in range(self.tdepth)
         ])
+        
+        #joint relation block 
+        self.joint_block = nn.ModuleList([
+             Block(
+               dim = 32 , num_heads = num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+              drop= drop_rate, attn_drop=attn_drop_rate, drop_path=tdpr[0], norm_layer=norm_layer
 
+             )
+         ])
         #accelerometer encoder block
-        self.Accelerometer_blocks = nn.ModuleList([
-           Block(
-            dim = acc_embed, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-            drop= drop_rate, attn_drop=attn_drop_rate, drop_path=adpr[i], norm_layer=norm_layer, blocktype='Sensor'
-           )
-           for i in range(self.adepth)
-        ])
+        # self.Accelerometer_blocks = nn.ModuleList([
+        #    Block(
+        #     dim = acc_embed, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+        #     drop= drop_rate, attn_drop=attn_drop_rate, drop_path=adpr[i], norm_layer=norm_layer, blocktype='Sensor'
+        #    )
+        #    for i in range(self.adepth)
+        # ])
 
-        self.Acc_encoder = nn.Sequential(
-                nn.Linear(self.acc_patch_size * self.acc_coords, acc_embed),
-                nn.ReLU(),
-                # nn.Linear(32, 16),
-                # nn.ReLU(),
-                # nn.Linear(64, 128),
-                # nn.ReLU()
-        )
+
+        # self.Acc_encoder = nn.Sequential(
+        #         nn.Linear(self.acc_patch_size * self.acc_coords, acc_embed),
+        #         nn.ReLU(),
+        #         # nn.Linear(32, 16),
+        #         # nn.ReLU(),
+        #         # nn.Linear(64, 128),
+        #         # nn.ReLU()
+        # )
         #norm layer 
         self.Spatial_norm = norm_layer(spatial_embed)
         self.Acc_norm = norm_layer(acc_embed)
@@ -155,12 +165,12 @@ class MMTransformer(nn.Module):
         )
         
         # self.spatial_frame_reduce = nn.Conv1d(self.mocap_frames, self.acc_frames, 1,1)
-        self.frame_reduce_mf = nn.Conv1d(self.mocap_frames, self.acc_frames, 1,1)
-        self.frame_reduce_acc = nn.Conv1d(self.acc_frames+1, self.mocap_frames+1, 1, 1)
+        # self.frame_reduce_mf = nn.Conv1d(self.mocap_frames, self.acc_frames, 1,1)
+        # self.frame_reduce_acc = nn.Conv1d(self.acc_frames+1, self.mocap_frames+1, 1, 1)
 
-        self.acc_conv = nn.Sequential(nn.Conv2d(acc_coords, acc_coords, (1, acc_coords), 1), 
-                                        nn.BatchNorm2d(acc_coords),
-                                        nn.ReLU())
+        # self.acc_conv = nn.Sequential(nn.Conv2d(acc_coords, acc_coords, (1, acc_coords), 1), 
+        #                                 nn.BatchNorm2d(acc_coords),
+        #                                 nn.ReLU())
 
         self.spatial_conv = nn.Sequential(nn.Conv2d(in_chans, in_chans, (1, 9), 1 ),
                                           nn.BatchNorm2d(in_chans),
@@ -168,91 +178,95 @@ class MMTransformer(nn.Module):
                                           nn.Conv2d(in_chans, 1, (1, 9), 1), 
                                           nn.BatchNorm2d(1),
                                           nn.ReLU() )
-
-    def Acc_forward_features(self, x):
-        b,f,e = x.shape
-
-        #x = rearrange(x, 'b f p c -> b f (p c)') # 16 , 150, 1, 3
         
-        # if self.embed_type == 'conv':
-        #     x = rearrange(x, '(b f) p c  -> (b f) c p',b=b ) # b x 3 x Fa  - Conv k liye channels first
-        #     x = self.Acc_coords_to_embedding(x) # B x c x p ->  B x Sa x p
-        #     x = rearrange(x, '(b f) Sa p  -> (b f) p Sa', b=b)
-        # else: 
-        #     x = self.Acc_coords_to_embedding(x)
+        self.transform = nn.Sequential(
+                            nn.Linear(17, 32),
+                            nn.ReLU())
 
-        class_token = torch.tile(self.acc_token, (b,1,1))
-        x = torch.cat((x, class_token), dim = 1)
-        _,_,Sa = x.shape
+    # def Acc_forward_features(self, x):
+    #     b,f,e = x.shape
 
-        x += self.Acc_pos_embed
-        x = self.pos_drop(x)
-        ##get cross fusion indexe s
-        cv_signals = []
-        for _, blk in enumerate(self.Accelerometer_blocks):
-            cv_sig, x = blk(x)
-            cv_signals.append(x)
+    #     #x = rearrange(x, 'b f p c -> b f (p c)') # 16 , 150, 1, 3
         
-        x = self.Acc_norm(x)
-        cls_token = x[:,-1,:]    
+    #     # if self.embed_type == 'conv':
+    #     #     x = rearrange(x, '(b f) p c  -> (b f) c p',b=b ) # b x 3 x Fa  - Conv k liye channels first
+    #     #     x = self.Acc_coords_to_embedding(x) # B x c x p ->  B x Sa x p
+    #     #     x = rearrange(x, '(b f) Sa p  -> (b f) p Sa', b=b)
+    #     # else: 
+    #     #     x = self.Acc_coords_to_embedding(x)
 
-        if self.op_type == 'cls':
-            return cls_token , cv_signals
+    #     class_token = torch.tile(self.acc_token, (b,1,1))
+    #     x = torch.cat((x, class_token), dim = 1)
+    #     _,_,Sa = x.shape
 
-        else:
-            x = x[:,:f,:]
-            x = rearrange(x, 'b f Sa -> b Sa f')
-            x = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x Sa x 1
-            x = torch.reshape(x, (b,Sa))
-            return x,cv_signals #b x Sa
+    #     x += self.Acc_pos_embed
+    #     x = self.pos_drop(x)
+    #     ##get cross fusion indexe s
+    #     cv_signals = []
+    #     for _, blk in enumerate(self.Accelerometer_blocks):
+    #         cv_sig, x = blk(x)
+    #         cv_signals.append(x)
+        
+    #     x = self.Acc_norm(x)
+    #     cls_token = x[:,-1,:]    
+
+    #     if self.op_type == 'cls':
+    #         return cls_token , cv_signals
+
+    #     else:
+    #         x = x[:,:f,:]
+    #         x = rearrange(x, 'b f Sa -> b Sa f')
+    #         x = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x Sa x 1
+    #         x = torch.reshape(x, (b,Sa))
+    #         return x,cv_signals #b x Sa
     
-    def Spatial_forward_features(self, x):
+    # def Spatial_forward_features(self, x):
 
-        b, f, p , c = x.shape 
-        x = rearrange(x, 'b f p c -> (b f) p c') # B  = b x f
+    #     b, f, p , c = x.shape 
+    #     x = rearrange(x, 'b f p c -> (b f) p c') # B  = b x f
 
 
-        if self.embed_type == 'conv':
-            x = rearrange(x, '(b f) p c  -> (b f) c p',b=b ) # b x 3 x Fa  - Conv k liye channels first
-            x = self.Spatial_patch_to_embedding(x) # B x c x p ->  B x Se x p
-            x = rearrange(x, '(b f) Se p  -> (b f) p Se', b=b)
-        else: 
-            x = self.Spatial_patch_to_embedding(x) # B x p x c ->  B x p x Se
+    #     if self.embed_type == 'conv':
+    #         x = rearrange(x, '(b f) p c  -> (b f) c p',b=b ) # b x 3 x Fa  - Conv k liye channels first
+    #         x = self.Spatial_patch_to_embedding(x) # B x c x p ->  B x Se x p
+    #         x = rearrange(x, '(b f) Se p  -> (b f) p Se', b=b)
+    #     else: 
+    #         x = self.Spatial_patch_to_embedding(x) # B x p x c ->  B x p x Se
         
-        class_token = torch.tile(self.spatial_token, (b*f, 1 , 1))
-        x = torch.cat((x, class_token), dim = 1)
+    #     class_token = torch.tile(self.spatial_token, (b*f, 1 , 1))
+    #     x = torch.cat((x, class_token), dim = 1)
 
-        x += self.Spatial_pos_embed 
-        x = self.pos_drop(x)
+    #     x += self.Spatial_pos_embed 
+    #     x = self.pos_drop(x)
 
-        # for blk in self.Spatial_blocks:
-        #     x = blk(x)
+    #     # for blk in self.Spatial_blocks:
+    #     #     x = blk(x)
         
-        # x = self.Spatial_norm(x)
+    #     # x = self.Spatial_norm(x)
 
-        #extract class token 
-        Se = x.shape[-1]
-        cls_token = x[:,-1, :]
-        cls_token = torch.reshape(cls_token, (b, f*Se))
+    #     #extract class token 
+    #     Se = x.shape[-1]
+    #     cls_token = x[:,-1, :]
+    #     cls_token = torch.reshape(cls_token, (b, f*Se))
 
-        #reshape input 
-        x = x[:, :p, :]
-        x = rearrange(x, '(b f) p Se -> b f (p Se)', f = f)
+    #     #reshape input 
+    #     x = x[:, :p, :]
+    #     x = rearrange(x, '(b f) p Se -> b f (p Se)', f = f)
         
-        return x, cls_token
+    #     return x, cls_token
     
-    def Temp_forward_features(self, x, cv_signals):
+    def Temp_forward_features(self, x):
 
         b,f,St = x.shape
         cv_idx = 0 
         class_token = torch.tile(self.temp_token, (b, 1, 1))
-        x = torch.cat((class_token , x), dim = 1)
+        x = torch.cat((x, class_token), dim = 1)
         x += self.Temporal_pos_embed
         for idx, blk in enumerate(self.Temporal_blocks):
             # print(f' In temporal {x.shape}')
             # skl_data = self.frame_reduce(x)
             # print(idx)
-            acc_data = cv_signals[idx]
+            #acc_data = cv_signals[idx]
             # if x.shape[1] > cv_signals[1].shape[1]-1:
             #     x = self.frame_reduce_mf(x)
             # elif x.shape[1] < cv_signals[1].shape[1] -1:
@@ -260,8 +274,7 @@ class MMTransformer(nn.Module):
             #     x = x
            
             x = blk(x) #output 3
-            x= x + acc_data #merged both 3
-
+            #x= x + acc_data #merged both 3
             #x = self.intermediate_norm(x)
         x = self.Temporal_norm(x)
 
@@ -277,46 +290,51 @@ class MMTransformer(nn.Module):
             x = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x St x 1
             x = torch.reshape(x, (b,St))
             return x #b x St 
+
     def forward(self, acc_data, skl_data):
 
         #Input: B X Mocap_frames X Num_joints X in_channs
         b, f, j, c = skl_data.shape
-        skl_data = skl_data
+        j = j + 1
+
         #Extract skeletal signal from input 
         #x = inputs[:,:, :self.num_joints , :self.joint_coords]
         # acc_data = rearrange(acc_data, 'b f c -> b c f')
         # acc_data = F.avg_pool1d(acc_data,(acc_data.shape[-1]//4)-1,stride=1,padding = 3, count_include_pad =True)
         # acc_data = rearrange(acc_data, 'b c f -> b f c')
+        acc_data = acc_data.unsqueeze(2)
+        combined_data = torch.cat((skl_data, acc_data), dim = 2) #[8, 128 , 3] [8, 128, 32, 3]
 
-        #
-        x = rearrange(skl_data, 'b f j c -> b c f j')
+        #Spatial Block  
+        x = rearrange(combined_data, 'b f j c -> b c f j')
         x = self.spatial_conv(x)
-        x = rearrange(x, 'b c f j -> b f j c')
-        x = x.view(b, self.num_patch ,-1)
-        #x = rearrange(x, 'b f j c -> b np (j pl c)' , np = 10, pl = 5)
-        x = rearrange(x, 'b t c -> b c t')
+        x = rearrange(x, 'b c f j -> b f (j c)')
         x = self.Spatial_encoder(x)
-        spatial_out = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x St x 1
-        b, St, _ = x.shape
-        spatial_out = torch.reshape(spatial_out, (b,St))
-        x = rearrange(x, 'b c t -> b t c ')
+        x = self.transform(x)
 
-        sx = acc_data
-        sx = sx.view(b, self.num_patch, -1)
-        sx = self.Acc_encoder(sx)
+        for idx, block in enumerate(self.joint_block):
+            x = block(x)
+        x = rearrange(x, 'b f c -> b c f')
+
+        #Extract acc_signal from input 
+        # b, f, c = acc_data.shape
+        # sx = acc_data
+        # sx = sx.view(b, self.num_patch, -1)
+        # sx = self.Acc_encoder(sx)
 
         #Get acceleration features 
-        sx, cv_signals = self.Acc_forward_features(sx)
+        # sx, cv_signals = self.Acc_forward_features(sx)
         #Get skeletal features
         #x, cls_token = self.Spatial_forward_features(x) # in: B x mocap_frames x num_joints x in_chann  out: x = b x mocap_frame x (num_joints*Se) cls_token b x mocap_frames*Se     
         #Pass cls  token to temporal transformer
         # print(f'Class token {cls_token.shape}')
         # temp_cls_token = self.proj_up_clstoken(cls_token) # in b x mocap_frames * se -> #out: b x num_joints*Se
         # temp_cls_token = torch.unsqueeze(temp_cls_token, dim = 1) #in: B x 1 x num_joints*Se)
-        x = self.Temp_forward_features(x, cv_signals) #in: B x mocap_frames x ()
-        x = x + sx 
+        x = self.Temp_forward_features(x) #in: B x mocap_frames x ()
+        #x = x + sx 
+        #x = sx
         logits = self.class_head(x)
-        return x , logits, F.log_softmax(logits,dim =1)
+        return logits
 
 
 

@@ -1,0 +1,40 @@
+#Model
+model: Models.transformer.Transformer
+# file name of weights 
+#work_dir: exps/UTD_woKD/acc_modal
+#model_saved_name : student_sliding
+dataset: smartfallmm
+
+model_args:
+  num_heads : 4
+  num_layers : 2
+  norm_first : True
+  embed_dim: 64
+  activation: relu 
+  input_dim: 3
+  num_classes: 2
+  # mocap_frames: 50
+
+
+batch_size: 16
+test_batch_size: 16
+val_batch_size : 16
+num_epoch: 50
+
+#dataloader
+feeder: Feeder.Make_Dataset.UTD_mm
+
+train_feeder_args:
+  # npz_file: data/UTD_MAAD/utd_train_op_mf50_norm.npz
+  batch_size: 16
+
+val_feeder_args:
+  # npz_file: data/UTD_MAAD/utd_val_op_mf50_norm.npz
+  batch_size: 16
+
+test_feeder_args: 
+  # npz_file: data/UTD_MAAD/utd_test_op_mf50_norm.npz
+  batch_size: 16
+
+seed: 2 
+optimizer: sgd

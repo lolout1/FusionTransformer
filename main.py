@@ -8,6 +8,7 @@ import time
 
 #environmental import
 import numpy as np 
+import pandas as pd
 from einops import rearrange
 import torch
 import torch.nn as nn
@@ -20,7 +21,7 @@ import torch.nn.functional as F
 #from torchsummary import summary
 import matplotlib.pyplot as plt
 from typing import List
-from sklearn.metrics import confusion_matrix, accuracy_score
+from sklearn.metrics import confusion_matrix, accuracy_score, f1_score
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import confusion_matrix, accuracy_score
 
@@ -29,8 +30,9 @@ from Feeder.augmentation import TSFilpper
 from utils.dataprocessing import utd_processing , bmhad_processing, czu_processing, sf_processing,normalization
 from utils.dataset_loader import load_inertial_data, load_skeleton_data
 
-TRAIN_SUBJECT = [2, 4, 5, 6, 7,8, 10, 11,14, 15, 16, 17,]
-TEST_SUBJECT = [19, 21, 23, 26]
+# #args = [2, 4, 5, 7,8, 10, 11,14, 15, 16, 17,19, 21, 23, 26]
+# args = [i for i in range(30, 37)]
+# TEST_SUBJECT = [37]
 
 def get_args():
 
@@ -61,6 +63,7 @@ def get_args():
 
     #model args
     parser.add_argument('--device', nargs='+', default=[0], type = int)
+
     parser.add_argument('--model-args', default= str, help = 'A dictionary for model args')
     parser.add_argument('--weights', type = str, help = 'Location of weight file')
     parser.add_argument('--model-saved-name', type = str, help = 'Weigt name', default='test')
@@ -71,6 +74,8 @@ def get_args():
     # parser.add_argument('--loss-args', default=str, help = 'A dictonary for loss args' )
 
     #dataloader 
+    parser.add_argument('--subjects', nargs='+', type=int)
+    # parser.add_argument('--test-subjects', nargs='+', type = int)
     parser.add_argument('--feeder', default= None , help = 'Dataloader location')
     parser.add_argument('--train-feeder-args',default=str, help = 'A dict for dataloader args' )
     parser.add_argument('--val-feeder-args', default=str , help = 'A dict for validation data loader')
@@ -138,8 +143,8 @@ class Trainer():
             self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
             self.model = torch.load(self.arg.weights)
         self.load_loss()
-        self.load_optimizer()
-        self.load_data()
+        
+        # self.load_data()
         self.include_val = arg.include_val
 
         # if self.arg.phase == 'test':
@@ -148,9 +153,16 @@ class Trainer():
         
         num_params = self.count_parameters(self.model)
         self.print_log(f'# Parameters: {num_params}')
+        self.print_log(f'Model size : {num_params/ (1024 ** 2):.2f} MB')
 
     def count_parameters(self, model):
-                return sum(p.numel() for p in model.parameters() if p.requires_grad)
+            # return sum(p.numel() for p in model.parameters() if p.requires_grad)
+        total_size = 0
+        for param in model.parameters():
+            total_size += param.nelement() * param.element_size()
+        for buffer in model.buffers():
+            total_size += buffer.nelement() * buffer.element_size()
+        return total_size
             
 
     
@@ -162,10 +174,10 @@ class Trainer():
         return model 
     
     def load_loss(self):
-        criterion= import_class(self.arg.loss)
-        #self.criterion = torch.nn.NLLLoss()
+        #criterion= import_class(self.arg.loss)
+        self.criterion = torch.nn.CrossEntropyLoss()
         #loss_args = yaml.safe_load(arg.loss_args)
-        self.criterion = criterion()
+        #self.criterion = criterion()
     
     def load_weights(self, weights):
         self.model.load_state_dict(torch.load(self.arg.weights))
@@ -279,16 +291,18 @@ class Trainer():
 
             elif self.arg.dataset == 'smartfallmm':
 
-                train_data = sf_processing(subjects= TRAIN_SUBJECT,
+                train_data = sf_processing(subjects= self.train_subjects,
                                             acc_window_size= self.arg.model_args['acc_frames'],
                                             skl_window_size=self.arg.model_args['mocap_frames'], 
+                                            #mode = 'train',
                                             num_windows = 20)
                 
                 norm_train, acc_scaler, skl_scaler =  normalization(data=train_data, mode = 'fit')
 
-                val_data = sf_processing(subjects = TEST_SUBJECT, 
+                val_data = sf_processing(subjects = self.test_subject, 
                                           acc_window_size=self.arg.model_args['acc_frames'],
                                           skl_window_size=self.arg.model_args['mocap_frames'], 
+                                          #mode = 'test',
                                           num_windows=20)
                 norm_val, acc_scaler, skl_scaler =  normalization(data=val_data, mode = 'fit')
                 
@@ -339,6 +353,12 @@ class Trainer():
                                 acc_window_size = self.arg.model_args['acc_frames'], 
                                     skl_window_size = self.arg.model_args['spatial_embed'], 
                                     num_windows = 15)
+            elif self.arg.dataset == 'smartfallmm':
+                self.test_data = sf_processing(subjects = self.arg.test_subjects, 
+                                          acc_window_size=self.arg.model_args['acc_frames'],
+                                          skl_window_size=self.arg.model_args['mocap_frames'], 
+                                          #mode = 'test',
+                                          num_windows=20)
             else:
                 self.test_data = np.load('data/berkley_mhad/bhmad_uniformdis_skl50_test.npz')
             #self.distribution_viz(self.test_data['labels'], self.arg.work_dir, 'test')
@@ -390,6 +410,9 @@ class Trainer():
         plt.savefig(self.arg.work_dir + '/' + 'Confusion Matrix')
         plt.close()
     
+    def create_df(self, columns = ['test_subject', 'train_subjects', 'accuracy', 'f1_score']):
+        df = pd.DataFrame(columns=columns)
+        return df
     def wrong_pred_viz(self, wrong_idx: torch.Tensor):
         wrong_label = self.test_data['labels'][wrong_idx]
         wrong_label = wrong_label
@@ -437,7 +460,8 @@ class Trainer():
             timer['dataloader'] += self.split_time()
 
             self.optimizer.zero_grad()
-            masks, logits,predictions = self.model(acc_data.float(), skl_data.float())
+            #masks, logits,predictions = self.model(acc_data.float(), skl_data.float())
+            logits= self.model(acc_data.float(), skl_data.float())
 
             #logits = self.model(acc_data.float(), skl_data.float())
             #print("predictions: ",torch.argmax(predictions, 1) )
@@ -448,7 +472,8 @@ class Trainer():
             # loss = bce_loss + (0.3*slim_loss)
             #print(torch.argmax(F.log_softmax(logits,dim =1), 1))
             #print(targets)
-            loss = self.criterion(masks, logits, targets)
+            #loss = self.criterion(masks, logits, targets)
+            loss = self.criterion(logits, targets)
             loss.mean().backward()
             self.optimizer.step()
 
@@ -518,8 +543,10 @@ class Trainer():
                 skl_data = inputs['skl_data'].cuda(self.output_device)
                 targets = targets.cuda(self.output_device)
 
-                masks,logits,predictions = self.model(acc_data.float(), skl_data.float())
-                batch_loss = self.criterion(masks, logits, targets)
+                # masks,logits,predictions = self.model(acc_data.float(), skl_data.float())
+                logits= self.model(acc_data.float(), skl_data.float())
+                #batch_loss = self.criterion(masks, logits, targets)
+                batch_loss = self.criterion(logits, targets)
                 #batch_loss = self.criterion(logits, targets)
                 loss += batch_loss.sum().item()
                 # accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
@@ -532,6 +559,9 @@ class Trainer():
                 # print(len(pred_list))
                 cnt += len(targets)
             loss /= cnt
+            target = np.array(label_list)
+            y_pred = np.array(pred_list)
+            f1 = f1_score(target, y_pred, average='macro') * 100
             accuracy *= 100./cnt
         # accuracy = accuracy_score(label_list, pred_list) * 100
         if result_file is not None: 
@@ -541,13 +571,14 @@ class Trainer():
             for i, x in enumerate(predict):
                 f_r.write(str(x) +  '==>' + str(true[i]) + '\n')
         
-        self.print_log('{} Loss: {:4f}. {} Acc: {:2f}%'.format(loader_name.capitalize(),loss,loader_name.capitalize(), accuracy))
+        self.print_log('{} Loss: {:4f}. {} Acc: {:2f}% f1: {:2f}'.format(loader_name.capitalize(),loss,loader_name.capitalize(), accuracy, f1))
         if self.arg.phase == 'train':
             if accuracy > self.best_accuracy :
                     self.best_accuracy = accuracy
+                    self.best_f1 = f1
                     #state_dict = self.model.state_dict()
                     #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
-                    torch.save(self.model, f'{self.arg.work_dir}/{self.arg.model_saved_name}')
+                    torch.save(self.model, f'{self.arg.work_dir}/{self.arg.model_saved_name}_{self.test_subject[0]}.pth')
                     self.print_log('Weights Saved')
         else: 
             return pred_list, label_list, wrong_idx
@@ -558,23 +589,43 @@ class Trainer():
         if self.arg.phase == 'train':
             self.train_loss_summary = []
             self.val_loss_summary = []
-            self.best_accuracy  = 0
+            self.best_accuracy  = float('-inf')
+
+            self.best_f1 = float('inf')
             self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
-            print(self.model)
-            self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
-            for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
-                self.train(epoch)
             
-            self.print_log(f'Best accuracy: {self.best_accuracy}')
-            #self.print_log(f'Epoch number: {self.best_acc_epoch}')
-            self.print_log(f'Model name: {self.arg.work_dir}')
-            #self.print_log(f'Model total number of params: {num_params}')
-            self.print_log(f'Weight decay: {self.arg.weight_decay}')
-            self.print_log(f'Base LR: {self.arg.base_lr}')
-            self.print_log(f'Batch Size: {self.arg.batch_size}')
-            self.print_log(f'seed: {self.arg.seed}')
-            self.loss_viz(self.train_loss_summary, self.val_loss_summary)
-            
+            results = self.create_df()
+            for test_subject in self.arg.subjects : 
+                train_subjects = list(filter(lambda x : x != test_subject, self.arg.subjects))
+                self.test_subject = [test_subject]
+                self.train_subjects = train_subjects
+                self.model = self.load_model(arg.model, arg.model_args)
+                self.print_log(f'Model Parameters: {self.count_parameters(self.model)}')
+                self.load_data()
+                self.load_optimizer()
+
+                self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
+                for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
+                    self.train(epoch)
+                self.print_log(f'Train Subjects : {self.train_subjects}')
+                self.print_log(f' ------------ Test Subject {self.test_subject[0]} -------')
+                self.print_log(f'Best accuracy for : {self.best_accuracy}')
+                self.print_log(f'Best F-Score: {self.best_f1}')
+                #self.print_log(f'Epoch number: {self.best_acc_epoch}')
+                self.print_log(f'Model name: {self.arg.work_dir}')
+                #self.print_log(f'Model total number of params: {num_params}')
+                self.print_log(f'Weight decay: {self.arg.weight_decay}')
+                self.print_log(f'Base LR: {self.arg.base_lr}')
+                self.print_log(f'Batch Size: {self.arg.batch_size}')
+                self.print_log(f'seed: {self.arg.seed}')
+                self.loss_viz(self.train_loss_summary, self.val_loss_summary)
+                subject_result = pd.Series({'test_subject' : str(self.test_subject), 'train_subjects' :str(self.train_subjects), 
+                                               'accuracy':round(self.best_accuracy,2), 'f1_score':round(self.best_f1, 2)})
+                results.loc[len(results)] = subject_result
+                self.best_accuracy = 0
+                self.best_f1 = 0
+            results.to_csv(f'{self.arg.work_dir}/scores.csv')
+                
             # self.model = self.load_model(self.arg.model, self.arg.model_args)
             # self.load_loss()
             # self.load_optimizer()

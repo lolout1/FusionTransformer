@@ -160,7 +160,7 @@ class ActTransformerAcc(nn.Module):
         logits = self.class_head(sx)
         # print(logits)
         # print(F.log_softmax(logits,dim=1))
-        return out, logits, F.log_softmax(logits,dim=1)
+        return logits
 
 '''
 model=ActRecogTransformer()

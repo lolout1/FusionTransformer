@@ -8,6 +8,7 @@ import time
 
 #environmental import
 import numpy as np 
+import pandas as pd
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -22,6 +23,8 @@ import torch.nn.functional as F
 from Feeder.augmentation import TSFilpper
 from utils.dataprocessing import utd_processing , bmhad_processing,normalization
 from main import Trainer, str2bool, init_seed, import_class
+from sklearn.metrics import f1_score
+
 
 
 
@@ -48,6 +51,10 @@ def get_args():
     parser.add_argument('--base-lr', type = float, default = 0.001, metavar = 'LR', 
                         help = 'learning rate (default: 0.001)')
     parser.add_argument('--weight-decay', type = float , default=0.0004)
+
+    #data 
+    # parser.add_argument('--train-subjects', nargs='+', type = int)
+    parser.add_argument('--subjects', nargs='+', type = int)
 
     #teacher model
     parser.add_argument('--teacher-model' ,default= None, help = 'Name of teacher model to load')
@@ -105,18 +112,19 @@ def get_args():
 class Distiller(Trainer):
     def __init__(self, arg):
         self.arg = arg
-        self.criterion = {}
+        # self.criterion = {}
         if self.arg.phase == "train":
             self.model = {}
             self.arg.model_args = arg.teacher_args
             # self.load_model('teacher', arg.teacher_model, arg.teacher_args)
             # self.load_weights(name='teacher', weight = self.arg.teacher_weight)
-            self.model['teacher'] = torch.load(self.arg.teacher_weight)
-            teacher_params = self.count_parameters(self.model['teacher'])
-            print(f'# Teacher Parameters: {teacher_params}')
-            self.load_model('student', arg.student_model, arg.student_args)
-            self.load_loss(name = 'distill', loss = arg.distill_loss)
-            self.load_loss(name = 'student', loss = arg.student_loss)
+            
+            # teacher_params = self.count_parameters(self.model['teacher'])
+            # print(f'# Teacher Parameters: {teacher_params}')
+            # self.load_model('student', arg.student_model, arg.student_args)
+            # self.load_loss(name = 'distill', loss = arg.distill_loss)
+            # self.load_loss(name = 'student', loss = arg.student_loss)
+            self.load_loss()
 
 
 
@@ -134,11 +142,11 @@ class Distiller(Trainer):
             self.arg.model_args['spatial_embed'] =  self.arg.model_args['acc_embed']
             #self.load_weights(name = 'student', weight=self.arg.weights)
         
-        self.load_data()
-        self.load_optimizer()
+        #self.load_data()
+        #self.load_optimizer()
 
-        num_params = self.count_parameters(self.model['student'])
-        self.print_log(f'# Student Parameters: {num_params}')
+        # num_params = self.count_parameters(self.model['student'])
+        # self.print_log(f'# Student Parameters: {num_params}')
     
     def load_optimizer(self, name = 'student'):
         
@@ -165,18 +173,16 @@ class Distiller(Trainer):
            raise ValueError()
 
 
-    def load_loss(self, name, loss):
-        criterion= import_class(loss)
-        #print(loss_args)
-        #loss_args = yaml.safe_load(loss_args)
-        self.criterion[name] = criterion()
+    def load_loss(self):
+        self.mse = torch.nn.MSELoss()
+        self.criterion = torch.nn.CrossEntropyLoss()
     
 
-    def load_model(self, name, model, model_args):
-        use_cuda = torch.cuda.is_available()
-        self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
-        Model = import_class(model)
-        self.model[name] = Model(**model_args).to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+    # def load_model(self, name, model, model_args):
+    #     use_cuda = torch.cuda.is_available()
+    #     self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
+    #     Model = import_class(model)
+    #     self.model[name] = Model(**model_args).to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
 
     def load_weights(self, name, weight):
         self.model[name].load_state_dict(torch.load(weight))
@@ -184,17 +190,20 @@ class Distiller(Trainer):
 
     def train(self, epoch):
         self.model['student'].train()
+        self.model['teacher'].eval()
         self.record_time()
         loader = self.data_loader['train']
         timer = dict(dataloader = 0.001, model = 0.001, stats = 0.001)
         loss_value = []
         acc_value = []
         accuracy = 0
+        teacher_accuracy = 0
         cnt = 0
         train_loss = 0
         process = tqdm(loader, ncols = 80)
 
         for batch_idx, (inputs, targets, idx) in enumerate(process):
+
             with torch.no_grad():
                 acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
                 skl_data = inputs['skl_data'].cuda(self.output_device)
@@ -206,8 +215,9 @@ class Distiller(Trainer):
 
             # Ascent Step
             #print("labels: ",targets)
-            _, teacher_logits,predictions = self.model['teacher'](acc_data.float(), skl_data.float())
-            _, student_logits, prediction = self.model['student'](acc_data.float(), skl_data.float())
+            with torch.no_grad():
+                teacher_logits= self.model['teacher'](acc_data.float(), skl_data.float())
+            student_logits= self.model['student'](acc_data.float(), skl_data.float())
             #logits = self.model(acc_data.float(), skl_data.float())
             #print("predictions: ",torch.argmax(predictions, 1) )
             # bce_loss = self.criterion(logits, targets)
@@ -215,8 +225,18 @@ class Distiller(Trainer):
             # for mask in masks: 
             #     slim_loss += sum([self.slim_penalty(m) for m in mask])
             # loss = bce_loss + (0.3*slim_loss)
-            loss = self.criterion['distill'](student_logits,teacher_logits, targets)
-            loss.mean().backward()
+            #loss = self.criterion['distill'](student_logits, teacher_logits,targets)
+            soft_target = nn.functional.softmax(teacher_logits / 2.0, dim = -1)
+            soft_prob = nn.functional.log_softmax(student_logits / 2.0, dim = -1)
+
+            soft_targets_loss = torch.sum(soft_target*(soft_target.log()-soft_prob)) / soft_prob.size()[0]*(2**2)
+            #hidden_rep_loss = self.mse(teacher_feature, student_feature)
+
+            label_loss = self.criterion(student_logits, targets)
+
+            loss = .2 * soft_targets_loss + .8 *  label_loss
+
+            loss.backward()
             self.optimizer.step()
 
             timer['model'] += self.split_time()
@@ -224,10 +244,13 @@ class Distiller(Trainer):
                 train_loss += loss.sum().item()
                 #accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
                 accuracy += (torch.argmax(F.log_softmax(student_logits,dim =1), 1) == targets).sum().item()
+                teacher_accuracy += (torch.argmax(F.log_softmax(teacher_logits, dim =1),1) == targets).sum().item()
+                
             cnt += len(targets) 
             timer['stats'] += self.split_time()
-        train_loss /= cnt
+        train_loss /= cnt 
         accuracy *= 100. / cnt
+        teacher_accuracy *= 100 / cnt
         loss_value.append(train_loss)
         acc_value.append(accuracy) 
         proportion = {
@@ -235,7 +258,7 @@ class Distiller(Trainer):
             for k, v in timer.items()
         }
         self.print_log(
-            '\tTraining Loss: {:4f}. Training Acc: {:2f}%'.format(train_loss, accuracy)
+            '\tTraining Loss: {:4f}. Training Acc: {:2f}% Teacher Acc: {:2f}'.format(train_loss, accuracy, teacher_accuracy)
         )
         self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
         if not self.include_val:
@@ -261,9 +284,11 @@ class Distiller(Trainer):
         loss = 0
         cnt = 0
         accuracy = 0
+        f1 = 0
         label_list = []
         pred_list = []
         
+        #tested subject array 
         process = tqdm(self.data_loader[loader_name], ncols=80)
         with torch.no_grad():
             for batch_idx, (inputs, targets, idx) in enumerate(process):
@@ -274,14 +299,8 @@ class Distiller(Trainer):
                 targets = targets.cuda(self.output_device)
 
                 #_,logits,predictions = self.model(inputs.float())
-                masks,logits,predictions = self.model['student'](acc_data.float(), skl_data.float())
-                #logits = self.model(acc_data.float(), skl_data.float())
-                # bce_loss = self.criterion(logits, targets)
-                # slim_loss = 0
-                # for mask in masks: 
-                #     slim_loss += sum([self.slim_penalty(m) for m in mask])
-                # batch_loss = bce_loss + (0.3*slim_loss)
-                batch_loss = self.criterion['student'](masks, logits, targets)
+                logits= self.model['student'](acc_data.float(), skl_data.float())
+                batch_loss = self.criterion(logits, targets)
                 loss += batch_loss.sum().item()
                 # accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
                 # pred_list.extend(torch.argmax(predictions ,1).tolist())
@@ -290,6 +309,9 @@ class Distiller(Trainer):
                 cnt += len(targets)
             loss /= cnt
             accuracy *= 100./cnt
+            target = np.array(label_list)
+            y_pred = np.array(pred_list)
+            f1 = f1_score(target, y_pred, average='macro') * 100
         
         if result_file is not None:
             predict = pred_list
@@ -302,12 +324,66 @@ class Distiller(Trainer):
         if self.arg.phase == 'train':
             if accuracy > self.best_accuracy :
                     self.best_accuracy = accuracy
+                    self.best_f1 = f1
                     state_dict = self.model['student'].state_dict()
                     #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
-                    torch.save(self.model['student'], self.arg.work_dir + '/' + self.arg.model_saved_name)
+                    torch.save(self.model['student'], f'{self.arg.work_dir}/{self.arg.model_saved_name}_{self.test_subject[0]}.pth')
                     self.print_log('Weights Saved')
         else:
-            return pred_list, label_list , []     
+            return pred_list, label_list , []
+        
+    def start(self):
+        #summary(self.model,[(model_args['acc_frames'],3), (model_args['mocap_frames'], model_args['num_joints'],3)] , dtypes=[torch.float, torch.float] )
+        if self.arg.phase == 'train':
+            self.train_loss_summary = []
+            self.val_loss_summary = []
+            self.best_accuracy  = float('-inf')
+            self.best_f1 = float('-inf')
+            self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
+            results = self.create_df()
+            for test_subject in self.arg.subjects : 
+                train_subjects = list(filter(lambda x : x != test_subject, self.arg.subjects))
+                self.test_subject = [test_subject]
+                self.train_subjects = train_subjects
+                self.model['teacher'] = torch.load(f'{self.arg.teacher_weight}_{self.test_subject[0]}.pth')
+                self.model['student'] = self.load_model(arg.student_model, arg.student_args)
+                self.load_data()
+                self.load_optimizer()
+
+                self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
+                for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
+                    self.train(epoch)
+                self.print_log(f'Train Subjects : {self.train_subjects}')
+                self.print_log(f' ------------ Test Subject {self.test_subject[0]} -------')
+                self.print_log(f'Best accuracy for : {self.best_accuracy}')
+                self.print_log(f'Best F-Score: {self.best_f1}')
+                #self.print_log(f'Epoch number: {self.best_acc_epoch}')
+                self.print_log(f'Model name: {self.arg.work_dir}')
+                #self.print_log(f'Model total number of params: {num_params}')
+                self.print_log(f'Weight decay: {self.arg.weight_decay}')
+                self.print_log(f'Base LR: {self.arg.base_lr}')
+                self.print_log(f'Batch Size: {self.arg.batch_size}')
+                self.print_log(f'seed: {self.arg.seed}')
+                self.loss_viz(self.train_loss_summary, self.val_loss_summary)
+                subject_result = pd.Series({'test_subject' : str(self.test_subject), 'train_subjects' :str(self.train_subjects), 
+                                               'accuracy':round(self.best_accuracy,2), 'f1_score':round(self.best_f1, 2)})
+                results.loc[len(results)] = subject_result
+                self.best_accuracy = float('-inf')
+                self.best_f1 = float('-inf')
+            results.to_csv(f'{self.arg.work_dir}/scores.csv')
+                
+            # self.model = self.load_model(self.arg.model, self.arg.model_args)
+            # self.load_loss()
+            # self.load_optimizer()
+            # self.model.load_state_dict(torch.load(self.arg.weights))
+            # val_loss = self.eval(0, loader_name='test', result_file=self.arg.result_file)
+
+        
+        elif self.arg.phase == 'test' :
+            if self.arg.weights is None: 
+                raise ValueError('Please add --weights')
+            y_pred, y_true, wrong_idx = self.eval(epoch=0, loader_name='test', result_file=self.arg.result_file)
+            self.cm_viz(y_pred, y_true)   
 
 
 if __name__ == "__main__":
