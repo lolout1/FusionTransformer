@@ -437,6 +437,7 @@ class Trainer():
 
 
     def train(self, epoch):
+        use_cuda = torch.cuda.is_available()
         self.model.train()
         self.record_time()
         loader = self.data_loader['train']
@@ -450,11 +451,13 @@ class Trainer():
 
         for batch_idx, (inputs, targets, idx) in enumerate(process):
         # for batch_idx, [acc_data, skl_data, targets] in enumerate(process):
- 
             with torch.no_grad():
-                acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
-                skl_data = inputs['skl_data'].cuda(self.output_device)
-                targets = targets.cuda(self.output_device)
+                # acc_data = inputs['acc_data'].device(self.output_device) #print("Input batch: ",inputs)
+                # skl_data = inputs['skl_data'].device(self.output_device)
+                # targets = targets.cuda(self.output_device)
+                acc_data = inputs['acc_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                skl_data = inputs['skl_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
 
             
             timer['dataloader'] += self.split_time()
@@ -521,7 +524,7 @@ class Trainer():
         #     torch.save(state_dict, self.arg.model_saved_name + '-' + str(epoch+1) + '-' + str(int(self.global_step)) + '.pt')
     
     def eval(self, epoch, loader_name = 'test', result_file = None):
-
+        use_cuda = torch.cuda.is_available()
         if result_file is not None : 
             f_r = open (result_file, 'w')
         self.model.eval()
@@ -539,9 +542,9 @@ class Trainer():
         with torch.no_grad():
             for batch_idx, (inputs, targets, idx) in enumerate(process):
             # for batch_idx, [acc_data, skl_data, targets] in enumerate(process):
-                acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
-                skl_data = inputs['skl_data'].cuda(self.output_device)
-                targets = targets.cuda(self.output_device)
+                acc_data = inputs['acc_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                skl_data = inputs['skl_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
 
                 # masks,logits,predictions = self.model(acc_data.float(), skl_data.float())
                 logits= self.model(acc_data.float(), skl_data.float())

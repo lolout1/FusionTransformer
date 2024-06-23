@@ -127,11 +127,11 @@ def sf_processing(data_dir = 'data/smartfallmm', subjects = None,
     acc_set = []
     label_set = []
 
-    file_paths = glob.glob(f'{data_dir}/old_participant/skeleton/*.csv')
+    file_paths = glob.glob(f'{data_dir}/old_participants/skeleton/*.csv')
     print("file paths {}".format(len(file_paths)))
     #skl_path = f"{data_dir}/{mode}_skeleton_op/"
     #skl_path = f"{data_dir}/{mode}/skeleton/"
-    acc_dir = f"{data_dir}/old_participant/phonewatch/w_accel"
+    acc_dir = f"{data_dir}/old_participants/accelerometer/phone_accelerometer"
     pattern = r'S\d+A\d+T\d+'
     act_pattern = r'(A\d+)'
     label_pattern = r'(\d+)'
@@ -154,6 +154,9 @@ def sf_processing(data_dir = 'data/smartfallmm', subjects = None,
         skl_df  = pd.read_csv(path, index_col =False).dropna()
         skl_data = skl_df.bfill().iloc[:, -96:].to_numpy(dtype=np.float32)
         ######## avg poolin #########
+        if  acc_data.shape[0] == 0:   
+            os.remove(acc_path)
+            continue
         padded_acc = pad_sequence_numpy(sequence=acc_data, input_shape= acc_data.shape, max_sequence_length=acc_window_size)
 
         padded_skl = pad_sequence_numpy(sequence=skl_data, input_shape=skl_data.shape, max_sequence_length=skl_window_size)
