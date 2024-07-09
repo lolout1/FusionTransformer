@@ -43,7 +43,7 @@ weight_decay: 0.0004
 batch_size: 8 # Change all 6 batch sizes consistently, Default: 16
 test_batch_size: 8
 val_batch_size : 8
-num_epoch: 2 # Change, Default: 250
+num_epoch: 120 # Change, Default: 250
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
