@@ -14,13 +14,13 @@ model_args:
   adepth : 2
   sdepth : 2
   num_heads : 2
-  mocap_frames: 32
+  mocap_frames: 64
   num_patch: 8
-  acc_coords: 6 
+  acc_coords: 6
   drop_path_rate: 0.4
   drop_rate: 0.4
   attn_drop_rate: 0.4
-
+  op_type : pool
 # model_args:
 #   acc_frames : 64
 #   num_joints : 20
@@ -52,7 +52,7 @@ weight_decay: 0.0004
 batch_size: 16
 test_batch_size: 16
 val_batch_size : 16
-num_epoch: 700
+num_epoch: 250
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm

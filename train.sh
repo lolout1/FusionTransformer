@@ -1,6 +1,6 @@
 #!/bin/bash
-teacher_weights="agcn.pth"
-teacher_dir="exps/utd/agn"
+teacher_weights="withoutTB.pth"
+teacher_dir="exps/utd/student/withoutTB"
 student_dir="exps/berkley_woKD/inertial_transformer"
 student_weights="ttfstudent.pth"
 #teacher_dir="exps/UTD_wKD/ttf4"
@@ -16,7 +16,7 @@ result_file="result.txt"
 
 
 #Utd teacher 
-#python3 main.py --config ./config/utd/teacher.yaml --work-dir "$teacher_dir" --model-saved-name "$teacher_weights" --device 7  --base-lr 2.5e-3 --phase 'train' --include-val True
+python3 main.py --config ./config/utd/teacher.yaml --work-dir "$teacher_dir" --model-saved-name "$teacher_weights" --device 7  --base-lr 2.5e-3 --phase 'train' --include-val True
 #python3 main.py --config ./config/utd/teacher.yaml --work-dir "$teacher_dir" --weights "$teacher_dir/$teacher_weights" --device 7  --base-lr 2.5e-3 --phase 'test'
 
 #utd student
@@ -46,4 +46,4 @@ result_file="result.txt"
 
 #smartfallmm
 #python3 main.py --config ./config/smartfallmm/teacher.yaml --work-dir $work_dir --model-saved-name $weights  --weights $work_dir/$weights --device 6 --base-lr 2.5e-3 --include-val True
-python3 main.py --config ./config/utd/graph.yaml --work-dir "$teacher_dir" --model-saved-name "$teacher_weights" --device 7  --base-lr 2.5e-3 --phase 'train' --include-val True
+#python3 main.py --config ./config/utd/graph.yaml --work-dir "$teacher_dir" --model-saved-name "$teacher_weights" --device 7  --base-lr 2.5e-3 --phase 'train' --include-val True
