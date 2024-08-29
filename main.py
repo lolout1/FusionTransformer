@@ -578,7 +578,8 @@ class Trainer():
                     self.best_f1 = f1
                     #state_dict = self.model.state_dict()
                     #weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
-                    torch.save(self.model, f'{self.arg.work_dir}/{self.arg.model_saved_name}_{self.test_subject[0]}.pth')
+                    # torch.save(self.model, f'{self.arg.work_dir}/{self.arg.model_saved_name}_{self.test_subject[0]}.pth')
+                    torch.save(self.model, f'{self.arg.work_dir}/{self.arg.model_saved_name}.pth')
                     self.print_log('Weights Saved')
         else: 
             return pred_list, label_list, wrong_idx
@@ -587,19 +588,19 @@ class Trainer():
     def start(self):
         #summary(self.model,[(model_args['acc_frames'],3), (model_args['mocap_frames'], model_args['num_joints'],3)] , dtypes=[torch.float, torch.float] )
         if self.arg.phase == 'train':
-            self.train_loss_summary = []
-            self.val_loss_summary = []
-            self.best_accuracy  = float('-inf')
+                self.train_loss_summary = []
+                self.val_loss_summary = []
+                self.best_accuracy  = float('-inf')
 
-            self.best_f1 = float('inf')
-            self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
+                self.best_f1 = float('inf')
+                self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
             
-            results = self.create_df()
-            for test_subject in self.arg.subjects : 
-                train_subjects = list(filter(lambda x : x != test_subject, self.arg.subjects))
-                self.test_subject = [test_subject]
-                self.train_subjects = train_subjects
-                self.model = self.load_model(arg.model, arg.model_args)
+            # results = self.create_df()
+            # for test_subject in self.arg.subjects : 
+                # train_subjects = list(filter(lambda x : x != test_subject, self.arg.subjects))
+                # self.test_subject = [test_subject]
+                # self.train_subjects = train_subjects
+                self.model = self.load_model(self.arg.model, self.arg.model_args)
                 self.print_log(f'Model Parameters: {self.count_parameters(self.model)}')
                 self.load_data()
                 self.load_optimizer()
@@ -607,8 +608,8 @@ class Trainer():
                 self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
                 for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
                     self.train(epoch)
-                self.print_log(f'Train Subjects : {self.train_subjects}')
-                self.print_log(f' ------------ Test Subject {self.test_subject[0]} -------')
+                # self.print_log(f'Train Subjects : {self.train_subjects}')
+                # self.print_log(f' ------------ Test Subject {self.test_subject[0]} -------')
                 self.print_log(f'Best accuracy for : {self.best_accuracy}')
                 self.print_log(f'Best F-Score: {self.best_f1}')
                 #self.print_log(f'Epoch number: {self.best_acc_epoch}')
@@ -619,12 +620,12 @@ class Trainer():
                 self.print_log(f'Batch Size: {self.arg.batch_size}')
                 self.print_log(f'seed: {self.arg.seed}')
                 self.loss_viz(self.train_loss_summary, self.val_loss_summary)
-                subject_result = pd.Series({'test_subject' : str(self.test_subject), 'train_subjects' :str(self.train_subjects), 
-                                               'accuracy':round(self.best_accuracy,2), 'f1_score':round(self.best_f1, 2)})
-                results.loc[len(results)] = subject_result
+                # subject_result = pd.Series({'test_subject' : str(self.test_subject), 'train_subjects' :str(self.train_subjects), 
+                #                                'accuracy':round(self.best_accuracy,2), 'f1_score':round(self.best_f1, 2)})
+                # results.loc[len(results)] = subject_result
                 self.best_accuracy = 0
                 self.best_f1 = 0
-            results.to_csv(f'{self.arg.work_dir}/scores.csv')
+            # results.to_csv(f'{self.arg.work_dir}/scores.csv')
                 
             # self.model = self.load_model(self.arg.model, self.arg.model_args)
             # self.load_loss()

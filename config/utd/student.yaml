@@ -12,6 +12,7 @@ model_args:
   adepth : 2
   num_heads : 2
   acc_coords: 6
+  op_type : avg
   # mocap_frames: 50
 
 
