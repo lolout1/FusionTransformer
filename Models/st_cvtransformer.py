@@ -4,7 +4,7 @@ import numpy as np
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F
-from model_utils import Block
+from .model_utils import Block
 
 class MMTransformer(nn.Module):
     def __init__(self, device = 'cpu', mocap_frames= 600, acc_frames = 256, num_joints = 31, in_chans = 3, num_patch = 10 ,  acc_coords = 3, spatial_embed = 32, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'all', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =11):
@@ -18,7 +18,7 @@ class MMTransformer(nn.Module):
         self.mocap_frames = mocap_frames
         self.skl_patch_size = mocap_frames // num_patch
         self.acc_patch_size = acc_frames // num_patch
-        self.skl_patch = self.skl_patch_size * (num_joints-8-8)
+        self.skl_patch = self.skl_patch_size * (num_joints-8-8)//2
         self.temp_frames = mocap_frames
         self.op_type = op_type
         self.embed_type = embed_type
@@ -167,8 +167,7 @@ class MMTransformer(nn.Module):
                                           nn.ReLU(), 
                                           nn.Conv2d(in_chans, 1, (1, 9), 1), 
                                           nn.BatchNorm2d(1),
-                                          nn.ReLU() )
-
+                                          nn.ReLU())
     def Acc_forward_features(self, x):
         b,f,e = x.shape
 
@@ -245,9 +244,9 @@ class MMTransformer(nn.Module):
 
         b,f,St = x.shape
         cv_idx = 0 
-        class_token = torch.tile(self.temp_token, (b, 1, 1))
-        x = torch.cat((class_token , x), dim = 1)
-        x += self.Temporal_pos_embed
+        # class_token = torch.tile(self.temp_token, (b, 1, 1))
+        # x = torch.cat((class_token , x), dim = 1)
+        # x += self.Temporal_pos_embed
         #for idx, blk in enumerate(self.Temporal_blocks):
 
             # skl_data = self.frame_reduce(x)
@@ -261,22 +260,27 @@ class MMTransformer(nn.Module):
             # x = blk(x) #output 3
             #x= x + acc_data #merged both 3
             #x = self.intermediate_norm(x)
+        x = x[:,:f,:]
+        x = rearrange(x, 'b f St -> b St f')
+        x = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x St x 1
+        x = torch.reshape(x, (b,St))
+
         x = x + cv_signals
         x = self.Temporal_norm(x)
 
         ###Extract Class token head from the outputs
-        if self.op_type=='cls':
-            cls_token = x[:,1,:]
-            cls_token = cls_token.view(b, -1) # (Batch_size, temp_embed)
-            return cls_token
+        # if self.op_type=='cls':
+        #     cls_token = x[:,1,:]
+        #     cls_token = cls_token.view(b, -1) # (Batch_size, temp_embed)
+        #     return cls_token
 
-        else:
-            x = x[:,:f,:]
-            x = rearrange(x, 'b f St -> b St f')
-            x = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x St x 1
-            x = torch.reshape(x, (b,St))
-            return x #b x St 
-
+        # else:
+        #     x = x[:,:f,:]
+        #     x = rearrange(x, 'b f St -> b St f')
+        #     x = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x St x 1
+        #     x = torch.reshape(x, (b,St))
+        #     return x #b x St 
+        return x
     def forward(self, acc_data, skl_data):
 
         #Input: B X Mocap_frames X Num_joints X in_channs
@@ -309,6 +313,7 @@ class MMTransformer(nn.Module):
 
         #Get acceleration features 
         sx, cv_signals = self.Acc_forward_features(sx)
+
         #Get skeletal features
         #x, cls_token = self.Spatial_forward_features(x) # in: B x mocap_frames x num_joints x in_chann  out: x = b x mocap_frame x (num_joints*Se) cls_token b x mocap_frames*Se     
         #Pass cls  token to temporal transformer
@@ -316,7 +321,7 @@ class MMTransformer(nn.Module):
         # temp_cls_token = self.proj_up_clstoken(cls_token) # in b x mocap_frames * se -> #out: b x num_joints*Se
         # temp_cls_token = torch.unsqueeze(temp_cls_token, dim = 1) #in: B x 1 x num_joints*Se)
         x = self.Temp_forward_features(x, sx) #in: B x mocap_frames x ()
-        x = x + sx 
+        x = x 
         logits = self.class_head(x)
         return logits
 
@@ -325,13 +330,13 @@ class MMTransformer(nn.Module):
 
 
 if __name__ == "__main__" :
-    skl_data = torch.randn(size=(1, 128, 25, 3))
+    skl_data = torch.randn(size=(1, 64, 20, 3))
     # layer = nn.Sequential(nn.Conv2d(3, 3, (1, 9), 1), 
     #                                       nn.Conv2d(3, 1, (1, 9), 1))
     # transformed = layer(skl_data)
     # print(transformed.shape)
-    acc_data = torch.randn(size = (1, 128, 3))
-    model = MMTransformer(device = 'cpu', op_type='pool', mocap_frames= 128, num_patch=16, acc_frames = 128, num_joints = 25, in_chans = 3, acc_coords = 3, spatial_embed = 16, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
+    acc_data = torch.randn(size = (1, 64, 6))
+    model = MMTransformer(device = 'cpu', op_type='pool', mocap_frames= 128, num_patch=16, acc_frames = 128, num_joints = 20, in_chans = 3, acc_coords = 3, spatial_embed = 32, sdepth = 2, adepth = 2, tdepth = 2, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
     logits = model(acc_data, skl_data)
 
     # model(acc_data, skl_data)
