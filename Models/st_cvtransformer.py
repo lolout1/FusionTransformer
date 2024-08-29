@@ -4,7 +4,7 @@ import numpy as np
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F
-from .model_utils import Block
+from model_utils import Block
 
 class MMTransformer(nn.Module):
     def __init__(self, device = 'cpu', mocap_frames= 600, acc_frames = 256, num_joints = 31, in_chans = 3, num_patch = 10 ,  acc_coords = 3, spatial_embed = 32, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'all', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =11):
@@ -187,11 +187,11 @@ class MMTransformer(nn.Module):
 
         x += self.Acc_pos_embed
         x = self.pos_drop(x)
-        ##get cross fusion indexe s
+        # ##get cross fusion indexe s
         cv_signals = []
-        for _, blk in enumerate(self.Accelerometer_blocks):
-            cv_sig, x = blk(x)
-            cv_signals.append(x)
+        # for _, blk in enumerate(self.Accelerometer_blocks):
+        #     cv_sig, x = blk(x)
+        #     cv_signals.append(x)
         
         x = self.Acc_norm(x)
         cls_token = x[:,-1,:]    
@@ -248,20 +248,20 @@ class MMTransformer(nn.Module):
         class_token = torch.tile(self.temp_token, (b, 1, 1))
         x = torch.cat((class_token , x), dim = 1)
         x += self.Temporal_pos_embed
-        for idx, blk in enumerate(self.Temporal_blocks):
-            # print(f' In temporal {x.shape}')
+        #for idx, blk in enumerate(self.Temporal_blocks):
+
             # skl_data = self.frame_reduce(x)
-            # print(idx)
-            acc_data = cv_signals[idx]
+            #acc_data = cv_signals[idx]
             # if x.shape[1] > cv_signals[1].shape[1]-1:
             #     x = self.frame_reduce_mf(x)
             # elif x.shape[1] < cv_signals[1].shape[1] -1:
             # else: 
             #     x = x
            
-            x = blk(x) #output 3
-            x= x + acc_data #merged both 3
+            # x = blk(x) #output 3
+            #x= x + acc_data #merged both 3
             #x = self.intermediate_norm(x)
+        x = x + cv_signals
         x = self.Temporal_norm(x)
 
         ###Extract Class token head from the outputs
@@ -315,10 +315,10 @@ class MMTransformer(nn.Module):
         # print(f'Class token {cls_token.shape}')
         # temp_cls_token = self.proj_up_clstoken(cls_token) # in b x mocap_frames * se -> #out: b x num_joints*Se
         # temp_cls_token = torch.unsqueeze(temp_cls_token, dim = 1) #in: B x 1 x num_joints*Se)
-        x = self.Temp_forward_features(x, cv_signals) #in: B x mocap_frames x ()
+        x = self.Temp_forward_features(x, sx) #in: B x mocap_frames x ()
         x = x + sx 
         logits = self.class_head(x)
-        return x , logits, F.log_softmax(logits,dim =1)
+        return logits
 
 
 
@@ -331,6 +331,7 @@ if __name__ == "__main__" :
     # transformed = layer(skl_data)
     # print(transformed.shape)
     acc_data = torch.randn(size = (1, 128, 3))
-    model = MMTransformer(device = 'cpu', mocap_frames= 128, num_patch=16, acc_frames = 128, num_joints = 25, in_chans = 3, acc_coords = 3, spatial_embed = 16, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'cls', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
-    model(acc_data, skl_data)
+    model = MMTransformer(device = 'cpu', op_type='pool', mocap_frames= 128, num_patch=16, acc_frames = 128, num_joints = 25, in_chans = 3, acc_coords = 3, spatial_embed = 16, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
+    logits = model(acc_data, skl_data)
+
     # model(acc_data, skl_data)
