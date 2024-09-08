@@ -203,13 +203,14 @@ class Distiller(Trainer):
         cnt = 0
         train_loss = 0
         process = tqdm(loader, ncols = 80)
-
+        use_cuda = torch.cuda.is_available()
+        
         for batch_idx, (inputs, targets, idx) in enumerate(process):
 
             with torch.no_grad():
-                acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
-                skl_data = inputs['skl_data'].cuda(self.output_device)
-                targets = targets.cuda(self.output_device)
+                acc_data = inputs['acc_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                skl_data = inputs['skl_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
             
             timer['dataloader'] += self.split_time()
 
@@ -281,6 +282,7 @@ class Distiller(Trainer):
         f1 = 0
         label_list = []
         pred_list = []
+        use_cuda = torch.cuda.is_available()
         
         #tested subject array 
         process = tqdm(self.data_loader[loader_name], ncols=80)
@@ -288,10 +290,9 @@ class Distiller(Trainer):
             for batch_idx, (inputs, targets, idx) in enumerate(process):
                 label_list.extend(targets.tolist())
                 #inputs = inputs.cuda(self.output_device)
-                acc_data = inputs['acc_data'].cuda(self.output_device) #print("Input batch: ",inputs)
-                skl_data = inputs['skl_data'].cuda(self.output_device)
-                targets = targets.cuda(self.output_device)
-
+                acc_data = inputs['acc_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                skl_data = inputs['skl_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
                 #_,logits,predictions = self.model(inputs.float())
                 logits= self.model['student'](acc_data.float(), skl_data.float())
                 batch_loss = self.criterion(logits, targets)
