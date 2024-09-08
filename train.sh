@@ -47,4 +47,4 @@ python main.py --config ./config/smartfallmm/student.yaml --work-dir $student_di
 #python main.py --config ./config/smartfallmm/teacher.yaml --work-dir $work_dir --weights $work_dir/$student_weights --device 1 --base-lr 2.5e-3 --phase test
 
 #distillation 
-# python3 distiller.py --config ./config/smartfallmm/distill.yaml --work-dir $work_dir  --teacher-weight "$teacher_dir/$teacher_weights" --model-saved-name "$student_weights" --device 1 --base-lr 2.5e-3 --include-val True
+python3 distiller.py --config ./config/smartfallmm/distill.yaml --work-dir $work_dir  --teacher-weight "$teacher_dir/$teacher_weights" --model-saved-name "$student_weights" --device 1 --base-lr 2.5e-3 --include-val True
