@@ -7,8 +7,8 @@ dataset: smartfallmm
 
 #subjects: [2,3,4,5,6,7,15,16,17,18,19,21,23,22,26]
 # test_subjects: [18]
-subjects: [30, 32, 33,34, 35, 36, 37,38,39, 43, 44, 45, 46]
-#subjects: [5,7,10,11,15,16,17,18,19,21,22,23]
+#subjects: [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47, 19,22,23]
+subjects: [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47,19,22,23]
 
 model_args:
   num_layers : 2
@@ -16,17 +16,16 @@ model_args:
   embed_dim: 32
   activation: relu 
   acc_coords : 4
-  num_classes: 2
+  num_classes: 8
   acc_frames : 128
   mocap_frames : 128
   num_heads: 2
   # mocap_frames: 50
 
-
 batch_size: 16
 test_batch_size: 16
 val_batch_size : 16
-num_epoch: 50
+num_epoch: 300
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm

@@ -6,13 +6,12 @@ model: Models.st_cvtransformer.MMTransformer
 # model_saved_name : tokenfusion_AdamW_avgpool
 # work_dir: exps/UTD_woKD/with_AdamW
 dataset: 'smartfallmm'
-subjects: [29,30, 31,32, 33,34, 35, 36, 37,38,39, 43, 44, 45, 46]
-
+# subjects: [29,30, 31,32, 33,34, 35, 36, 37,38,39, 43, 44, 45, 46]
+subjects : [29,30, 31,32, 33,34, 35, 36, 37,38,39, 43, 44, 45, 46]
 model_args:
-  # Keep as 2^n
   acc_frames : 128
   num_joints : 32
-  num_classes : 9
+  num_classes : 2
   spatial_embed : 64
   adepth : 2
   sdepth : 2
@@ -20,38 +19,37 @@ model_args:
   mocap_frames: 128
   num_patch: 4
 
-
 # loss_args 
 loss_args:
   beta: 0.2
 
 
 #optim
-weight_decay: 0.0004
+# weight_decay: 0.0004
 # base_lr: 0.001
 
 
 # training
 #changeable
-batch_size: 16 # Change all 6 batch sizes consistently, Default: 16
-test_batch_size: 16
-val_batch_size : 16
-num_epoch: 30 # Change, Default: 250
+batch_size: 32 # Change all 6 batch sizes consistently, Default: 16
+test_batch_size: 32
+val_batch_size : 32
+num_epoch: 120 # Change, Default: 250
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
 
 train_feeder_args:
   # npz_file: data/UTD_MAAD/utd_train_op_mf50_norm.npz
-  batch_size: 16
+  batch_size: 32
 
 val_feeder_args:
   # npz_file: data/UTD_MAAD/utd_val_op_mf50_norm.npz
-  batch_size: 16
+  batch_size: 32
 
 test_feeder_args: 
   # npz_file: data/UTD_MAAD/utd_test_op_mf50_norm.npz
-  batch_size: 16
+  batch_size: 32
 
 seed: 2 
 optimizer: sgd

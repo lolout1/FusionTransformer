@@ -23,8 +23,8 @@ import torch.nn.functional as F
 from Feeder.augmentation import TSFilpper
 from utils.dataprocessing import utd_processing , bmhad_processing,normalization
 from main import Trainer, str2bool, init_seed, import_class
+from loss import SemanticLoss, DistillationLoss
 from sklearn.metrics import f1_score
-from 
 
 
 
@@ -177,9 +177,7 @@ class Distiller(Trainer):
     def load_loss(self):
         self.mse = torch.nn.MSELoss()
         self.criterion = torch.nn.CrossEntropyLoss()
-        self.distillation_loss = 
-    
-
+        self.distillation_loss = DistillationLoss(temperature=2)
     # def load_model(self, name, model, model_args):
     #     use_cuda = torch.cuda.is_available()
     #     self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
@@ -204,6 +202,7 @@ class Distiller(Trainer):
         train_loss = 0
         process = tqdm(loader, ncols = 80)
         use_cuda = torch.cuda.is_available()
+        loss = 0
         
         for batch_idx, (inputs, targets, idx) in enumerate(process):
 
@@ -221,16 +220,19 @@ class Distiller(Trainer):
             with torch.no_grad():
                 teacher_logits= self.model['teacher'](acc_data.float(), skl_data.float())
             student_logits= self.model['student'](acc_data.float(), skl_data.float())
-            soft_target = nn.functional.softmax(teacher_logits / 2.0, dim = -1)
-            soft_prob = nn.functional.log_softmax(student_logits / 2.0, dim = -1)
+            # soft_target = nn.functional.softmax(teacher_logits / 2.0, dim = -1)
+            # soft_prob = nn.functional.log_softmax(student_logits / 2.0, dim = -1)   
 
-            soft_targets_loss = torch.sum(soft_target*(soft_target.log()-soft_prob)) / soft_prob.size()[0]*(2**2)
+            # soft_targets_loss = torch.sum(soft_target*(soft_target.log()-soft_prob)) / soft_prob.size()[0]*(2**2)
+
             #hidden_rep_loss = self.mse(teacher_feature, student_feature)
 
-            label_loss = self.criterion(student_logits, targets)
+            # label_loss = self.criterion(student_logits, targets)
+            # alpha =  0.9
 
-            loss = .2 * soft_targets_loss + .8 *  label_loss
-
+            # loss = alpha * soft_targets_loss  + (1 - alpha)* label_loss
+            #loss = self.distillation_loss(stud_logits=student_logits, teacher_logits=teacher_logits, labels= targets)
+            loss = self.distillation_loss(student_logits=student_logits,teacher_logits=teacher_logits, labels=targets)
             loss.backward()
             self.optimizer.step()
 
@@ -336,35 +338,39 @@ class Distiller(Trainer):
             self.best_f1 = float('-inf')
             self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
             results = self.create_df()
-            for test_subject in self.arg.subjects : 
-                train_subjects = list(filter(lambda x : x != test_subject, self.arg.subjects))
-                self.test_subject = [test_subject]
-                self.train_subjects = train_subjects
-                self.model['teacher'] = torch.load(f'{self.arg.teacher_weight}_{self.test_subject[0]}.pth')
-                self.model['student'] = self.load_model(arg.student_model, arg.student_args)
-                self.load_data()
-                self.load_optimizer()
+            # for test_subject in self.arg.subjects : 
+            #     train_subjects = list(filter(lambda x : x != test_subject, self.arg.subjects))
+            #     self.test_subject = [test_subject]
+            #     self.train_subjects = train_subjects
+            test_subject = self.arg.subjects[-3:]
+            train_subjects = [x for x in self.arg.subjects if  x not in test_subject]
+            self.test_subject = test_subject
+            self.train_subjects = train_subjects
+            self.model['teacher'] = torch.load(os.path.join(os.getcwd(),f'{self.arg.teacher_weight}.pth'))
+            self.model['student'] = self.load_model(self.arg.student_model, self.arg.student_args)
+            self.load_data()
+            self.load_optimizer()
 
-                self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
-                for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
-                    self.train(epoch)
-                self.print_log(f'Train Subjects : {self.train_subjects}')
-                self.print_log(f' ------------ Test Subject {self.test_subject[0]} -------')
-                self.print_log(f'Best accuracy for : {self.best_accuracy}')
-                self.print_log(f'Best F-Score: {self.best_f1}')
-                #self.print_log(f'Epoch number: {self.best_acc_epoch}')
-                self.print_log(f'Model name: {self.arg.work_dir}')
-                #self.print_log(f'Model total number of params: {num_params}')
-                self.print_log(f'Weight decay: {self.arg.weight_decay}')
-                self.print_log(f'Base LR: {self.arg.base_lr}')
-                self.print_log(f'Batch Size: {self.arg.batch_size}')
-                self.print_log(f'seed: {self.arg.seed}')
-                self.loss_viz(self.train_loss_summary, self.val_loss_summary)
-                subject_result = pd.Series({'test_subject' : str(self.test_subject), 'train_subjects' :str(self.train_subjects), 
-                                               'accuracy':round(self.best_accuracy,2), 'f1_score':round(self.best_f1, 2)})
-                results.loc[len(results)] = subject_result
-                self.best_accuracy = float('-inf')
-                self.best_f1 = float('-inf')
+            self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
+            for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
+                self.train(epoch)
+            self.print_log(f'Train Subjects : {self.train_subjects}')
+            self.print_log(f' ------------ Test Subject {self.test_subject[0]} -------')
+            self.print_log(f'Best accuracy for : {self.best_accuracy}')
+            self.print_log(f'Best F-Score: {self.best_f1}')
+            #self.print_log(f'Epoch number: {self.best_acc_epoch}')
+            self.print_log(f'Model name: {self.arg.work_dir}')
+            #self.print_log(f'Model total number of params: {num_params}')
+            self.print_log(f'Weight decay: {self.arg.weight_decay}')
+            self.print_log(f'Base LR: {self.arg.base_lr}')
+            self.print_log(f'Batch Size: {self.arg.batch_size}')
+            self.print_log(f'seed: {self.arg.seed}')
+            self.loss_viz(self.train_loss_summary, self.val_loss_summary)
+            subject_result = pd.Series({'test_subject' : str(self.test_subject), 'train_subjects' :str(self.train_subjects), 
+                                            'accuracy':round(self.best_accuracy,2), 'f1_score':round(self.best_f1, 2)})
+            results.loc[len(results)] = subject_result
+            self.best_accuracy = float('-inf')
+            self.best_f1 = float('-inf')
             results.to_csv(f'{self.arg.work_dir}/scores.csv')
                 
             # self.model = self.load_model(self.arg.model, self.arg.model_args)

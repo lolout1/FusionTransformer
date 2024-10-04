@@ -251,6 +251,8 @@ if __name__ == "__main__" :
     # transformed = layer(skl_data)
     # print(transformed.shape)
     acc_data = torch.randn(size = (1, 128, 3))
-    model = MMTransformer(device = 'cpu', mocap_frames= 128, num_patch=16, acc_frames = 128, num_joints = 25, in_chans = 3, acc_coords = 3, spatial_embed = 16, sdepth = 4, adepth = 4, tdepth = 4, num_heads = 8, mlp_ratio = 2, qkv_bias = True, qk_scale = None, op_type = 'cls', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes =27)
+    model = MMTransformer(device = 'cpu', mocap_frames= 128, num_patch=4, acc_frames = 128, num_joints =32, in_chans = 3, acc_coords = 3,
+                           spatial_embed = 16, sdepth = 4, adepth = 4, tdepth = 2, num_heads = 2 , mlp_ratio = 2, qkv_bias = True, qk_scale = None,
+                          op_type = 'cls', embed_type = 'lin', drop_rate =0.2, attn_drop_rate = 0.2, drop_path_rate = 0.2, norm_layer = None, num_classes = 8)
     model(acc_data, skl_data)
     # model(acc_data, skl_data)
