@@ -1,8 +1,0 @@
--- Uniform Loader for all data set
-    -- UTD-MHAD has Matlab files
-    -- SmartFallMM has csv files 
-    so first we need two loaders for those. 
-        -- loaders should have a base class to follow
-        -- we will have multiple modalities and the necessity to match files from 
-           different  modalities, 
-        -- so need 

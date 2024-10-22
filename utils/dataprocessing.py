@@ -122,7 +122,7 @@ def butterworth_filter(data, cutoff, fs, order=4, filter_type='low'):
     b, a = butter(order, normal_cutoff, btype=filter_type, analog=False)
     return filtfilt(b, a, data, axis=0)  
 
-def sf_processing(data_dir = '/Users/tousif/LightHART/data/smartfallmm', subjects = None,
+def sf_processing(data_dir = 'data/smartfallmm', subjects = None,
                     skl_window_size = 32, 
                     num_windows = 10,
                     acc_window_size = 32,
@@ -132,26 +132,25 @@ def sf_processing(data_dir = '/Users/tousif/LightHART/data/smartfallmm', subject
     label_set = []
 
     #file_paths = glob.glob(f'{data_dir}/combined/skeleton/*.csv')data/smartfallmm/real_data/accelerometer_data/phone_accelerometer
-
+    data_dir = os.path.join(os.getcwd(), data_dir)
     file_paths = glob.glob(f"{data_dir}/real_data/Skeleton/*.csv")
     print("file paths {}".format(len(file_paths)))
     #skl_path = f"{data_dir}/{mode}_skeleton_op/"
     #skl_path = f"{data_dir}/{mode}/skeleton/"
-    acc_dir = f"{data_dir}/real_data/accelerometer_data/phone_accelerometer"
-    phone_dir = f"{data_dir}/real_data/accelerometer_data/phone_accelerometer"
+    acc_dir = f"{data_dir}/real_data/Gyroscope/Watch_Gyroscope"
+    phone_dir = f"{data_dir}/real_data/Gyroscope/Watch_Gyroscope"
     pattern = r'S\d+A\d+T\d+'
     act_pattern = r'(A\d+)'
     label_pattern = r'(\d+)'
-
+    count = 0 
     for idx,path in enumerate(file_paths):
         desp = re.findall(pattern, path)[0]
         if not int(desp[1:3]) in subjects:
             continue
         act_label = re.findall(act_pattern, path)[0]
-        # label = int(int(re.findall(label_pattern, act_label)[0]) > 9)
         label = int(re.findall(label_pattern, act_label)[0]) - 1
-        if label > 8 :
-            continue
+        #label = int(re.findall(label_pattern, act_label)[0]) - 1
+
         
         acc_path = f'{acc_dir}/{desp}.csv'
         if os.path.exists(acc_path):
@@ -183,13 +182,13 @@ def sf_processing(data_dir = '/Users/tousif/LightHART/data/smartfallmm', subject
         #     os.remove(phone_path)
         #     continue
         padded_acc = pad_sequence_numpy(sequence=acc_data, input_shape= acc_data.shape, max_sequence_length=acc_window_size)
-        padded_acc = butterworth_filter(data=padded_acc, cutoff=1.0, fs = 15)
+        padded_acc = butterworth_filter(data=padded_acc, cutoff=1.0, fs = 20)
         padded_phone = pad_sequence_numpy(sequence=phone_data, input_shape=phone_data.shape, max_sequence_length=acc_window_size)
-        padded_phone = butterworth_filter(data=padded_phone, cutoff=1.0, fs = 15)
+        padded_phone = butterworth_filter(data=padded_phone, cutoff=1.0, fs = 20)
         padded_skl = pad_sequence_numpy(sequence=skl_data, input_shape=skl_data.shape, max_sequence_length=skl_window_size)
 
         #combined_acc = np.concatenate((padded_acc, padded_phone), axis=1)
-        
+       
         skl_data = rearrange(padded_skl, 't (j c) -> t j c' , j = 32, c = 3)
         acc_set.append(padded_acc)
         skl_set.append(skl_data)
@@ -343,29 +342,12 @@ def normalization(data_path = None,data = None,  new_path = None, acc_scaler = S
     if data_path is not None and data is not None: 
         raise ValueError('Only one of data_path or data should be provided, not both')
 
-    if data_path : 
-        data = np.load(data_path)
-    
-    acc_data = data['acc_data']
-    acc_ct, acc_ln, acc_cl = acc_data.shape
-    reshape_acc = acc_data.reshape((acc_ct*acc_ln, -1))
-    
-    skl_data =data['skl_data']
-    skl_ct, skl_ln, joints, skl_cl = skl_data.shape
-    reshape_skl = skl_data.reshape(skl_ct*skl_ln, joints*skl_cl)
-    
-    if mode == 'fit' :
-        acc_scaler.fit(reshape_acc)
-        skl_scaler.fit(reshape_skl)
+    for key  in data: 
+        if key != 'label':
+            num_samples, length = data[key].shape[:2]
+            data[key] = StandardScaler().fit_transform(data[key].reshape(num_samples, length, -1))
 
-        
-    norm_acc = acc_scaler.transform(reshape_acc). reshape(acc_ct, acc_ln, acc_cl)
-    norm_skl = skl_scaler.transform(reshape_skl).reshape(skl_ct, skl_ln, joints, skl_cl)
-    
-    #np.savez(new_path, acc_data = norm_acc, skl_data = norm_skl, labels = data['labels'] )
-    #dataset = {'acc_data': acc_data.astype(np.float64), 'skl_data': skl_data.astype(np.float64), 'labels': data['labels']}
-    dataset = {'acc_data' : norm_acc, 'skl_data': norm_skl, 'labels': data['labels']}
-    return dataset, acc_scaler, skl_scaler
+    return data
 
 def find_match_elements(pattern, elements): 
     #compile the regular expression

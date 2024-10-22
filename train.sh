@@ -1,7 +1,7 @@
 #!/bin/bash
 teacher_weights="spTransformer"
-student_dir="exps/smartfall_har/student/phone_matching"
-work_dir="exps/smartfall_har/kd/student/phone_divid2"
+student_dir="exps/smartfall_har/student/watchgyro_divid3bw20"
+work_dir="exps/smartfall_har/kd/student/watchgyro_divid3bw20"
 student_weights="ttfstudent"
 teacher_dir="exps/smartfall_har/teacher/with_new1"
 result_file="result.txt"
@@ -42,8 +42,9 @@ result_file="result.txt"
 #python3 main.py --config ./config/smartfallmm/teacher.yaml --work-dir $teacher_dir --model-saved-name $teacher_weights  --device 2 --base-lr 2.5e-3 --include-val True
 
 #accelerometer only experiment
-#python main.py --config ./config/smartfallmm/student.yaml --work-dir $student_dir --model-saved-name $student_weights --device 1 --base-lr 1e-3 --include-val True
+python main.py --config ./config/smartfallmm/student.yaml --work-dir $student_dir --model-saved-name $student_weights --device 1 --base-lr 1e-3 --include-val True
 #python main.py --config ./config/smartfallmm/teacher.yaml --work-dir $work_dir --weights $work_dir/$student_weights --device 1 --base-lr 2.5e-3 --phase test
 
+
 #distillation 
-python3 distiller.py --config ./config/smartfallmm/distill.yaml --work-dir $work_dir  --teacher-weight "$teacher_dir/$teacher_weights" --model-saved-name "$student_weights" --device 1 --base-lr 2.5e-3 --include-val True
+#python3 distiller.py --config ./config/smartfallmm/distill.yaml --work-dir $work_dir  --teacher-weight "$teacher_dir/$teacher_weights" --model-saved-name "$student_weights" --device 1 --base-lr 2.5e-3 --include-val True
