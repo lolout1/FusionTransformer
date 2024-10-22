@@ -1,29 +1,17 @@
-# Fall Detection KD Multimodal 
+# LightHART: Lightweight Human Activity Recognition Transformer
+Implementation of "Lightweight Human Activity Recognition Transformer" accepted in ICPR 2024.
+
 ## Getting started 
-- Create an conda environment and use the requirements.txt to install all the neccasary files.
-- For fall detection task choose *young* participant and for har detection task choose *old* . `num_classes` variable in the config file also needs to be changed from 2 to 8 for HAR Detection.
-```bash
-python3.8 -m venv smfall
-```
-```bash
-source smfall/bin/activate
-```
-```bash
-cd Fall_Detection_KD_Multimodal
-```
+- Create an pip environment and use the requirements.txt to install all the neccasary files.
+
 ```bash
 pip install -r requirements.txt
 ```
-
-```bash
-pip install torch==1.8.1+cu111 torchvision==0.9.1+cu111 torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
-```
+This requirements file doesn't have the instructions to install pytorch. Please install pytorch 1.13.0 for the experiments
 
 ## Get the Dataset
+- Download the SmartFallMM data from [this link](https://github.com/tousifulhaque/smartfallmm.git). This is a a private repo so, please ask me to add you as a collaborator to access the dataset. Put the dataset under `data` folder. 
 
-- Find all the datasets and npz files [here](https://txst-my.sharepoint.com/:f:/g/personal/bgu9_txstate_edu/EgHHgZoUISxDoY5uBHCwfOQBhQj89or79AC2A5Z98vToSA?e=98nB7i). 
-- Download the data and put it under the root directory. 
-- The datasets can processed from the scartch using the Processing_data.ipynb file.
 
 ## Choose and configure models
 - Model configuration for Accelerometer model is kept under ``config/utd/student.yaml`` and in ``config/utd/teacher.yaml`` for  UTD Multimodal model.

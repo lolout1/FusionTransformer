@@ -2,16 +2,13 @@
 
 #Model
 model: Models.st_cvtransformer.MMTransformer
-# model : Models.model_crossview_fusion.ActRecogTransformer
-# model_saved_name : tokenfusion_AdamW_avgpool
-# work_dir: exps/UTD_woKD/with_AdamW
 dataset: 'smartfallmm'
 subjects: [29,30, 31,32, 33,34, 35, 36, 37,38,39, 43, 44, 45, 46]
 #subjects : [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47, 19,22,23]
 model_args:
   acc_frames : 128
   num_joints : 32
-  num_classes : 8
+  num_classes : 2
   spatial_embed : 64
   adepth : 2
   sdepth : 2
@@ -29,15 +26,9 @@ dataset_args:
  max_length: 128 
  task : 'fd'
  modalities: ['skeleton', 'accelerometer']
- age_group: ['young', 'old']
- sensors: ['watch']
-#optim
-# weight_decay: 0.0004
-# base_lr: 0.001
+ age_group: ['young']
+ sensors: ['phone']
 
-
-# training
-#changeable
 batch_size: 32 # Change all 6 batch sizes consistently, Default: 16
 test_batch_size: 32
 val_batch_size : 32
