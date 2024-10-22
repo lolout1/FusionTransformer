@@ -1,7 +1,9 @@
 model: Models.transformer.TransModel
 dataset: smartfallmm
 
+#subjects for har
 #subjects: [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47,19,22,23]
+# subjects for fall deteciton
 subjects: [29,30,31, 32, 34, 35, 36, 37,38,39, 40, 41, 42, 43, 44, 45, 46]
 
 model_args:
@@ -10,6 +12,7 @@ model_args:
   embed_dim: 32
   activation: relu 
   acc_coords : 4
+  #change num_classes to 8 for human activity recognition
   num_classes: 2
   acc_frames : 128
   mocap_frames : 128
@@ -18,9 +21,11 @@ model_args:
 dataset_args: 
  mode: 'avg_pool'
  max_length: 128 
+ #change task to 'har' for Human activity recognition
  task : 'fd'
  modalities: ['skeleton', 'accelerometer']
  age_group: ['young', 'old']
+ # change the sensor to phone , meta_wrist , meta_hip for experiments
  sensors: ['phone']
 
 batch_size: 16

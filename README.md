@@ -14,7 +14,7 @@ This requirements file doesn't have the instructions to install pytorch. Please 
 
 
 ## Choose and configure models
-- Model configuration for Accelerometer model is kept under ``config/utd/student.yaml`` and in ``config/utd/teacher.yaml`` for  UTD Multimodal model.
+- Model configuration for Accelerometer model is kept under ``config/smartfallmm/student.yaml``.
 
 - Model Configuration or Skeleton model is kept under ``config/smartfallmm/teacher.yaml`` for SmartFallMM dataset.
 
