@@ -40,7 +40,7 @@ base_lr: 0.001
 batch_size: 16
 test_batch_size: 16
 val_batch_size : 16
-num_epoch: 250
+num_epoch: 120
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm

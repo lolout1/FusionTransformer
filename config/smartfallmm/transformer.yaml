@@ -1,24 +1,25 @@
 #Model
-model: Models.model_acc_only.ActTransformerAcc
+model: Models.transformer.Transformer
 # file name of weights 
 #work_dir: exps/UTD_woKD/acc_modal
+#model_saved_name : student_sliding
+dataset: smartfallmm
 
 model_args:
-  acc_frames : 64
-  num_joints : 25 
-  num_classes : 20
-  acc_embed : 64
-  adepth : 2
-  num_heads : 2
-  acc_coords: 6
-  op_type : avg
+  num_heads : 4
+  num_layers : 2
+  norm_first : True
+  embed_dim: 64
+  activation: relu 
+  input_dim: 3
+  num_classes: 2
   # mocap_frames: 50
 
 
 batch_size: 16
 test_batch_size: 16
 val_batch_size : 16
-num_epoch: 700
+num_epoch: 50
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm

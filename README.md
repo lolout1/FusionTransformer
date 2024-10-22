@@ -1,6 +1,7 @@
 # Fall Detection KD Multimodal 
 ## Getting started 
 - Create an conda environment and use the requirements.txt to install all the neccasary files.
+- For fall detection task choose *young* participant and for har detection task choose *old* . `num_classes` variable in the config file also needs to be changed from 2 to 8 for HAR Detection.
 ```bash
 python3.8 -m venv smfall
 ```

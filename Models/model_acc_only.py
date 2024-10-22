@@ -14,8 +14,8 @@ from .model_utils import Block
 
 
 class ActTransformerAcc(nn.Module):
-    def __init__(self, acc_frames=150, num_joints=29, in_chans=3, acc_coords=3, acc_embed=32, acc_features=18, adepth=4, num_heads=4, mlp_ratio=2., qkv_bias=True,
-                 qk_scale=None, op_type='cls', embed_type='conv', fuse_acc_features=False,has_features = False,
+    def __init__(self, acc_frames=128, mocap_frames = 128,num_joints=29, in_chans=3, acc_coords=3, acc_embed=32, acc_features=18, adepth=4, num_heads=4, mlp_ratio=2., qkv_bias=True,
+                 qk_scale=None, op_type='cls', embed_type='lin', fuse_acc_features=False,has_features = False,
                  drop_rate=0.2, attn_drop_rate=0.2, drop_path_rate=0.2,  norm_layer=None, num_classes=6, spatial_embed = 32):
 
         """    ##########hybrid_backbone=None, representation_size=None,
@@ -115,11 +115,11 @@ class ActTransformerAcc(nn.Module):
         x += self.Acc_pos_embed
         x = self.pos_drop(x)
 
-        for _, blk in enumerate(self.Acceletaion_blocks):
+        # for _, blk in enumerate(self.Acceletaion_blocks):
 
-           x = blk(x)
+        #    x = blk(x)
             
-        x = self.Acc_norm(x)
+        # x = self.Acc_norm(x)
         
         #Extract cls token
         cls_token = x[:,-1,:]
@@ -160,11 +160,13 @@ class ActTransformerAcc(nn.Module):
         logits = self.class_head(sx)
         # print(logits)
         # print(F.log_softmax(logits,dim=1))
-        return out, logits, F.log_softmax(logits,dim=1)
+        return logits
 
-'''
-model=ActRecogTransformer()
-x=torch.randn((14,600,197,4))
-op=model(x)
-print("Op shape: ",op.shape)
-'''
+
+if __name__ == "__main__" :
+    model=ActTransformerAcc()
+    acc_data=torch.randn((8, 128 , 3))
+    skl_data = torch.rand((8,128,96))
+    op=model(acc_data,skl_data)
+    print("Op shape: ",op.shape)
+

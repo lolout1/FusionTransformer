@@ -1,127 +1,53 @@
-x`import torch
+import torch
 from torch import nn
+import math
+import torch.nn.functional as F
+class AccelerometerTransformer(nn.Module):
+    def __init__(self,acc_frames=150, mocap_frames = 128,num_joints=29, in_chans=3, acc_coords=3, acc_embed=32, acc_features=18, adepth=4, num_heads=4, mlp_ratio=2., qkv_bias=True,
+                 qk_scale=None, op_type='cls', embed_type='lin', fuse_acc_features=False,has_features = False,
+                 drop_rate=0.2, attn_drop_rate=0.2, drop_path_rate=0.2,  norm_layer=None, num_classes=6, spatial_embed = 32):
+        super(AccelerometerTransformer, self).__init__()
+        self.embed_dim = acc_embed
+        self.num_heads = num_heads
+        self.num_layers = adepth
+        
+        # Input Embedding
+        self.input_embedding = nn.Linear(in_chans, self.embed_dim)
+        
+        # Positional Encoding
+        self.pos_encoder = PositionalEncoding(self.embed_dim)
+        
+        # Transformer Encoder
+        encoder_layers = nn.TransformerEncoderLayer(self.embed_dim, num_heads, dim_feedforward=128, dropout=drop_rate)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, self.num_layers)
+        
+        # Output Layer
+        self.output_layer = nn.Linear(self.embed_dim, num_classes)
+        
+    def forward(self, x, skl_data):
+        # Input Embedding
+        x = self.input_embedding(x)
+        
+        # Positional Encoding
+        x = self.pos_encoder(x)
+        
+        # Transformer Encoder
+        encoder = self.transformer_encoder(x)
+        # Output Layer
+        x = self.output_layer(encoder[:, 0])
+        
+        return encoder, x, F.log_softmax(x, dim = 1)
 
-from einops import rearrange
-from einops.layers.torch import Rearrange
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=128):
+        super(PositionalEncoding, self).__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
 
-# helpers
-
-def posemb_sincos_1d(patches, temperature = 10000, dtype = torch.float32):
-    _, n, dim, device, dtype = *patches.shape, patches.device, patches.dtype
-
-    n = torch.arange(n, device = device)
-    assert (dim % 2) == 0, 'feature dimension must be multiple of 2 for sincos emb'
-    omega = torch.arange(dim // 2, device = device) / (dim // 2 - 1)
-    omega = 1. / (temperature ** omega)
-
-    n = n.flatten()[:, None] * omega[None, :]
-    pe = torch.cat((n.sin(), n.cos()), dim = 1)
-    return pe.type(dtype)
-
-# classes
-
-class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, dim),
-        )
     def forward(self, x):
-        return self.net(x)
-
-class Attention(nn.Module):
-    def __init__(self, dim, heads = 3, dim_head = 64):
-        super().__init__()
-        inner_dim = dim_head *  heads
-        self.heads = heads
-        self.scale = dim_head ** -0.5
-        self.norm = nn.LayerNorm(dim)
-
-        self.attend = nn.Softmax(dim = -1)
-
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False) 
-        self.to_out = nn.Linear(inner_dim, dim, bias = False)
-
-    def forward(self, x):
-        x = self.norm(x)
-
-        qkv = self.to_qkv(x).chunk(3, dim = -1)
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
-
-        dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
-
-        attn = self.attend(dots)
-
-        out = torch.matmul(attn, v)
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        return self.to_out(out)
-
-class Transformer(nn.Module):
-    def __init__(self, dim, depth, heads, dim_head, mlp_dim):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-        for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                Attention(dim, heads = heads, dim_head = dim_head),
-                FeedForward(dim, mlp_dim)
-            ]))
-    def forward(self, x):
-        for attn, ff in self.layers:
-            x = attn(x) + x
-            x = ff(x) + x
-        return x
-
-class SimpleViT(nn.Module):
-    def __init__(self, *, seq_len, patch_size, num_classes, dim, depth, heads, mlp_dim, channels = 3, dim_head = 64):
-        super().__init__()
-
-        assert seq_len % patch_size == 0
-
-        num_patches = seq_len // patch_size
-        patch_dim = channels * patch_size
-
-        self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c (n p) -> b n (p c)', p = patch_size),
-            nn.LayerNorm(patch_dim),
-            nn.Linear(patch_dim, dim),
-            nn.LayerNorm(dim),
-        )
-
-        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim)
-
-        self.to_latent = nn.Identity()
-        self.linear_head = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, num_classes)
-        )
-
-    def forward(self, series):
-        *_, n, dtype = *series.shape, series.dtype
-
-        x = self.to_patch_embedding(series)
-        pe = posemb_sincos_1d(x)
-        x = rearrange(x, 'b ... d -> b (...) d') + pe
-
-        x = self.transformer(x)
-        x = x.mean(dim = 1)
-
-        x = self.to_latent(x)
-        return self.linear_head(x)
-
-if __name__ == '__main__':
-
-    v = SimpleViT(
-        seq_len = 256,
-        patch_size = 16,
-        num_classes = 1000,
-        dim = 1024,
-        depth = 6,
-        heads = 8,
-        mlp_dim = 2048
-    )
-
-    time_series = torch.randn(4, 3, 256)
-    logits = v(time_series) # (4, 1000)
+        return x + self.pe[:, :x.size(1)]

@@ -5,4 +5,5 @@ data/
 weights/
 exps/
 /config.py
-notebook/
+.DS_Store
+.venv

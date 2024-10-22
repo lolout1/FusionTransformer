@@ -6,63 +6,57 @@ model: Models.st_cvtransformer.MMTransformer
 # model_saved_name : tokenfusion_AdamW_avgpool
 # work_dir: exps/UTD_woKD/with_AdamW
 dataset: 'smartfallmm'
-
-
+subjects: [29,30, 31,32, 33,34, 35, 36, 37,38,39, 43, 44, 45, 46]
+#subjects : [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47, 19,22,23]
 model_args:
+  acc_frames : 128
+  num_joints : 32
+  num_classes : 8
+  spatial_embed : 64
+  adepth : 2
+  sdepth : 2
+  num_heads : 2
   mocap_frames: 128
-  num_joints: 32
-  in_chans: 3 
-  spatial_embed: 32 
-  num_classes: 2
-  sdepth: 4
-  tdepth: 4
-  acc_frames : 32
-  # num_joints : 20
-  # num_classes : 27
-  # spatial_embed : 32
-  # adepth : 2
-  # sdepth : 2
-  # num_heads : 4
-  # mocap_frames: 32
-  num_patch: 8
-  acc_coords: 3
-  # drop_path_rate: 0.4
-  # drop_rate: 0.4
-  # attn_drop_rate: 0.4
-
-
+  num_patch: 4
 
 # loss_args 
 loss_args:
   beta: 0.2
 
 
+dataset_args: 
+ mode: 'avg_pool'
+ max_length: 128 
+ task : 'fd'
+ modalities: ['skeleton', 'accelerometer']
+ age_group: ['young', 'old']
+ sensors: ['watch']
 #optim
-weight_decay: 0.0004
+# weight_decay: 0.0004
 # base_lr: 0.001
 
 
 # training
 #changeable
-batch_size: 16
-test_batch_size: 16
-val_batch_size : 16
-num_epoch: 250
+batch_size: 32 # Change all 6 batch sizes consistently, Default: 16
+test_batch_size: 32
+val_batch_size : 32
+num_epoch: 120 # Change, Default: 250
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
 
 train_feeder_args:
   # npz_file: data/UTD_MAAD/utd_train_op_mf50_norm.npz
-  batch_size: 16
+  batch_size: 32
 
 val_feeder_args:
   # npz_file: data/UTD_MAAD/utd_val_op_mf50_norm.npz
-  batch_size: 16
+  batch_size: 32
 
 test_feeder_args: 
   # npz_file: data/UTD_MAAD/utd_test_op_mf50_norm.npz
-  batch_size: 16
+  batch_size: 32
 
 seed: 2 
-optimizer: adam
+optimizer: sgd
