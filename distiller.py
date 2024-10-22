@@ -23,7 +23,7 @@ import torch.nn.functional as F
 from Feeder.augmentation import TSFilpper
 from utils.dataprocessing import utd_processing , bmhad_processing,normalization
 from main import Trainer, str2bool, init_seed, import_class
-from loss import SemanticLoss, DistillationLoss
+from utils.loss import SemanticLoss, DistillationLoss
 from sklearn.metrics import f1_score
 
 
@@ -385,7 +385,6 @@ class Distiller(Trainer):
                 raise ValueError('Please add --weights')
             y_pred, y_true, wrong_idx = self.eval(epoch=0, loader_name='test', result_file=self.arg.result_file)
             self.cm_viz(y_pred, y_true)   
-
 
 
 if __name__ == "__main__":

@@ -342,36 +342,12 @@ def normalization(data_path = None,data = None,  new_path = None, acc_scaler = S
     if data_path is not None and data is not None: 
         raise ValueError('Only one of data_path or data should be provided, not both')
 
-<<<<<<< HEAD
-    if data_path : 
-        data = np.load(data_path)
-    
-    acc_data = data['acc_data']
-    acc_ct, acc_ln, acc_cl = acc_data.shape
-    reshape_acc = acc_data.reshape((acc_ct*acc_ln, -1))
-    
-    skl_data =data['skl_data']
-    skl_ct, skl_ln, joints, skl_cl = skl_data.shape
-    reshape_skl = skl_data.reshape(skl_ct*skl_ln, joints*skl_cl)
-    
-    if mode == 'fit' :
-        acc_scaler.fit(reshape_acc)
-        skl_scaler.fit(reshape_skl)
-        
-    norm_acc = acc_scaler.transform(reshape_acc). reshape(acc_ct, acc_ln, acc_cl)
-    #norm_skl = skl_scaler.transform(reshape_skl).reshape(skl_ct, skl_ln, joints, skl_cl)
-    
-    #np.savez(new_path, acc_data = norm_acc, skl_data = norm_skl, labels = data['labels'] )
-    dataset = {'acc_data' : norm_acc, 'skl_data': skl_data, 'labels': data['labels']}
-    return dataset, acc_scaler, skl_scaler
-=======
     for key  in data: 
         if key != 'label':
             num_samples, length = data[key].shape[:2]
             data[key] = StandardScaler().fit_transform(data[key].reshape(num_samples, length, -1))
 
     return data
->>>>>>> diego
 
 def find_match_elements(pattern, elements): 
     #compile the regular expression

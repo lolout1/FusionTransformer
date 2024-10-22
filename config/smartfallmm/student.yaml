@@ -10,7 +10,7 @@ model_args:
   embed_dim: 32
   activation: relu 
   acc_coords : 4
-  num_classes: 9
+  num_classes: 2
   acc_frames : 128
   mocap_frames : 128
   num_heads: 2
@@ -21,7 +21,7 @@ dataset_args:
  task : 'fd'
  modalities: ['skeleton', 'accelerometer']
  age_group: ['young', 'old']
- sensors: ['watch']
+ sensors: ['phone']
 
 batch_size: 16
 test_batch_size: 16

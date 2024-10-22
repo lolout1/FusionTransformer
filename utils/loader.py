@@ -55,7 +55,7 @@ class DatasetBuilder:
                         key = keys[modality.lower()]
                     processor = Processor(file_path, self.mode, self.max_length, key = key)
                     try: 
-                        unimodal_data = butterworth_filter(processor.process(), cutoff=1.0, fs=20)
+                        unimodal_data = butterworth_filter(processor.process(), cutoff=1.0, fs=15)
                         self.data[modality] = self.data.get(modality, [])
 
                         self.data[modality].append(unimodal_data)
