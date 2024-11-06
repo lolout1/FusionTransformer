@@ -20,10 +20,9 @@ import torch.nn.functional as F
 # from torchsummary import summary
 
 #local import 
-from Feeder.augmentation import TSFilpper
 from utils.dataprocessing import utd_processing , bmhad_processing,normalization
 from main import Trainer, str2bool, init_seed, import_class
-from utils.loss import SemanticLoss, DistillationLoss
+from utils.loss import DistillationLoss
 from sklearn.metrics import f1_score
 
 
@@ -32,16 +31,16 @@ from sklearn.metrics import f1_score
 def get_args():
 
     parser = argparse.ArgumentParser(description = 'Distillation')
-    parser.add_argument('--config' , default = './config/utd/distill.yaml')
+    parser.add_argument('--config' , default = './config/smartfallmm/distill.yaml')
     parser.add_argument('--dataset', type = str, default= 'utd' )
     #training
     parser.add_argument('--batch-size', type = int, default = 16, metavar = 'N',
                         help = 'input batch size for training (default: 8)')
 
     parser.add_argument('--test-batch-size', type = int, default = 8, 
-                        metavar = 'N', help = 'input batch size for testing(default: 1000)')
+                        metavar = 'N', help = 'input batch size')
     parser.add_argument('--val-batch-size', type = int, default = 8, 
-                        metavar = 'N', help = 'input batch size for testing(default: 1000)')
+                        metavar = 'N', help = 'input batch size')
 
     parser.add_argument('--num-epoch', type = int , default = 70, metavar = 'N', 
                         help = 'number of epochs to train (default: 10)')
@@ -56,11 +55,12 @@ def get_args():
     #data 
     # parser.add_argument('--train-subjects', nargs='+', type = int)
     parser.add_argument('--subjects', nargs='+', type = int)
+    parser.add_argument('--dataset-args', default= None, type= str)
 
     #teacher model
     parser.add_argument('--teacher-model' ,default= None, help = 'Name of teacher model to load')
     parser.add_argument('--teacher-args', default= str, help = 'A dictionary for teacher args')
-    parser.add_argument('--teacher-weight', type = str, help= 'weight for teacher')
+    parser.add_argument('--teacher-weight', type = str, default="/Users/tousif/LightHART/exps/smartfall_fall/teacher/with_new1/spTransformer.pth", help= 'weight for teacher')
 
     #student model 
     parser.add_argument('--student-model', default = None , help = 'Name of the student model to load' )
@@ -71,7 +71,7 @@ def get_args():
     #model args
     parser.add_argument('--device', nargs='+', default=[0], type = int)
     parser.add_argument('--weights', type = str, help = 'Location of weight file')
-    parser.add_argument('--model-saved-name', type = str, help = 'Weigt name', default='test')
+    parser.add_argument('--model-saved-name', type = str,  default = "ttfstudent", help = 'Weigt name')
 
     #loss args
     parser.add_argument('--distill-loss', default='loss.BCE' , help = 'Name of loss function to use' )
@@ -98,8 +98,7 @@ def get_args():
                         help = 'how many batches to wait before logging training status')
 
 
-   
-    parser.add_argument('--work-dir', type = str, default = 'simple', metavar = 'F', help = "Working Directory")
+    parser.add_argument('--work-dir', type = str, default = 'exps/test', metavar = 'F', help = "Working Directory")
     parser.add_argument('--print-log',type=str2bool,default=True,help='print logging or not')
     
     parser.add_argument('--phase', type = str, default = 'train')
@@ -113,18 +112,12 @@ def get_args():
 class Distiller(Trainer):
     def __init__(self, arg):
         self.arg = arg
+        self.data_loader = {}
         # self.criterion = {}
+        self.intertial_modality = (lambda x: next((modality for modality in x if modality != 'skeleton'), None))(arg.dataset_args['modalities'])
         if self.arg.phase == "train":
             self.model = {}
             self.arg.model_args = arg.teacher_args
-            # self.load_model('teacher', arg.teacher_model, arg.teacher_args)
-            # self.load_weights(name='teacher', weight = self.arg.teacher_weight)
-            
-            # teacher_params = self.count_parameters(self.model['teacher'])
-            # print(f'# Teacher Parameters: {teacher_params}')
-            # self.load_model('student', arg.student_model, arg.student_args)
-            # self.load_loss(name = 'distill', loss = arg.distill_loss)
-            # self.load_loss(name = 'student', loss = arg.student_loss)
             self.load_loss()
 
 
@@ -142,12 +135,6 @@ class Distiller(Trainer):
             self.arg.model_args = arg.student_args
             self.arg.model_args['spatial_embed'] =  self.arg.model_args['acc_embed']
             #self.load_weights(name = 'student', weight=self.arg.weights)
-        
-        #self.load_data()
-        #self.load_optimizer()
-
-        # num_params = self.count_parameters(self.model['student'])
-        # self.print_log(f'# Student Parameters: {num_params}')
     
     def load_optimizer(self, name = 'student'):
         
@@ -177,12 +164,8 @@ class Distiller(Trainer):
     def load_loss(self):
         self.mse = torch.nn.MSELoss()
         self.criterion = torch.nn.CrossEntropyLoss()
-        self.distillation_loss = DistillationLoss(temperature=2)
-    # def load_model(self, name, model, model_args):
-    #     use_cuda = torch.cuda.is_available()
-    #     self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
-    #     Model = import_class(model)
-    #     self.model[name] = Model(**model_args).to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+        self.distillation_loss = DistillationLoss(temperature=3)
+
 
     def load_weights(self, name, weight):
         self.model[name].load_state_dict(torch.load(weight))
@@ -207,8 +190,8 @@ class Distiller(Trainer):
         for batch_idx, (inputs, targets, idx) in enumerate(process):
 
             with torch.no_grad():
-                acc_data = inputs['acc_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
-                skl_data = inputs['skl_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                acc_data = inputs[self.intertial_modality].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                skl_data = inputs['skeleton'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
                 targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
             
             timer['dataloader'] += self.split_time()
@@ -220,18 +203,6 @@ class Distiller(Trainer):
             with torch.no_grad():
                 teacher_logits= self.model['teacher'](acc_data.float(), skl_data.float())
             student_logits= self.model['student'](acc_data.float(), skl_data.float())
-            # soft_target = nn.functional.softmax(teacher_logits / 2.0, dim = -1)
-            # soft_prob = nn.functional.log_softmax(student_logits / 2.0, dim = -1)   
-
-            # soft_targets_loss = torch.sum(soft_target*(soft_target.log()-soft_prob)) / soft_prob.size()[0]*(2**2)
-
-            #hidden_rep_loss = self.mse(teacher_feature, student_feature)
-
-            # label_loss = self.criterion(student_logits, targets)
-            # alpha =  0.9
-
-            # loss = alpha * soft_targets_loss  + (1 - alpha)* label_loss
-            #loss = self.distillation_loss(stud_logits=student_logits, teacher_logits=teacher_logits, labels= targets)
             loss = self.distillation_loss(student_logits=student_logits,teacher_logits=teacher_logits, labels=targets)
             loss.backward()
             self.optimizer.step()
@@ -292,8 +263,8 @@ class Distiller(Trainer):
             for batch_idx, (inputs, targets, idx) in enumerate(process):
                 label_list.extend(targets.tolist())
                 #inputs = inputs.cuda(self.output_device)
-                acc_data = inputs['acc_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
-                skl_data = inputs['skl_data'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                acc_data = inputs[self.intertial_modality].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                skl_data = inputs['skeleton'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
                 targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
                 #_,logits,predictions = self.model(inputs.float())
                 logits= self.model['student'](acc_data.float(), skl_data.float())

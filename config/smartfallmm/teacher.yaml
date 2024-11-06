@@ -3,8 +3,9 @@
 #Model
 model: Models.st_cvtransformer.MMTransformer
 dataset: 'smartfallmm'
-subjects: [29,30, 31,32, 33,34, 35, 36, 37,38,39, 43, 44, 45, 46]
+#subjects: [29,30, 31,32, 33,34, 35, 36, 37,38,39, 43, 44, 45, 46]
 #subjects : [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47, 19,22,23]
+subjects: [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47,29,30,31, 32, 34, 35, 36, 37,38,39, 40, 41, 42, 43,19,22,23]
 model_args:
   acc_frames : 128
   num_joints : 32
@@ -24,9 +25,9 @@ loss_args:
 dataset_args: 
  mode: 'avg_pool'
  max_length: 128 
- task : 'fd'
+ task : 'age'
  modalities: ['skeleton', 'accelerometer']
- age_group: ['young']
+ age_group: ['young', 'old']
  sensors: ['phone']
 
 batch_size: 32 # Change all 6 batch sizes consistently, Default: 16

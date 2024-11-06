@@ -18,6 +18,12 @@ This requirements file doesn't have the instructions to install pytorch. Please 
 
 - Model Configuration or Skeleton model is kept under ``config/smartfallmm/teacher.yaml`` for SmartFallMM dataset.
 
+- Configuration for Distillation is stored in ``config/smartfallmm/distill.yaml`` for SmartFallMM dataset.
+
+## Step for Knowledge Distillation 
+- Train a teacher model first using ``main.py`` and ``config/smartfallmm/teacher.yaml``. You can do it by uncommenting `line 38` in `train.sh` . 
+- Perform knowledge distillation using ``distill.py`` and ``config/smartfallmm/distill.yaml`` . You can perform the distillation by uncomenting `line 46`.
+
 ## Train and test
 Give execution access to ``train.sh`` with 
 ```bash

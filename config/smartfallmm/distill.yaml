@@ -4,20 +4,22 @@ dataset: smartfallmm
 
 # train_subjects: 1
 # test_subjects: [18]
-subjects: [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47, 19,22,23]
-#subjects : [29,30,31, 32, 34, 35, 36, 37,38,39, 40, 41, 42, 43, 44, 45, 46]
+#subjects: [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47, 19,22,23]
+subjects : [29,30,31, 32, 34, 35, 36, 37,38,39, 40, 41, 42, 43, 44, 45, 46]
+#subjects: [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47,29,30,31, 32, 34, 35, 36, 37,38,39, 40, 41, 42, 43,19,22,23,]
 
 #model_args
 teacher_args:
   acc_frames : 128
   num_joints : 32
-  num_classes : 9
-  spatial_embed : 32
+  num_classes : 2
+  spatial_embed : 64
   adepth : 2
   sdepth : 2
   num_heads : 2
   mocap_frames: 128
   num_patch: 4
+
 
 
 student_args: 
@@ -26,11 +28,21 @@ student_args:
   embed_dim: 32
   activation: relu 
   acc_coords : 4
-  num_classes: 9
+  #change num_classes to 8 for human activity recognition
+  num_classes: 2
   acc_frames : 128
   mocap_frames : 128
   num_heads: 2
 
+dataset_args: 
+ mode: 'avg_pool'
+ max_length: 128 
+ #change task to 'har' for Human activity recognition
+ task : 'fd'
+ modalities: ['skeleton', 'accelerometer']
+ age_group: ['young', 'old']
+ # change the sensor to phone , meta_wrist , meta_hip for experiments
+ sensors: ['watch']
 #optim
 # weight_decay: 0.0004
 # base_lr: 0.001
@@ -50,9 +62,7 @@ distill_args:
   T : 2
   alpha: 0.7
 
-student_loss: loss.BCE
-
-
+########
 train_feeder_args:
   # npz_file: data/UTD_MAAD/utd_train_op_mf50_norm.npz
   batch_size: 16

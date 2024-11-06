@@ -258,13 +258,13 @@ class Trainer():
         if self.arg.phase == 'train':
             # if self.arg.dataset == 'smartfallmm':
 
-                # dataset class for futher processing
+            # dataset class for futher processing
             builder = prepare_smartfallmm(self.arg)
+
             norm_train = filter_subjects(builder, self.train_subjects)
             norm_val = filter_subjects(builder , self.test_subject)
 
-                #validation dataset
-
+            #validation dataset
             self.data_loader['train'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.train_feeder_args,
                                dataset = norm_train),
@@ -408,7 +408,6 @@ class Trainer():
 
             self.optimizer.zero_grad()
             logits= self.model(acc_data.float(), skl_data.float())
-
             loss = self.criterion(logits, targets)
             loss.mean().backward()
             self.optimizer.step()
@@ -513,7 +512,7 @@ class Trainer():
                 results = self.create_df()
                 #for i in range(len(self.arg.subjects)-1): 
                     #train_subjects = list(filter(lambda x : x not in test_subject, self.arg.subjects))
-                test_subject = self.arg.subjects[-3:]
+                test_subject = self.arg.subjects[-6:]
                 train_subjects = [x for x in self.arg.subjects if  x not in test_subject]
                 self.test_subject = test_subject
                 self.train_subjects = train_subjects

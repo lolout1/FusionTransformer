@@ -181,17 +181,17 @@ class MMTransformer(nn.Module):
         x = self.Temporal_norm(x)
 
         ###Extract Class token head from the outputs
-        # if self.op_type=='cls':
-        #     cls_token = x[:,1,:]
-        #     cls_token = cls_token.view(b, -1) # (Batch_size, temp_embed)
-        #     return cls_token
+        if self.op_type=='cls':
+            cls_token = x[:,1,:]
+            cls_token = cls_token.view(b, -1) # (Batch_size, temp_embed)
+            return cls_token
 
-        # else:
-        #     x = x[:,:f,:]
-        #     x = rearrange(x, 'b f St -> b St f')
-        #     x = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x St x 1
-        #     x = torch.reshape(x, (b,St))
-        #     return x #b x St 
+        else:
+            x = x[:,:f,:]
+            x = rearrange(x, 'b f St -> b St f')
+            x = F.avg_pool1d(x,x.shape[-1],stride=x.shape[-1]) #b x St x 1
+            x = torch.reshape(x, (b,St))
+            return x #b x St 
         return x
     def forward(self, acc_data, skl_data):
 

@@ -43,6 +43,8 @@ class DatasetBuilder:
             if trial.subject_id in subjects:        
                 if self.task == 'fd': 
                     label = int(trial.action_id > 9)
+                elif self.task == 'age':
+                    label = int(trial.subject_id < 29 or trial.subject_id > 46)
                 else:
                     label = trial.action_id - 1
                 self.data['labels'] = self.data.get('labels',[])
@@ -55,7 +57,7 @@ class DatasetBuilder:
                         key = keys[modality.lower()]
                     processor = Processor(file_path, self.mode, self.max_length, key = key)
                     try: 
-                        unimodal_data = butterworth_filter(processor.process(), cutoff=1.0, fs=15)
+                        unimodal_data = butterworth_filter(processor.process(), cutoff=1.0, fs=20)
                         self.data[modality] = self.data.get(modality, [])
 
                         self.data[modality].append(unimodal_data)
