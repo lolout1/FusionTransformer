@@ -5,12 +5,13 @@ dataset: smartfallmm
 #subjects for har
 #subjects: [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47,19,22,23]
 # subjects for fall deteciton
-subjects: [29,30, 31,33,45, 46, 34,37, 39, 38, 43, 35, 36, 44, 34, 32]
+#removed 29
+subjects: [32,39,30,31,33,34,35,37,43,44,45,36,29]
 #subjects for age detection 
 #subjects: [1,2, 3, 4, 5,7,8,9, 10,11, 12,13,14,15, 16, 17, 18,47,29,30,31, 32, 34, 35, 36, 37,38,39, 40, 41, 42, 43,19,22,23,]
 
 model_args:
-  num_layers : 4
+  num_layers : 2
   norm_first : True
   embed_dim: 32
   activation: relu 
@@ -18,35 +19,34 @@ model_args:
   #acc_embed: 256
   #change num_classes to 8 for human activity recognition
   num_classes: 2
-  acc_frames : 64
-  mocap_frames : 64
+  acc_frames : 128
+  mocap_frames : 128
   num_heads: 4
 
 dataset_args: 
  mode: 'sliding_window'
- max_length: 64
+ max_length: 128
  #change task to 'har' for Human activity recognition
  task : 'fd'
- modalities: ['skeleton', 'accelerometer', 'gyroscope']
+ modalities: ['skeleton', 'accelerometer']
  age_group: ['young']
  # change the sensor to phone , meta_wrist , meta_hip for experiments
- sensors: ['phone']
+ sensors: ['watch']
 
-batch_size: 16
-test_batch_size: 16
-val_batch_size : 16
+batch_size: 64
+test_batch_size: 64
+val_batch_size : 64
 num_epoch: 60
-
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
 train_feeder_args:
-  batch_size: 16
+  batch_size: 64
 
 val_feeder_args:
-  batch_size: 16
+  batch_size: 64
 
 test_feeder_args: 
-  batch_size: 16
+  batch_size: 64
 
 seed: 2 
-optimizer: sgd
+optimizer: adamw

@@ -337,6 +337,9 @@ def split_by_subjects(builder, subjects, fuse) -> Dict[str, np.ndarray]:
     Function to Filter out expects subjects
     '''
     builder.make_dataset(subjects, fuse)
+
+    # if len(subjects) == 1 and subjects[0] in [35, 38,39,44, 46]: 
+    #     builder.random_resampling()
     norm_data = builder.normalization()
     #norm_data = builder.data
     return norm_data

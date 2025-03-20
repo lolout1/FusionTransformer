@@ -132,7 +132,7 @@ class UTD_mm(torch.utils.data.Dataset):
         smv= torch.sqrt(sum_squared)
         return smv
     
-    def calculate_weight(self, data):
+    def calculate_weight(self, sample):
         """
         Calculate the magnitude (weight) of accelerometer data.
 
@@ -142,7 +142,9 @@ class UTD_mm(torch.utils.data.Dataset):
         Returns:
         - A 1D PyTorch tensor of shape (128,) containing the magnitude for each row.
         """
-        return torch.sqrt(torch.sum(data**2, dim=-1, keepdim=True))
+        mean = torch.mean(sample, dim = -2, keepdim=True)
+        zero_mean = sample - mean
+        return torch.sqrt(torch.sum(zero_mean**2, dim=-1, keepdim=True))
     
     def calculate_pitch(self,data):
         """
@@ -157,7 +159,7 @@ class UTD_mm(torch.utils.data.Dataset):
         ax = data[:, 0]
         ay = data[:, 1]
         az = data[:, 2]
-        return torch.atan2(ay, torch.sqrt(ax**2 + az**2))
+        return torch.atan2(-ax, torch.sqrt(ay**2 + az**2)).unsqueeze(1)
     
 
     def calculate_roll(self,data):
@@ -173,7 +175,7 @@ class UTD_mm(torch.utils.data.Dataset):
         ax = data[:, 0]
         ay = data[:, 1]
         az = data[:, 2]
-        return torch.atan2(ax, torch.sqrt(ay**2 + az**2))
+        return torch.atan2(ay, az).unsqueeze(1)
 
 
 
@@ -188,8 +190,12 @@ class UTD_mm(torch.utils.data.Dataset):
         data = dict()
 
         watch_smv = self.cal_smv(acc_data)
-        #acc_data = torch.cat(( watch_smv,acc_data), dim = -1)
+        watch_weight = self.calculate_weight(acc_data)
+        # watch_roll = self.calculate_roll(acc_data)
+        # watch_pitch = self.calculate_pitch(acc_data)
+        acc_data = torch.cat(( watch_smv,acc_data), dim = -1)
         #data[self.inertial_modality] = acc_data
+
         data['accelerometer'] = acc_data
         data['skeleton'] = skl_data
         label = self.labels[index]

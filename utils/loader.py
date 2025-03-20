@@ -3,14 +3,18 @@ Dataset Builder
 '''
 import os
 from typing import List, Dict, Tuple
-from collections import defaultdict
+from collections import defaultdict, Counter
 import numpy as np
 import pandas as pd
 from scipy.io import loadmat
+from scipy.spatial.distance import euclidean
+from fastdtw import fastdtw
 from numpy.linalg import norm
 from dtaidistance import dtw
 import matplotlib.pyplot as plt
-
+from imblearn.over_sampling import RandomOverSampler, SMOTE
+from imblearn.combine import SMOTETomek
+from imblearn.under_sampling import RandomUnderSampler 
 from ahrs.filters import Madgwick
 from scipy.spatial.transform import Rotation
 from scipy.signal import butter, filtfilt
@@ -89,14 +93,14 @@ def pad_sequence_numpy(sequence: np.ndarray, max_sequence_length: int,
     return new_sequence
 
 def sliding_window(data : np.ndarray, clearing_time_index : int, max_time : int, 
-                   sub_window_size : int, stride_size : int) -> np.ndarray:
+                   sub_window_size : int, stride_size : int ,label : int) -> np.ndarray:
     '''
     Sliding Window
     '''
     assert clearing_time_index >= sub_window_size - 1 , "Clearing value needs to be greater or equal to (window size - 1)"
     start = clearing_time_index - sub_window_size + 1 
 
-    if max_time >= data.shape[0]-sub_window_size:
+    if max_time >= data['skeleton'].shape[0]-sub_window_size:
         max_time = max_time - sub_window_size + 1
         # 2510 // 100 - 1 25 #25999 1000 24000 = 24900
 
@@ -105,9 +109,10 @@ def sliding_window(data : np.ndarray, clearing_time_index : int, max_time : int,
         np.expand_dims(np.arange(sub_window_size), 0) + 
         np.expand_dims(np.arange(max_time, step = stride_size), 0).T
     )
-
-    #labels = np.round(np.mean(labels[sub_windows], axis=1))
-    return data[sub_windows]
+    for key in data.keys():
+        data[key] = data[key][sub_windows]
+    data['labels'] =  np.repeat(label, len(data['skeleton']))
+    return data
 
 def quaternion_to_euler(q):
     rot = Rotation.from_quat(q)
@@ -217,12 +222,15 @@ def align_sequence(data : Dict[str, np.ndarray] ) -> Dict[str, np.ndarray]:
     interial_frob_norm = norm(inertial_data, axis = 1)
     
     # calculating dtw of the two sequence
-    path =  dtw.warping_path(
-        skeleton_frob_norm.flatten(), 
-        interial_frob_norm.flatten()
-    )
+    # path =  dtw.warping_path(
+    #     skeleton_frob_norm.flatten(), 
+    #     interial_frob_norm.flatten()
+    # )
 
-    skeleton_idx , interial_ids = filter_repeated_ids(path)
+    distance, path  = fastdtw(interial_frob_norm[:, np.newaxis], skeleton_frob_norm[:, np.newaxis],dist = euclidean)
+
+
+    interial_ids ,skeleton_idx ,= filter_repeated_ids(path)
     data['skeleton'] = filter_data_by_ids(data['skeleton'], list(skeleton_idx))
     for key in dynamic_keys: 
         data[key]= filter_data_by_ids(data[key],list(interial_ids))
@@ -259,7 +267,7 @@ class DatasetBuilder:
         self.max_length = max_length
         self.task = task
         self.fuse = None
-
+        self.diff = []
     def load_file(self, file_path):
         '''
         
@@ -292,17 +300,18 @@ class DatasetBuilder:
                                       input_shape=data.shape)
         
         else: 
-            sqrt_sum = np.sqrt(np.sum(data['accelerometer']**2, axis = 1))
-            if label == 1: 
-                #phone height = 25, distance = 200
-                #meta height = 1 distaince = 10 
-                peaks , _ = find_peaks(sqrt_sum, height=12, distance=10)
+            # sqrt_sum = np.sqrt(np.sum(data['accelerometer']**2, axis = 1))
+            # if label == 1: 
+            #     #phone height = 25, distance = 200
+            #     #meta height = 1 distaince = 10 
+            #     peaks , _ = find_peaks(sqrt_sum, height=15, distance=10)
                 
-            else: 
-                #phone height = 15, distance = 500
-                peaks , _ = find_peaks(sqrt_sum, height=10, distance=20)
+            # else: 
+            #     #phone height = 15, distance = 500
+            #     peaks , _ = find_peaks(sqrt_sum, height=15, distance=15)
 
-            data = selective_sliding_window(data, window_size= self.max_length,peaks = peaks, label = label, fuse = self.fuse)
+            # data = selective_sliding_window(data, window_size= self.max_length,peaks = peaks, label = label, fuse = self.fuse)
+            data = sliding_window(data, self.max_length-1, data['skeleton'].shape[0], self.max_length, 10, label)
         return data
 
     def _add_trial_data(self, trial_data):
@@ -312,6 +321,47 @@ class DatasetBuilder:
     
     def _len_check(self, d):
         return all(len(v) > 1 for v in d.values())
+
+    def get_size_diff(self, trial_data):
+        return trial_data['accelerometer'].shape[0]  - trial_data['skeleton'].shape[0]
+
+    def store_trial_diff(self, difference):
+        self.diff.append(difference)
+    
+    def viz_trial_diff(self):
+        value_range = range(min(self.diff) , max(self.diff)+2)
+        # plt.hist(self.diff, bins = value_range, edgecolor = 'black', alpha = 0.7)
+        # plt.xlabel("Differences")
+        # plt.ylabel("Frequency")
+        print(len(self.diff))
+        counter = Counter(self.diff)
+
+        #   Extract values for plotting
+
+
+        plt.hist(self.diff, bins=range(min(self.diff), max(self.diff) + 2, 200), edgecolor='black', alpha=0.7)
+
+        # Labels and title
+        plt.xlabel("Value")
+        plt.ylabel("Frequency")
+        plt.title("Distribution of Numbers")
+        plt.savefig("Distribution.png")
+
+    def select_subwindow_pandas(self, unimodal_data):
+        n = len(unimodal_data)
+        magnitude = np.linalg.norm(unimodal_data, axis = 1)
+        df = pd.DataFrame({"values":magnitude})
+        #250
+        df["variance"] = df["values"].rolling(window=125).var()
+
+        # Get index of highest variance
+        max_idx = df["variance"].idxmax()
+
+        # Get segment
+        final_start = max(0, max_idx-100)
+        final_end = min(n, max_idx + 100)
+        return unimodal_data[final_start:final_end, :]
+        #high_var_segment = df["values"].iloc[max_idx : max_idx + 200].values
 
     def make_dataset(self, subjects : List[int], fuse : bool): 
         '''
@@ -346,13 +396,19 @@ class DatasetBuilder:
                         unimodal_data = self.load_file(file_path)
                         #print(f"Modality : { modality} , shape : {unimodal_data.shape}")
                         trial_data[modality] = unimodal_data
-
+                        if modality == 'accelerometer':
+                            unimodal_data = butterworth_filter(unimodal_data, cutoff=7.5, fs=25)
+                        if modality == 'accelerometer' and unimodal_data.shape[0] > 300:
+                            trial_data[modality] = self.select_subwindow_pandas(unimodal_data)
+                            
                         # if modality == 'skeleton':
                         #     print(unimodal_data.shape)
 
                     except Exception as e :
                         executed = False
                         print(e)
+                # trial_difference = self.get_size_diff(trial_data)
+                # self.store_trial_diff(trial_difference)
                 
                 if executed : 
                     trial_data = align_sequence(trial_data)
@@ -380,12 +436,29 @@ class DatasetBuilder:
                     #print(self.data['skeleton'][1].shape)
                 #print(count)
                 #count +=1
- 
+        #self.viz_trial_diff()
         for key in self.data:
             #print(key)
             #print(len(self.processed_data[key]))
             self.data[key] = np.concatenate(self.data[key], axis=0)
-        
+        # if len(self.data['skeleton']) > 0: 
+        #     self.random_resampling()
+
+    
+    def random_resampling(self):
+        ros = RandomUnderSampler(sampling_strategy='auto', random_state=42)
+        num_samples, seq_len, acc_channels = self.data['accelerometer'].shape
+        _, _ , skl_channels = self.data['skeleton'].shape
+        acc_flatten = self.data['accelerometer'].reshape(num_samples, -1)
+        skl_flatten = self.data['skeleton'].reshape(num_samples, -1)
+
+        labels = self.data['labels']
+        resampled_acc, resampled_labels = ros.fit_resample(acc_flatten,labels)
+        resampled_skl, _ = ros.fit_resample(skl_flatten, labels)
+        self.data['accelerometer'] = resampled_acc.reshape(-1, seq_len , acc_channels)
+        self.data['skeleton'] = resampled_skl.reshape(-1, seq_len, skl_channels)
+        self.data['labels'] = resampled_labels
+
 
     
     def normalization(self) -> np.ndarray:
@@ -398,6 +471,5 @@ class DatasetBuilder:
                 num_samples, length = value.shape[:2]
                 norm_data = StandardScaler().fit_transform(value.reshape(num_samples*length, -1))
                 self.data[key] = norm_data.reshape(num_samples, length, -1)
-
         return self.data
     
