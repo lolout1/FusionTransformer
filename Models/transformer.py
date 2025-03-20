@@ -8,7 +8,7 @@ import itertools
 import numpy as np
 #from util.graph import Graph
 import math
-from Models.ts2vec import TSEncoder
+
 
 class TransformerEncoderWAttention(nn.TransformerEncoder):
     def forward(self, src, mask = None, src_key_padding_mask = None):
