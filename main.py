@@ -12,6 +12,7 @@ import shutil
 import argparse
 import yaml
 from copy import deepcopy
+from collections import Counter
 #environmental import
 import numpy as np 
 import pandas as pd
@@ -138,6 +139,8 @@ def import_class(import_str):
     except AttributeError:
         raise ImportError('Class %s cannot be found (%s)' % (class_str, traceback.format_exception(*sys.exc_info())))
 
+THRESHOLD = 0.5
+
 class Trainer():
     
     def __init__(self, arg):
@@ -174,7 +177,7 @@ class Trainer():
             use_cuda = torch.cuda.is_available()
             self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
             self.model = torch.load(self.arg.weights)
-        self.load_loss()
+        # self.load_loss()
         
         self.include_val = arg.include_val
         
@@ -188,6 +191,12 @@ class Trainer():
         ''' 
         print(f'{desc_path}/{src_path.rpartition("/")[-1]}') 
         shutil.copy(src_path, f'{desc_path}/{src_path.rpartition("/")[-1]}')
+    
+    def cal_weights(self):
+        label_count = Counter(self.norm_train['labels'])
+        self.pos_weights = torch.Tensor([label_count[0] / label_count[1]])
+        self.pos_weights = self.pos_weights.to(f'cuda:{self.output_device}' 
+                            if torch.cuda.is_available() else 'cpu')
 
     def count_parameters(self, model):
         '''
@@ -216,7 +225,8 @@ class Trainer():
         '''
         Loading loss function for the models training
         '''
-        self.criterion = torch.nn.CrossEntropyLoss()
+        #self.criterion = torch.nn.CrossEntropyLoss()
+        self.criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weights)
     
     def load_weights(self):
         '''
@@ -290,6 +300,8 @@ class Trainer():
                 shuffle=True,
                 num_workers=self.arg.num_worker)
             
+            self.cal_weights()
+
             self.distribution_viz(self.norm_train['labels'], self.arg.work_dir, 'train')
             
             self.data_loader['val'] = torch.utils.data.DataLoader(
@@ -400,9 +412,9 @@ class Trainer():
                 plt.savefig(self.arg.work_dir + '/' +'wrong_predictions'+'/'+ 'Wrong_Pred' +str(i)+str(j))
                 plt.close()
 
-
     def cal_prediction(self, logits):
-        return torch.argmax(F.log_softmax(logits,dim =1), 1)
+        return (torch.sigmoid(logits)>THRESHOLD).int().squeeze(1)
+        #return torch.argmax(F.log_softmax(logits,dim =1), 1)
 
     def cal_metrics(self, targets, preds): 
         targets = np.array(targets)
@@ -443,7 +455,7 @@ class Trainer():
 
             self.optimizer.zero_grad()
             logits, _= self.model(acc_data.float(), skl_data.float())
-            loss = self.criterion(logits, targets)
+            loss = self.criterion(logits.squeeze(1), targets.float())
             loss.mean().backward()
             self.optimizer.step()
 
@@ -501,7 +513,7 @@ class Trainer():
                 targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
 
                 logits, _ = self.model(acc_data.float(), skl_data.float())
-                batch_loss = self.criterion(logits, targets)
+                batch_loss = self.criterion(logits.squeeze(1), targets.float())
                 loss += batch_loss.sum().item()
                 preds = self.cal_prediction(logits)
                 label_list.extend(targets.tolist())
@@ -561,7 +573,7 @@ class Trainer():
                         continue
 
                     self.load_optimizer()
-
+                    self.load_loss()
                     self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
                     for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
                         self.train(epoch)
