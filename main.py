@@ -31,6 +31,7 @@ from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, precisio
 #local import 
 from utils.dataset import prepare_smartfallmm, split_by_subjects
 from utils.callbacks import EarlyStopping
+from utils.loss import BinaryFocalLoss
 
 def get_args():
     '''
@@ -236,6 +237,8 @@ class Trainer():
         '''
         #self.criterion = torch.nn.CrossEntropyLoss()
         self.criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weights)
+        # alpha = 1/self.pos_weights.item()
+        #self.criterion = BinaryFocalLoss(alpha = 0.75)
     
     def load_weights(self):
         '''
@@ -247,9 +250,7 @@ class Trainer():
     def load_optimizer(self, parameters) -> None:
         '''
         Loads Optimizers
-        '''
-        
-        
+        '''          
         if self.arg.optimizer.lower() == "adam" :
             self.optimizer = optim.Adam(
                 parameters, 
@@ -321,9 +322,6 @@ class Trainer():
                 shuffle=True,
                 num_workers=self.arg.num_worker)
             #self.distribution_viz(self.norm_val['labels'], self.arg.work_dir, 'val')
-        # else:
-        #     # if self.arg.dataset == 'smartfallmm':
-        #     builder = prepare_smartfallmm(self.arg)
             self.norm_test = split_by_subjects(builder , self.test_subject, self.fuse)
             if self.has_empty_value(list(self.norm_test.values())):
                     return  False

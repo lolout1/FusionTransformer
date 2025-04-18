@@ -6,12 +6,13 @@ class DistillationLoss(nn.Module):
     '''
     Knowledge Distillation Loss
     '''
-    def __init__(self, temperature=2.0, alpha=0.5, pos_weigths = None):
+    def __init__(self, temperature=4, alpha=.6, pos_weigths = None):
         super(DistillationLoss, self).__init__()
         self.temperature = temperature
         self.alpha = alpha
         # self.criterion = nn.CrossEntropyLoss()
         self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weigths)
+        #self.bce = BinaryFocalLoss(alpha=0.75, reduction='mean')
         #self.embedding_loss = nn.CosineEmbeddingLoss()
         self.embeddin_loss = nn.KLDivLoss(reduction='batchmean')
         
@@ -50,10 +51,39 @@ class DistillationLoss(nn.Module):
             # # Weighted sum of the two losses
             # loss = self.alpha * soft_targets_loss + (1-self.alpha) * label_loss
 
-
             return loss
 
+class BinaryFocalLoss(nn.Module):
+    def __init__(self, alpha=0.75, gamma=2, reduction='mean'):
+        """
+        :param alpha: Weighting factor for positive class (float)
+        :param gamma: Focusing parameter for modulating factor (1 - p_t)
+        :param reduction: 'none' | 'mean' | 'sum'
+        """
+        super(BinaryFocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
 
+    def forward(self, logits, targets):
+        """
+        :param logits: raw predictions (before sigmoid), shape [batch_size]
+        :param targets: binary ground truth (0 or 1), shape [batch_size]
+        """
+        prob = torch.sigmoid(logits)
+        targets = targets.float()
+        
+        pt = torch.where(targets == 1, prob, 1 - prob)
+        alpha_t = torch.where(targets == 1, self.alpha, 1 - self.alpha)
+        loss = -alpha_t * (1 - pt) ** self.gamma * torch.log(pt + 1e-8)
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
+    
 if __name__ == "__main__":
      loss = DistillationLoss()
      teacher_logits = torch.rand(size = (1, 2))

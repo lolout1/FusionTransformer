@@ -311,7 +311,7 @@ class DatasetBuilder:
             #     peaks , _ = find_peaks(sqrt_sum, height=15, distance=15)
 
             # data = selective_sliding_window(data, window_size= self.max_length,peaks = peaks, label = label, fuse = self.fuse)
-            data = sliding_window(data, self.max_length-1, data['skeleton'].shape[0], self.max_length, 10, label)
+            data = sliding_window(data, self.max_length-1, data['skeleton'].shape[0], self.max_length, 32, label)
         return data
 
     def _add_trial_data(self, trial_data):
@@ -391,16 +391,12 @@ class DatasetBuilder:
                     #processor = Processor(file_path, self.mode, self.max_length,label, key = key)
                     try: 
                         executed  = True
-                        #unimodal_data = butterworth_filter(processor.process(), cutoff=1.0, fs=20)
-                        #unimodal_data = processor.load_file()
                         unimodal_data = self.load_file(file_path)
-                        #print(f"Modality : { modality} , shape : {unimodal_data.shape}")
                         trial_data[modality] = unimodal_data
                         if modality == 'accelerometer':
                             unimodal_data = butterworth_filter(unimodal_data, cutoff=7.5, fs=25)
-                        if modality == 'accelerometer' and unimodal_data.shape[0] > 300:
-                            trial_data[modality] = self.select_subwindow_pandas(unimodal_data)
-                            
+                        if modality == 'accelerometer' and unimodal_data.shape[0]>250:
+                            trial_data[modality] = self.select_subwindow_pandas(unimodal_data)                            
                         # if modality == 'skeleton':
                         #     print(unimodal_data.shape)
 

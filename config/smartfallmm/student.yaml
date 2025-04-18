@@ -35,7 +35,7 @@ dataset_args:
 batch_size: 64
 test_batch_size: 64
 val_batch_size : 64
-num_epoch: 80
+num_epoch: 100
 
 #dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
@@ -57,4 +57,4 @@ test_feeder_args:
 seed: 2 
 optimizer: adamw
 base_lr: 1e-3
-weight_decay: 1e-4
+weight_decay: 4e-4

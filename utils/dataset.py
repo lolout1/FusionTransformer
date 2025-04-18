@@ -1,8 +1,17 @@
 from typing import List, Dict
 import os
 import numpy as np
+import pandas as pd
 from utils.loader  import DatasetBuilder
+from sklearn.preprocessing import StandardScaler
 
+SAMPLING_RATE = 200  # Hz (samples per second)
+TARGET_DURATION = 12  # Target seconds for all instances
+TARGET_SAMPLES = TARGET_DURATION * SAMPLING_RATE  # 12s * 200Hz = 2400 samples
+TOLERANCE = 50 
+TEST_YOUNG = ["SA03", "SA10" , "SA15", "SA20"]
+TEST_ELDERLY = ["SE02" , "SE06", "SE10", "SE14"]
+TEST_SUBJECTS = TEST_YOUNG + TEST_ELDERLY
 
 class ModalityFile: 
     '''
@@ -344,30 +353,67 @@ def split_by_subjects(builder, subjects, fuse) -> Dict[str, np.ndarray]:
     #norm_data = builder.data
     return norm_data
 
+def extract_subject_id(file_name):
+    return file_name.split("_")[1]
+
+def get_label(file_name): 
+    return 1 if file_name.startswith("F") else 0
+
+
+def load_sisfall(test_subjects=TEST_SUBJECTS):
+    X_train, X_test, y_train, y_test = [], [], [], []
+    data_dir = f"{os.getcwd()}/data/SisFall_dataset_processed"
+    for file_name in os.listdir(data_dir):
+        if file_name.endswith(".txt"): 
+            file_path = os.path.join(data_dir, file_name)
+
+            df = pd.read_csv(file_path, sep = ',', header = None)
+            if df.shape[0] != 2400 :
+                continue
+            label = get_label(file_name)
+            subject_id = extract_subject_id(file_name)
+            if subject_id in test_subjects: 
+                X_test.append(df.values[:, :3])
+                y_test.append(label)
+            else: 
+                X_train.append(df.values[:, :3])
+                y_train.append(label)
+
+    X_train, X_test = np.array(X_train).astype(np.float64), np.array(X_test).astype(np.float64)
+    y_train, y_test = np.array(y_train).astype(np.float64), np.array(y_test).astype(np.float64)
+
+    scaler = StandardScaler()
+    scaler.fit(X_train.reshape(-1, X_train.shape[-1]))
+    X_train = scaler.transform(X_train.reshape(-1, X_train.shape[-1])).reshape(X_train.shape)
+    X_test = scaler.transform(X_test.reshape(-1, X_test.shape[-1])).reshape(X_test.shape)
+    return (X_train, y_train), (X_test, y_test)
+
 if __name__ == "__main__":
-    dataset = SmartFallMM(root_dir=os.path.join(os.getcwd(), 'data/smartfallmm'))
+#     dataset = SmartFallMM(root_dir=os.path.join(os.getcwd(), 'data/smartfallmm'))
 
-# Add modalities for 'young' age group
-    dataset.add_modality("young", "accelerometer")
-    dataset.add_modality("young", "skeleton")
+# # Add modalities for 'young' age group
+#     dataset.add_modality("young", "accelerometer")
+#     dataset.add_modality("young", "skeleton")
 
-    # Add modalities for 'old' age group
-    dataset.add_modality("old", "accelerometer")
-    dataset.add_modality("old", "skeleton")
+#     # Add modalities for 'old' age group
+#     dataset.add_modality("old", "accelerometer")
+#     dataset.add_modality("old", "skeleton")
 
-    # Select the sensor type for accelerometer and gyroscope
-    dataset.select_sensor("accelerometer", "phone")
+#     # Select the sensor type for accelerometer and gyroscope
+#     dataset.select_sensor("accelerometer", "phone")
 
-    # For skeleton, no sensor needs to be selected
-    dataset.select_sensor("skeleton")
+#     # For skeleton, no sensor needs to be selected
+#     dataset.select_sensor("skeleton")
 
-    # Load files for the selected sensors and skeleton data
-    dataset.load_files()
+#     # Load files for the selected sensors and skeleton data
+#     dataset.load_files()
 
-    # Match trials across the modalities
-    dataset.match_trials()
-    # take input 
-    # load files 
-        # load files only that matches 
-    # merge all together
-    # create labels
+#     # Match trials across the modalities
+#     dataset.match_trials()
+#     # take input 
+#     # load files 
+#         # load files only that matches 
+#     # merge all together
+#     # create labels
+    (X_train, y_train), (X_test, y_test) = load_sisfall()
+    print(X_train.shape)

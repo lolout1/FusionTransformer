@@ -242,7 +242,7 @@ class Distiller(Trainer):
                     for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
                         self.train(epoch)
                         if self.early_stop.early_stop:
-                            self.early_stop = EarlyStopping(patience=15, min_delta=.0001)
+                            self.early_stop = EarlyStopping(patience=15, min_delta=1e-6)
                             break
                     self.model = self.load_model(self.arg.model,self.arg.model_args)
                     self.cross_aligner = self.load_aligner()

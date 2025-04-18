@@ -13,11 +13,11 @@ import math
 class TransformerEncoderWAttention(nn.TransformerEncoder):
     def forward(self, src, mask = None, src_key_padding_mask = None):
         output = src
-        self.attention_weights = []
+        #self.attention_weights = []
         for layer in self.layers :
             output, attn = layer.self_attn(output, output, output, attn_mask = mask,
                                             key_padding_mask = src_key_padding_mask, need_weights = True)
-            self.attention_weights.append(attn)
+            #self.attention_weights.append(attn)
             output = layer(output, src_mask = mask, src_key_padding_mask = src_key_padding_mask)
         return output
 
@@ -103,7 +103,7 @@ class TransModel(nn.Module):
         # feature = F.avg_pool1d(feature, kernel_size=feature.shape[-1], stride=1)
         # feature = torch.flatten(feature, 1)
         x = rearrange(x, 'b f c -> b c f')
-        x = F.avg_pool1d(x, kernel_size = x.shape[-1], stride = 1)
+        x = F.avg_pool1d(x, kernel_size=x.shape[-1], stride = 1)
         x = rearrange(x, 'b c f -> b (c f)')
         x = self.output(x)
         return x , feature
