@@ -1,31 +1,35 @@
-# Accelerometer + SMV Transformer Baseline
-# 4 channels: [SMV, ax, ay, az] produced from accelerometer watch data
+# Accelerometer + SMV Only Transformer (Baseline)
+# 4 channels: ax, ay, az, smv
 
 model: Models.transformer.TransModel
 dataset: smartfallmm
 
-# Leave-One-Subject-Out (LOSO) setup matching IMU configs
+# Subjects for activity recognition
 subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
 validation_subjects: [38, 44]  # Subjects [38, 44]: ~60% ADLs for both acc-only and acc+gyro
 
 model_args:
+  # Standardized hyperparameters matching transformer.yaml baseline
   num_heads: 4
   num_layer: 2
   norm_first: True
   embed_dim: 64
-  activation: relu
-  num_classes: 1
-  acc_frames: 128
   dropout: 0.5
+  activation: relu
+  acc_coords: 3
+  num_classes: 2  # Binary classification for smartfallmm
+  acc_frames: 128
+  mocap_frames: 128
 
 dataset_args:
   mode: 'sliding_window'
   max_length: 128
   task: 'fd'
-  modalities: ['accelerometer']
+  # Only accelerometer modality (SMV computed from acc)
+  modalities: ['skeleton', 'accelerometer']
   age_group: ['young']
   sensors: ['watch']
-  use_skeleton: False        # Acc + SMV only
+  use_skeleton: False
   enable_filtering: False
   filter_cutoff: 5.5
   filter_fs: 25
@@ -37,7 +41,7 @@ test_batch_size: 64
 val_batch_size: 64
 num_epoch: 80
 
-# DataLoader
+# Dataloader
 feeder: Feeder.Make_Dataset.UTD_mm
 
 train_feeder_args:
@@ -49,8 +53,15 @@ val_feeder_args:
 test_feeder_args:
   batch_size: 64
 
-# Reproducibility + Optimizer
+# Random seed for reproducibility
 seed: 2
+
+# Optimizer configuration - matching imu_student.yaml
 optimizer: adamw
 base_lr: 1e-3
 weight_decay: 1e-3
+
+# Notes:
+# - This is the baseline model using only accelerometer + SMV
+# - Hyperparameters standardized to match transformer.yaml defaults
+# - 4 input channels: [ax, ay, az, smv]

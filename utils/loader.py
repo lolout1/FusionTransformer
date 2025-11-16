@@ -94,9 +94,27 @@ def pad_sequence_numpy(sequence: np.ndarray, max_sequence_length: int,
 
 def sliding_window(data: Dict[str, np.ndarray], clearing_time_index: int, max_time: int,
                    sub_window_size: int, stride_size: int, label: int,
-                   reference_key: str = 'skeleton') -> Dict[str, np.ndarray]:
+                   reference_key: str = 'skeleton',
+                   class_aware_stride: bool = False,
+                   fall_stride: int = 32,
+                   adl_stride: int = 10) -> Dict[str, np.ndarray]:
     '''
-    Sliding Window
+    Sliding Window with optional class-aware stride.
+
+    Args:
+        data: Dictionary containing modality data
+        clearing_time_index: Start index for windowing
+        max_time: Maximum time to consider
+        sub_window_size: Window size (e.g., 128)
+        stride_size: Default stride size (used if class_aware_stride=False)
+        label: Class label (0=ADL, 1=Fall)
+        reference_key: Modality to use as reference for length
+        class_aware_stride: If True, use different strides for falls vs ADLs
+        fall_stride: Stride for fall class (default 32, ~75% overlap)
+        adl_stride: Stride for ADL class (default 10, ~92% overlap, generates 3x more samples)
+
+    Returns:
+        Dictionary with windowed data
     '''
     if reference_key not in data:
         # Fallback to any available modality (except labels)
@@ -106,7 +124,7 @@ def sliding_window(data: Dict[str, np.ndarray], clearing_time_index: int, max_ti
         reference_key = available_keys[0]
 
     assert clearing_time_index >= sub_window_size - 1 , "Clearing value needs to be greater or equal to (window size - 1)"
-    start = clearing_time_index - sub_window_size + 1 
+    start = clearing_time_index - sub_window_size + 1
     reference_length = data[reference_key].shape[0]
     if max_time is None or max_time > reference_length:
         max_time = reference_length
@@ -115,12 +133,20 @@ def sliding_window(data: Dict[str, np.ndarray], clearing_time_index: int, max_ti
     if max_time >= reference_length - sub_window_size:
         max_time = reference_length - sub_window_size + 1
         max_time = max(max_time, 1)
-        # 2510 // 100 - 1 25 #25999 1000 24000 = 24900
+
+    # Class-aware stride: Use smaller stride for ADLs to generate more samples
+    if class_aware_stride:
+        if label == 0:  # ADL class
+            effective_stride = adl_stride
+        else:  # Fall class (label == 1)
+            effective_stride = fall_stride
+    else:
+        effective_stride = stride_size
 
     sub_windows  = (
-        start + 
-        np.expand_dims(np.arange(sub_window_size), 0) + 
-        np.expand_dims(np.arange(max_time, step = stride_size), 0).T
+        start +
+        np.expand_dims(np.arange(sub_window_size), 0) +
+        np.expand_dims(np.arange(max_time, step = effective_stride), 0).T
     )
 
     for key in list(data.keys()):
@@ -261,6 +287,96 @@ def align_sequence(data : Dict[str, np.ndarray] ) -> Dict[str, np.ndarray]:
     return data
 
 
+def align_gyro_to_acc(data: Dict[str, np.ndarray], use_fast_dtw: bool = True, max_length_diff: int = 10) -> Dict[str, np.ndarray]:
+    """
+    Align gyroscope data to accelerometer data using Dynamic Time Warping (DTW).
+    Treats accelerometer as the ground truth reference signal.
+
+    This function handles potential temporal misalignment between accelerometer and
+    gyroscope sensors, which can occur due to different sampling rates, timing jitter,
+    or sensor fusion issues.
+
+    Performance:
+        - Uses dtaidistance (C-optimized) by default for maximum speed
+        - Falls back to fastdtw for compatibility
+        - Optimized for multi-core CPU environments (A100 servers)
+        - Typical per-trial processing: ~10-50ms depending on sequence length
+
+    Args:
+        data: Dictionary containing 'accelerometer' and 'gyroscope' modalities
+              Expected shapes: (num_samples, 3) for both modalities
+        use_fast_dtw: If True, uses fastdtw (approximation, faster for long sequences)
+                      If False, uses dtaidistance (exact, C-optimized, better for <500 samples)
+        max_length_diff: Maximum allowed length difference between acc and gyro (default: 10)
+                        If difference > max_length_diff, raises ValueError to skip trial
+
+    Returns:
+        data: Dictionary with gyroscope aligned to accelerometer
+              Both modalities will have the same length after alignment
+
+    Raises:
+        ValueError: If length difference exceeds max_length_diff (indicates data quality issue)
+
+    Note:
+        - Only applied when both 'accelerometer' and 'gyroscope' are present
+        - Uses magnitude (L2 norm) of 3D signals as reference for DTW
+        - Removes duplicate indices after alignment to ensure clean temporal mapping
+        - Accelerometer data remains unchanged (ground truth)
+        - DTW works best for small temporal misalignments, not large data gaps
+    """
+    # Only apply DTW if both modalities are present
+    if 'accelerometer' not in data or 'gyroscope' not in data:
+        return data
+
+    acc_data = data['accelerometer']
+    gyro_data = data['gyroscope']
+
+    # Validate length difference - DTW is for temporal alignment, not fixing missing data
+    length_diff = abs(len(acc_data) - len(gyro_data))
+    if length_diff > max_length_diff:
+        raise ValueError(
+            f"Length mismatch too large for DTW alignment: "
+            f"acc={len(acc_data)}, gyro={len(gyro_data)}, diff={length_diff} > {max_length_diff}. "
+            f"This likely indicates a data quality issue rather than temporal misalignment."
+        )
+
+    # Calculate magnitude (L2 norm) of 3D signals for DTW reference
+    # Using magnitude makes DTW robust to individual axis variations
+    acc_magnitude = norm(acc_data, axis=1)
+    gyro_magnitude = norm(gyro_data, axis=1)
+
+    # Perform DTW alignment: align gyroscope to accelerometer
+    # Choose algorithm based on sequence length and accuracy requirements
+    if use_fast_dtw or len(acc_magnitude) > 500:
+        # FastDTW: O(N) approximation, good for long sequences
+        distance, path = fastdtw(
+            gyro_magnitude[:, np.newaxis],   # Query: gyroscope (to be aligned)
+            acc_magnitude[:, np.newaxis],    # Reference: accelerometer (truth)
+            dist=euclidean
+        )
+    else:
+        # dtaidistance: Exact DTW with C optimization, better for shorter sequences
+        # Note: Returns path in different format than fastdtw
+        path_indices = dtw.warping_path(
+            gyro_magnitude.flatten(),
+            acc_magnitude.flatten()
+        )
+        path = path_indices
+
+    # Extract aligned indices and remove duplicates
+    # gyro_ids: indices of gyroscope samples that align to accelerometer
+    # acc_ids: indices of accelerometer samples (reference timeline)
+    gyro_ids, acc_ids = filter_repeated_ids(path)
+
+    # Apply alignment: keep only the aligned samples
+    # Accelerometer is trimmed to matched indices (but maintains its temporal ordering)
+    # Gyroscope is resampled according to the DTW path
+    data['accelerometer'] = filter_data_by_ids(acc_data, list(acc_ids))
+    data['gyroscope'] = filter_data_by_ids(gyro_data, list(gyro_ids))
+
+    return data
+
+
 def butterworth_filter(data, cutoff, fs, order=4, filter_type='low'):
     '''Function to fitter noise '''
     nyquist = 0.5 * fs  # Nyquist frequency
@@ -287,15 +403,109 @@ class DatasetBuilder:
         self.fuse = None
         self.diff = []
         # Add configurable preprocessing flags
-        self.enable_filtering = kwargs.get('enable_filtering', True)
+        # Filtering (research-based for Android watch IMU data)
+        # Default: DISABLED (enable_filtering=False)
+        # Accelerometer: LOW-pass 5.5 Hz (removes high-freq noise)
+        # Gyroscope: HIGH-pass 0.5 Hz (removes low-freq drift)
+        self.enable_filtering = kwargs.get('enable_filtering', False)  # Default: OFF
         self.enable_normalization = kwargs.get('enable_normalization', True)
-        self.filter_cutoff = kwargs.get('filter_cutoff', 5.5)
-        self.filter_fs = kwargs.get('filter_fs', 25)
+
+        # Separate filter parameters for accelerometer vs gyroscope
+        # Accelerometer: Low-pass filter (human motion < 5 Hz)
+        self.acc_filter_cutoff = kwargs.get('acc_filter_cutoff', 5.5)    # Hz (low-pass)
+        self.acc_filter_type = kwargs.get('acc_filter_type', 'low')      # Low-pass
+
+        # Gyroscope: High-pass filter (removes drift, preserves rotation)
+        self.gyro_filter_cutoff = kwargs.get('gyro_filter_cutoff', 0.5)  # Hz (high-pass)
+        self.gyro_filter_type = kwargs.get('gyro_filter_type', 'high')   # High-pass
+
+        # Common sampling rate
+        self.filter_fs = kwargs.get('filter_fs', 25)                     # Sampling rate (Hz)
+        self.filter_order = kwargs.get('filter_order', 4)                # 4th-order Butterworth
+
+        # Backward compatibility: if 'filter_cutoff' is provided, use for acc only
+        if 'filter_cutoff' in kwargs:
+            self.acc_filter_cutoff = kwargs['filter_cutoff']
         self.use_skeleton = kwargs.get('use_skeleton', True)
         self.align_with_skeleton = kwargs.get('enable_skeleton_alignment', self.use_skeleton)
+        # DTW alignment for gyroscope to accelerometer (per-trial, pre-windowing)
+        self.enable_gyro_alignment = kwargs.get('enable_gyro_alignment', False)
+
+        # Class-aware stride configuration (helps balance ADL vs Fall samples)
+        self.enable_class_aware_stride = kwargs.get('enable_class_aware_stride', False)
+        self.fall_stride = kwargs.get('fall_stride', 32)  # Default: 75% overlap for falls
+        self.adl_stride = kwargs.get('adl_stride', 10)    # Default: 92% overlap for ADLs (3x more samples)
+
         # Track modality validation per subject
-        self.subject_modality_stats = defaultdict(lambda: {'accelerometer': 0, 'gyroscope': 0, 'skeleton': 0, 'total_trials': 0, 'valid_trials': 0})
+        self.subject_modality_stats = defaultdict(lambda: {
+            'accelerometer': 0, 'gyroscope': 0, 'skeleton': 0,
+            'total_trials': 0, 'valid_trials': 0,
+            'skipped_missing_modality': 0,
+            'skipped_length_mismatch': 0,
+            'skipped_too_short': 0,
+            'skipped_preprocessing_error': 0,
+            'skipped_dtw_length_mismatch': 0,
+            'skipped_poor_gyro_hard': 0,
+            'skipped_poor_gyro_adaptive': 0,
+            # Class-level tracking
+            'file_count': 0,
+            'window_count': 0,
+            'fall_windows': 0,
+            'adl_windows': 0,
+            # Motion filtering tracking
+            'motion_total_windows': 0,
+            'motion_passed_windows': 0,
+            'motion_rejected_windows': 0
+        })
         self.required_modalities = kwargs.get('required_modalities', [])
+        self.discard_mismatched_modalities = kwargs.get('discard_mismatched_modalities', False)
+        self.length_sensitive_modalities = kwargs.get(
+            'length_sensitive_modalities',
+            ['accelerometer', 'gyroscope']
+        )
+        if not self.length_sensitive_modalities:
+            self.length_sensitive_modalities = ['accelerometer', 'gyroscope']
+
+        # Quality filtering configuration
+        self.enable_gyro_quality_check = kwargs.get('enable_gyro_quality_check', False)
+        self.quality_mode = kwargs.get('quality_mode', 'none')  # 'none', 'hard', 'adaptive'
+        self.quality_threshold_snr = kwargs.get('quality_threshold_snr', 1.0)
+        self.quality_method = kwargs.get('quality_method', 'simple')
+
+        # Motion filtering configuration (matches Android app)
+        self.enable_motion_filtering = kwargs.get('enable_motion_filtering', False)
+        self.motion_threshold = kwargs.get('motion_threshold', 10.0)
+        self.motion_min_axes = kwargs.get('motion_min_axes', 2)
+
+        # Sensor fusion configuration
+        self.enable_sensor_fusion = kwargs.get('enable_sensor_fusion', False)
+        self.fusion_method = kwargs.get('fusion_method', 'madgwick')
+        self.fusion_frequency = kwargs.get('fusion_frequency', 30.0)
+        self.fusion_params = kwargs.get('fusion_params', {})
+
+        # Global skip tracking
+        self.skip_stats = {
+            'total_trials': 0,
+            'valid_trials': 0,
+            'skipped_missing_modality': 0,
+            'skipped_length_mismatch': 0,
+            'skipped_too_short': 0,
+            'skipped_preprocessing_error': 0,
+            'skipped_dtw_length_mismatch': 0,
+            'skipped_poor_gyro_hard': 0,
+            'skipped_poor_gyro_adaptive': 0,
+            # Motion filtering statistics
+            'motion_total_windows': 0,
+            'motion_passed_windows': 0,
+            'motion_rejected_windows': 0,
+            'motion_rejection_rate': 0.0
+        }
+
+        # Track preprocessing error details (for clean summary output)
+        self.preprocessing_error_details = Counter()
+
+        # Debug mode control
+        self.debug = kwargs.get('debug', False)
 
     def _get_reference_key(self, data: Dict[str, np.ndarray]) -> str:
         if self.use_skeleton and 'skeleton' in data:
@@ -322,18 +532,70 @@ class DatasetBuilder:
                 missing_modalities.append(modality)
 
         if missing_modalities:
-            print(f"[Validation] Subject {subject_id} trial {trial_id}: Missing required modalities {missing_modalities} - SKIPPING")
+            # Track the skip
+            self.skip_stats['skipped_missing_modality'] += 1
+            self.subject_modality_stats[subject_id]['skipped_missing_modality'] += 1
             return False
 
         return True
 
-    def _synchronize_modalities(self, trial_data: Dict[str, np.ndarray]) -> int:
-        """Trim all modalities to the minimum available length."""
+    def _check_length_mismatch(self, trial_data: Dict[str, np.ndarray]) -> Tuple[bool, Dict[str, int]]:
+        """
+        Determine whether the configured modalities share the same sample count.
+
+        Returns:
+            (has_mismatch, modality_lengths)
+        """
+        if not self.discard_mismatched_modalities:
+            return False, {}
+
+        tracked_modalities = {}
+        for modality in self.length_sensitive_modalities:
+            if modality in trial_data and isinstance(trial_data[modality], np.ndarray):
+                tracked_modalities[modality] = trial_data[modality].shape[0]
+
+        # Require at least two modalities to compare lengths
+        if len(tracked_modalities) < 2:
+            return False, tracked_modalities
+
+        unique_lengths = set(tracked_modalities.values())
+        return len(unique_lengths) > 1, tracked_modalities
+
+    def _synchronize_modalities(
+        self,
+        trial_data: Dict[str, np.ndarray],
+        subject_id: str = None,
+        action_id: str = None,
+        trial_id: str = None
+    ) -> int:
+        """Trim all modalities to the minimum available length while optionally enforcing equality."""
+        has_mismatch, tracked_lengths = self._check_length_mismatch(trial_data)
+        if has_mismatch:
+            # Track the skip
+            if subject_id:
+                self.subject_modality_stats[subject_id]['skipped_length_mismatch'] += 1
+            self.skip_stats['skipped_length_mismatch'] += 1
+
+            context_tokens = []
+            if subject_id is not None:
+                context_tokens.append(f"subject {subject_id}")
+            if action_id is not None:
+                context_tokens.append(f"action {action_id}")
+            if trial_id is not None:
+                context_tokens.append(f"trial {trial_id}")
+            context = ', '.join(context_tokens) if context_tokens else 'Trial'
+            length_text = ', '.join(f'{k}={v}' for k, v in tracked_lengths.items())
+            raise ValueError(f'{context}: mismatched sample counts across modalities ({length_text})')
+
         lengths = [value.shape[0] for key, value in trial_data.items() if key != 'labels']
         if not lengths:
             raise ValueError('Trial data contains no modalities to process')
         min_length = min(lengths)
         if min_length < self.max_length:
+            # Track the skip
+            if subject_id:
+                self.subject_modality_stats[subject_id]['skipped_too_short'] += 1
+            self.skip_stats['skipped_too_short'] += 1
             raise ValueError(f'Minimum modality length {min_length} shorter than required window {self.max_length}')
         for key in list(trial_data.keys()):
             if key == 'labels':
@@ -352,12 +614,46 @@ class DatasetBuilder:
     def _maybe_filter(self, modality: str, data: np.ndarray) -> np.ndarray:
         """
         Optionally apply Butterworth filtering to inertial signals.
+
+        Research-based filtering for Android watch IMU data:
+        - Accelerometer: LOW-pass 5.5 Hz (preserves human motion < 5 Hz, removes high-freq noise)
+        - Gyroscope: HIGH-pass 0.5 Hz (removes low-freq drift, preserves rotation)
+        - 4th-order Butterworth (standard in fall detection literature)
+
+        Filter rationale:
+        - Accelerometer measures linear acceleration → Low-pass removes sensor noise
+        - Gyroscope measures angular velocity → High-pass removes drift (integration error)
+
+        References:
+        - Smartphone fall detection: 5 Hz low-pass for accelerometer
+        - IMU preprocessing: High-pass for gyroscope drift removal
         """
         if not self.enable_filtering:
             return data
-        if modality not in ('accelerometer', 'gyroscope'):
+
+        if modality == 'accelerometer':
+            # Accelerometer: LOW-pass filter (removes high-frequency noise)
+            # Preserves human motion frequencies (0-5 Hz)
+            return butterworth_filter(
+                data,
+                cutoff=self.acc_filter_cutoff,
+                fs=self.filter_fs,
+                order=self.filter_order,
+                filter_type=self.acc_filter_type  # 'low'
+            )
+        elif modality == 'gyroscope':
+            # Gyroscope: HIGH-pass filter (removes low-frequency drift)
+            # Preserves rotational motion (> 0.5 Hz)
+            return butterworth_filter(
+                data,
+                cutoff=self.gyro_filter_cutoff,
+                fs=self.filter_fs,
+                order=self.filter_order,
+                filter_type=self.gyro_filter_type  # 'high'
+            )
+        else:
+            # Other modalities: no filtering
             return data
-        return butterworth_filter(data, cutoff=self.filter_cutoff, fs=self.filter_fs)
 
 
     def _import_loader(self, file_path:str) -> np.array :
@@ -399,11 +695,49 @@ class DatasetBuilder:
                 self.max_length - 1,
                 data[reference_key].shape[0],
                 self.max_length,
-                32,
+                32,  # Default stride (used if class_aware_stride=False)
                 label,
-                reference_key=reference_key
+                reference_key=reference_key,
+                class_aware_stride=self.enable_class_aware_stride,
+                fall_stride=self.fall_stride,
+                adl_stride=self.adl_stride
             )
-        return data
+
+        # Motion filtering (match Android app behavior)
+        if self.enable_motion_filtering:
+            from utils.preprocessing import filter_windows_by_motion, compute_motion_statistics
+
+            # Track motion statistics BEFORE filtering
+            windows_before = len(data.get('labels', [])) if 'labels' in data else len(data[reference_key])
+
+            # Compute detailed motion statistics
+            motion_stats = compute_motion_statistics(
+                data,
+                reference_key=reference_key if self.mode != 'avg_pool' else 'accelerometer',
+                threshold=self.motion_threshold,
+                min_axes=self.motion_min_axes
+            )
+
+            # Apply motion filtering
+            data = filter_windows_by_motion(
+                data,
+                reference_key=reference_key if self.mode != 'avg_pool' else 'accelerometer',
+                threshold=self.motion_threshold,
+                min_axes=self.motion_min_axes
+            )
+
+            if data is None:
+                raise ValueError("No windows passed motion threshold")
+
+            # Track motion statistics in global stats
+            self.skip_stats['motion_total_windows'] += motion_stats['total_windows']
+            self.skip_stats['motion_passed_windows'] += motion_stats['active_windows']
+            self.skip_stats['motion_rejected_windows'] += motion_stats['quiet_windows']
+
+            # Return motion statistics for per-trial tracking
+            return data, motion_stats
+
+        return data, None
 
     def _add_trial_data(self, trial_data):
 
@@ -461,10 +795,16 @@ class DatasetBuilder:
         self.data = defaultdict(list)
         self.fuse = fuse
         self.processed_data : Dict[str, List[np.array]] = {'labels':[]}
-        count = 0 
+        count = 0
         for trial in self.dataset.matched_trials:
-            if trial.subject_id in subjects:       
-                if self.task == 'fd': 
+            if trial.subject_id in subjects:
+                # Track total trials
+                subject_id = str(trial.subject_id)
+                action_id = str(trial.action_id)
+                self.skip_stats['total_trials'] += 1
+                self.subject_modality_stats[subject_id]['total_trials'] += 1
+
+                if self.task == 'fd':
                     label = int(trial.action_id > 9)
                 elif self.task == 'age':
                     label = int(trial.subject_id < 29 or trial.subject_id > 46)
@@ -472,7 +812,7 @@ class DatasetBuilder:
                     label = trial.action_id - 1
                 #self.data['labels'] = self.data.get('labels',[])
                 trial_data = defaultdict(np.ndarray)
-                
+
                 for modality, file_path in trial.files.items():
                     #here we need the processor class 
                     keys = self.kwargs.get('keys', None)
@@ -495,12 +835,11 @@ class DatasetBuilder:
                         print(e)
                 # trial_difference = self.get_size_diff(trial_data)
                 # self.store_trial_diff(trial_difference)
-                
+
                 if executed :
                     # Track which modalities were loaded for this subject
-                    subject_id = str(trial.subject_id)
-                    trial_id = str(trial.trial_id) if hasattr(trial, 'trial_id') else 'unknown'
-                    self.subject_modality_stats[subject_id]['total_trials'] += 1
+                    trial_sequence = getattr(trial, 'sequence_number', getattr(trial, 'trial_id', 'unknown'))
+                    trial_id = str(trial_sequence)
                     for modality in trial_data.keys():
                         if modality in self.subject_modality_stats[subject_id]:
                             self.subject_modality_stats[subject_id][modality] += 1
@@ -512,19 +851,135 @@ class DatasetBuilder:
                     if self.align_with_skeleton and 'skeleton' in trial_data:
                         trial_data = align_sequence(trial_data)
                         # os.remove(file_path)
+
+                    # Per-trial DTW alignment and length validation
+                    # Two modes:
+                    # 1. enable_gyro_alignment = False: Skip trial if acc/gyro lengths don't match
+                    # 2. enable_gyro_alignment = True: Use DTW to align gyro to acc if diff < 10
+                    if 'accelerometer' in trial_data and 'gyroscope' in trial_data:
+                        acc_len = trial_data['accelerometer'].shape[0]
+                        gyro_len = trial_data['gyroscope'].shape[0]
+                        length_diff = abs(acc_len - gyro_len)
+
+                        if not self.enable_gyro_alignment:
+                            # Mode 1: No DTW - require exact length match
+                            if length_diff > 0:
+                                if self.debug:
+                                    print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
+                                          f"Length mismatch without DTW (acc={acc_len}, gyro={gyro_len}, diff={length_diff})")
+                                self.skip_stats['skipped_length_mismatch'] += 1
+                                self.subject_modality_stats[subject_id]['skipped_length_mismatch'] += 1
+                                continue
+                        else:
+                            # Mode 2: DTW enabled - align if diff < 10, else skip
+                            if length_diff >= 10:
+                                if self.debug:
+                                    print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
+                                          f"DTW length diff too large (acc={acc_len}, gyro={gyro_len}, diff={length_diff} >= 10)")
+                                self.skip_stats['skipped_dtw_length_mismatch'] += 1
+                                self.subject_modality_stats[subject_id]['skipped_dtw_length_mismatch'] += 1
+                                continue
+                            elif length_diff > 0:
+                                # Apply DTW alignment (gyro aligned to acc as ground truth)
+                                try:
+                                    trial_data = align_gyro_to_acc(trial_data, use_fast_dtw=True, max_length_diff=10)
+                                    if self.debug:
+                                        acc_len_after = trial_data['accelerometer'].shape[0]
+                                        gyro_len_after = trial_data['gyroscope'].shape[0]
+                                        print(f"S{subject_id}A{action_id}T{trial_id}: DTW aligned "
+                                              f"(before: acc={acc_len}, gyro={gyro_len}) → "
+                                              f"(after: acc={acc_len_after}, gyro={gyro_len_after})")
+                                except ValueError as err:
+                                    print(f"Skipping S{subject_id}A{action_id}T{trial_id}: DTW alignment failed: {err}")
+                                    self.skip_stats['skipped_dtw_length_mismatch'] += 1
+                                    self.subject_modality_stats[subject_id]['skipped_dtw_length_mismatch'] += 1
+                                    continue
+
+                    # Gyroscope quality assessment
+                    if self.enable_gyro_quality_check and 'gyroscope' in trial_data:
+                        from utils.quality import assess_gyro_quality
+
+                        is_acceptable, metrics = assess_gyro_quality(
+                            trial_data['gyroscope'],
+                            method=self.quality_method,
+                            threshold=self.quality_threshold_snr
+                        )
+
+                        if self.quality_mode == 'hard':
+                            if not is_acceptable:
+                                # Hard filter: skip trial entirely
+                                print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
+                                      f"Poor gyro quality (SNR={metrics['snr']:.2f})")
+                                self.skip_stats['skipped_poor_gyro_hard'] += 1
+                                self.subject_modality_stats[subject_id]['skipped_poor_gyro_hard'] += 1
+                                continue
+
+                        elif self.quality_mode == 'adaptive':
+                            if not is_acceptable:
+                                # Adaptive: fall back to accelerometer-only
+                                del trial_data['gyroscope']
+                                self.skip_stats['skipped_poor_gyro_adaptive'] += 1
+                                self.subject_modality_stats[subject_id]['skipped_poor_gyro_adaptive'] += 1
+
+                    # Sensor fusion (only if both acc+gyro present and quality passed)
+                    if self.enable_sensor_fusion and 'accelerometer' in trial_data and 'gyroscope' in trial_data:
+                        from utils.sensor_fusion import apply_sensor_fusion
+
+                        try:
+                            trial_data = apply_sensor_fusion(
+                                trial_data,
+                                method=self.fusion_method,
+                                frequency=self.fusion_frequency,
+                                **self.fusion_params
+                            )
+                        except Exception as err:
+                            print(f"Warning: Sensor fusion failed for S{subject_id}A{action_id}T{trial_id}: {err}")
+                            # Continue with raw gyro data if fusion fails
+
                     try:
-                        self._synchronize_modalities(trial_data)
+                        self._synchronize_modalities(
+                            trial_data,
+                            subject_id=subject_id,
+                            action_id=getattr(trial, 'action_id', None),
+                            trial_id=getattr(trial, 'sequence_number', None)
+                        )
                     except ValueError as err:
-                        print(f"Skipping trial due to modality length issue: {err}")
+                        if self.debug:
+                            print(f"Skipping trial due to modality length issue: {err}")
                         continue
                     try:
-                        trial_data = self.process(trial_data, label)
+                        trial_data, motion_stats = self.process(trial_data, label)
                     except ValueError as err:
-                        print(f"Skipping trial due to preprocessing error: {err}")
+                        # Silently count preprocessing errors by type (summary printed at end)
+                        error_msg = str(err)
+                        self.preprocessing_error_details[error_msg] += 1
+                        self.skip_stats['skipped_preprocessing_error'] += 1
+                        self.subject_modality_stats[subject_id]['skipped_preprocessing_error'] += 1
                         continue
+
                     #print(trial_data['skeleton'][0].shape)
                     if self._len_check(trial_data):
+                        # Track per-subject statistics
+                        self.subject_modality_stats[subject_id]['file_count'] += 1
+
+                        # Count windows generated from this trial
+                        num_windows = len(trial_data['labels'])
+                        self.subject_modality_stats[subject_id]['window_count'] += num_windows
+
+                        # Track class distribution (fall vs ADL)
+                        fall_count = int(np.sum(trial_data['labels'] == 1))
+                        adl_count = int(np.sum(trial_data['labels'] == 0))
+                        self.subject_modality_stats[subject_id]['fall_windows'] += fall_count
+                        self.subject_modality_stats[subject_id]['adl_windows'] += adl_count
+
+                        # Track motion filtering statistics if available
+                        if motion_stats is not None:
+                            self.subject_modality_stats[subject_id]['motion_total_windows'] += motion_stats['total_windows']
+                            self.subject_modality_stats[subject_id]['motion_passed_windows'] += motion_stats['active_windows']
+                            self.subject_modality_stats[subject_id]['motion_rejected_windows'] += motion_stats['quiet_windows']
+
                         self._add_trial_data(trial_data)
+                        self.skip_stats['valid_trials'] += 1
                         self.subject_modality_stats[subject_id]['valid_trials'] += 1
                 # for modality, file_path in trial_data.files.items():
                 #     window_stack = self.process(trial_data[modality])
@@ -633,4 +1088,127 @@ class DatasetBuilder:
             print(f"\nRequired modalities: {', '.join(self.required_modalities)}")
 
         print("=" * 70 + "\n")
-    
+
+    def print_skip_summary(self) -> None:
+        """
+        Print detailed summary of trial skip statistics.
+        """
+        print("\n" + "=" * 70)
+        print("TRIAL PROCESSING SUMMARY")
+        print("=" * 70)
+
+        total = self.skip_stats['total_trials']
+        valid = self.skip_stats['valid_trials']
+        skipped_total = total - valid
+
+        print(f"Total trials attempted: {total}")
+        print(f"Successfully processed: {valid} ({100*valid/total:.1f}%)" if total > 0 else "Successfully processed: 0")
+        print(f"Skipped trials: {skipped_total} ({100*skipped_total/total:.1f}%)\n" if total > 0 else "Skipped trials: 0\n")
+
+        if skipped_total > 0:
+            print("Skip reasons breakdown:")
+            print(f"  - Missing required modalities: {self.skip_stats['skipped_missing_modality']}")
+            print(f"  - Length mismatch between modalities: {self.skip_stats['skipped_length_mismatch']}")
+            print(f"  - Sequence too short (< {self.max_length} samples): {self.skip_stats['skipped_too_short']}")
+            print(f"  - Preprocessing errors: {self.skip_stats['skipped_preprocessing_error']}")
+            print(f"  - DTW length mismatch (acc-gyro diff > 10): {self.skip_stats['skipped_dtw_length_mismatch']}")
+
+            # Print detailed preprocessing error breakdown
+            if self.skip_stats['skipped_preprocessing_error'] > 0 and self.preprocessing_error_details:
+                print("\nPreprocessing error details:")
+                for error_msg, count in self.preprocessing_error_details.most_common():
+                    print(f"  - '{error_msg}': Skipped {count} trials")
+
+        # Print per-subject statistics for subjects with issues
+        print("\nPer-subject breakdown (subjects with skipped trials):")
+        problematic_subjects = []
+        for subject_id, stats in sorted(self.subject_modality_stats.items()):
+            total_sub = stats['total_trials']
+            valid_sub = stats['valid_trials']
+            skipped_sub = total_sub - valid_sub
+            if skipped_sub > 0:
+                problematic_subjects.append((subject_id, stats))
+
+        if problematic_subjects:
+            # Show first 5 subjects if not in debug mode, all if debug mode
+            display_count = len(problematic_subjects) if self.debug else 5
+            for subject_id, stats in problematic_subjects[:display_count]:
+                total_sub = stats['total_trials']
+                valid_sub = stats['valid_trials']
+                skipped_sub = total_sub - valid_sub
+                print(f"  Subject {subject_id}: {valid_sub}/{total_sub} valid "
+                      f"(skipped: missing={stats['skipped_missing_modality']}, "
+                      f"mismatch={stats['skipped_length_mismatch']}, "
+                      f"short={stats['skipped_too_short']}, "
+                      f"error={stats['skipped_preprocessing_error']})")
+            if len(problematic_subjects) > display_count:
+                print(f"  ... and {len(problematic_subjects) - display_count} more subjects with issues")
+        else:
+            print("  None - all subjects processed successfully!")
+
+        print("=" * 70 + "\n")
+
+    def compute_motion_rejection_rate(self) -> None:
+        """
+        Compute motion rejection rate from tracked statistics.
+        """
+        if self.skip_stats['motion_total_windows'] > 0:
+            self.skip_stats['motion_rejection_rate'] = (
+                self.skip_stats['motion_rejected_windows'] /
+                self.skip_stats['motion_total_windows']
+            )
+        else:
+            self.skip_stats['motion_rejection_rate'] = 0.0
+
+    def get_subject_comprehensive_stats(self, subjects: List[int]) -> pd.DataFrame:
+        """
+        Get comprehensive per-subject statistics as a DataFrame.
+
+        Args:
+            subjects: List of subject IDs to include
+
+        Returns:
+            DataFrame with per-subject statistics including:
+            - subject_id, file_count, window_count
+            - fall_windows, adl_windows
+            - motion statistics (if motion filtering was enabled)
+            - skip reasons
+        """
+        rows = []
+        for subject_id in subjects:
+            subject_id_str = str(subject_id)
+            if subject_id_str not in self.subject_modality_stats:
+                continue
+
+            stats = self.subject_modality_stats[subject_id_str]
+            row = {
+                'subject_id': subject_id,
+                'file_count': stats['file_count'],
+                'total_trials_attempted': stats['total_trials'],
+                'valid_trials': stats['valid_trials'],
+                'window_count': stats['window_count'],
+                'fall_windows': stats['fall_windows'],
+                'adl_windows': stats['adl_windows'],
+                'skipped_missing': stats['skipped_missing_modality'],
+                'skipped_mismatch': stats['skipped_length_mismatch'],
+                'skipped_short': stats['skipped_too_short'],
+                'skipped_dtw': stats['skipped_dtw_length_mismatch'],
+                'skipped_preprocessing': stats['skipped_preprocessing_error']
+            }
+
+            # Add motion filtering statistics if available
+            if self.enable_motion_filtering:
+                row['motion_total'] = stats['motion_total_windows']
+                row['motion_passed'] = stats['motion_passed_windows']
+                row['motion_rejected'] = stats['motion_rejected_windows']
+                if stats['motion_total_windows'] > 0:
+                    row['motion_rejection_rate'] = (
+                        stats['motion_rejected_windows'] / stats['motion_total_windows']
+                    )
+                else:
+                    row['motion_rejection_rate'] = 0.0
+
+            rows.append(row)
+
+        return pd.DataFrame(rows)
+
