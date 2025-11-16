@@ -1,0 +1,76 @@
+# IMU Student Model Configuration
+# Combined Accelerometer + Gyroscope for Fall Detection
+# Optimized for young participants with limited data to minimize overfitting
+
+model: Models.imu_transformer.IMUTransformer
+dataset: smartfallmm
+
+# Subjects for fall detection (young participants only)
+# All available subjects from data/young/
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+
+# Validation subjects (held out from training to prevent data leakage)
+validation_subjects: [62]
+
+model_args:
+  num_layers: 2          # Keep shallow to prevent overfitting
+  norm_first: True
+  embed_dim: 32          # Small embedding dimension
+  activation: relu
+  imu_channels: 6        # 6 channels: ax, ay, az, gx, gy, gz
+  acc_coords: 6          # Alias for backward compatibility
+  num_classes: 1         # Binary fall detection (fall vs non-fall)
+  imu_frames: 128        # Window size for real-time sliding window
+  acc_frames: 128        # Alias for backward compatibility
+  mocap_frames: 128      # For compatibility with multimodal code
+  num_heads: 2           # Small number of attention heads
+  dropout: 0.5           # High dropout for regularization
+
+dataset_args:
+  mode: 'sliding_window'
+  max_length: 128
+  task: 'fd'             # Fall detection task
+  # IMPORTANT: Include both accelerometer and gyroscope modalities
+  modalities: ['skeleton', 'accelerometer', 'gyroscope']
+  age_group: ['young']   # Young participants only
+  # Change the sensor to phone, watch, meta_wrist, or meta_hip for experiments
+  sensors: ['watch']
+  use_skeleton: False    # Disable skeleton usage for IMU-only experiments
+  # Filtering configuration
+  enable_filtering: True # Enable Butterworth low-pass filter
+  filter_cutoff: 5.5     # Cutoff frequency in Hz
+  filter_fs: 25          # Sampling rate in Hz
+
+# Training configuration
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+# Dataloader
+feeder: Feeder.Make_Dataset.UTD_mm
+
+# Feeder arguments
+train_feeder_args:
+  batch_size: 64
+
+val_feeder_args:
+  batch_size: 64
+
+test_feeder_args:
+  batch_size: 64
+
+# Random seed for reproducibility
+seed: 2
+
+# Optimizer configuration
+optimizer: adamw
+base_lr: 1e-3          # Learning rate
+weight_decay: 5e-4     # Slightly higher weight decay for regularization
+
+# Notes:
+# - This configuration uses both accelerometer and gyroscope data
+# - Model is kept lightweight to prevent overfitting with limited data
+# - Filtering is enabled by default to reduce noise
+# - Only young participants are used for training
+# - Suitable for real-time inference on Android with 128-sample sliding window

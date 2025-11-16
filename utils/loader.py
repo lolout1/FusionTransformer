@@ -92,16 +92,29 @@ def pad_sequence_numpy(sequence: np.ndarray, max_sequence_length: int,
     new_sequence[:len(pooled_sequence)] = pooled_sequence
     return new_sequence
 
-def sliding_window(data : np.ndarray, clearing_time_index : int, max_time : int, 
-                   sub_window_size : int, stride_size : int ,label : int) -> np.ndarray:
+def sliding_window(data: Dict[str, np.ndarray], clearing_time_index: int, max_time: int,
+                   sub_window_size: int, stride_size: int, label: int,
+                   reference_key: str = 'skeleton') -> Dict[str, np.ndarray]:
     '''
     Sliding Window
     '''
+    if reference_key not in data:
+        # Fallback to any available modality (except labels)
+        available_keys = [key for key in data.keys() if key != 'labels']
+        if not available_keys:
+            raise ValueError('No modality available for sliding window generation')
+        reference_key = available_keys[0]
+
     assert clearing_time_index >= sub_window_size - 1 , "Clearing value needs to be greater or equal to (window size - 1)"
     start = clearing_time_index - sub_window_size + 1 
-
-    if max_time >= data['skeleton'].shape[0]-sub_window_size:
-        max_time = max_time - sub_window_size + 1
+    reference_length = data[reference_key].shape[0]
+    if max_time is None or max_time > reference_length:
+        max_time = reference_length
+    if reference_length < sub_window_size:
+        raise ValueError(f"Reference modality '{reference_key}' shorter than window size ({reference_length} < {sub_window_size})")
+    if max_time >= reference_length - sub_window_size:
+        max_time = reference_length - sub_window_size + 1
+        max_time = max(max_time, 1)
         # 2510 // 100 - 1 25 #25999 1000 24000 = 24900
 
     sub_windows  = (
@@ -109,9 +122,12 @@ def sliding_window(data : np.ndarray, clearing_time_index : int, max_time : int,
         np.expand_dims(np.arange(sub_window_size), 0) + 
         np.expand_dims(np.arange(max_time, step = stride_size), 0).T
     )
-    for key in data.keys():
+
+    for key in list(data.keys()):
+        if key == 'labels':
+            continue
         data[key] = data[key][sub_windows]
-    data['labels'] =  np.repeat(label, len(data['skeleton']))
+    data['labels'] =  np.repeat(label, len(data[reference_key]))
     return data
 
 def quaternion_to_euler(q):
@@ -204,6 +220,8 @@ def align_sequence(data : Dict[str, np.ndarray] ) -> Dict[str, np.ndarray]:
         dataset: Dictionary containing skeleton and accelerometer data
 
     '''
+    if 'skeleton' not in data:
+        return data
     joint_id = 9
     #skeleton_before_dtw =  data['skeleton'][idx][:, (joint_id -1) * 3 : joint_id * 3 ]
     #seperating left wrist joint data
@@ -252,9 +270,9 @@ def butterworth_filter(data, cutoff, fs, order=4, filter_type='low'):
 
 class DatasetBuilder:
     '''
-    Builds a numpy file for the data and labels and 
+    Builds a numpy file for the data and labels and
 
-    Args: 
+    Args:
         Dataset: a dataset class containing all matched files
     '''
     def __init__(self , dataset: object, mode: str, max_length: int, task = 'fd', **kwargs) -> None:
@@ -268,6 +286,37 @@ class DatasetBuilder:
         self.task = task
         self.fuse = None
         self.diff = []
+        # Add configurable filtering option
+        self.enable_filtering = kwargs.get('enable_filtering', True)
+        self.filter_cutoff = kwargs.get('filter_cutoff', 5.5)
+        self.filter_fs = kwargs.get('filter_fs', 25)
+        self.use_skeleton = kwargs.get('use_skeleton', True)
+        self.align_with_skeleton = kwargs.get('enable_skeleton_alignment', self.use_skeleton)
+
+    def _get_reference_key(self, data: Dict[str, np.ndarray]) -> str:
+        if self.use_skeleton and 'skeleton' in data:
+            return 'skeleton'
+        for candidate in ('accelerometer', 'gyroscope', 'fused'):
+            if candidate in data:
+                return candidate
+        for key in data.keys():
+            if key != 'labels':
+                return key
+        raise ValueError('No valid modality found for sliding window')
+
+    def _synchronize_modalities(self, trial_data: Dict[str, np.ndarray]) -> int:
+        """Trim all modalities to the minimum available length."""
+        lengths = [value.shape[0] for key, value in trial_data.items() if key != 'labels']
+        if not lengths:
+            raise ValueError('Trial data contains no modalities to process')
+        min_length = min(lengths)
+        if min_length < self.max_length:
+            raise ValueError(f'Minimum modality length {min_length} shorter than required window {self.max_length}')
+        for key in list(trial_data.keys()):
+            if key == 'labels':
+                continue
+            trial_data[key] = trial_data[key][:min_length]
+        return min_length
     def load_file(self, file_path):
         '''
         
@@ -311,7 +360,16 @@ class DatasetBuilder:
             #     peaks , _ = find_peaks(sqrt_sum, height=15, distance=15)
 
             # data = selective_sliding_window(data, window_size= self.max_length,peaks = peaks, label = label, fuse = self.fuse)
-            data = sliding_window(data, self.max_length-1, data['skeleton'].shape[0], self.max_length, 32, label)
+            reference_key = self._get_reference_key(data)
+            data = sliding_window(
+                data,
+                self.max_length - 1,
+                data[reference_key].shape[0],
+                self.max_length,
+                32,
+                label,
+                reference_key=reference_key
+            )
         return data
 
     def _add_trial_data(self, trial_data):
@@ -389,12 +447,13 @@ class DatasetBuilder:
                     if keys:
                         key = keys[modality.lower()]
                     #processor = Processor(file_path, self.mode, self.max_length,label, key = key)
-                    try: 
+                    try:
                         executed  = True
                         unimodal_data = self.load_file(file_path)
+                        # Apply configurable Butterworth filtering to inertial data
+                        if modality in ['accelerometer' , 'gyroscope'] and self.enable_filtering:
+                            unimodal_data = butterworth_filter(unimodal_data, cutoff=self.filter_cutoff, fs=self.filter_fs)
                         trial_data[modality] = unimodal_data
-                        if modality in ['accelerometer' , 'gyroscope']:
-                            unimodal_data = butterworth_filter(unimodal_data, cutoff=5.5, fs=25)
                         if modality in ['accelerometer', 'gyroscope'] and unimodal_data.shape[0]>250:
                             trial_data[modality] = self.select_subwindow_pandas(unimodal_data)                            
                         # if modality == 'skeleton':
@@ -407,9 +466,19 @@ class DatasetBuilder:
                 # self.store_trial_diff(trial_difference)
                 
                 if executed : 
-                    trial_data = align_sequence(trial_data)
+                    if self.align_with_skeleton and 'skeleton' in trial_data:
+                        trial_data = align_sequence(trial_data)
                         # os.remove(file_path)
-                    trial_data = self.process(trial_data, label)
+                    try:
+                        self._synchronize_modalities(trial_data)
+                    except ValueError as err:
+                        print(f"Skipping trial due to modality length issue: {err}")
+                        continue
+                    try:
+                        trial_data = self.process(trial_data, label)
+                    except ValueError as err:
+                        print(f"Skipping trial due to preprocessing error: {err}")
+                        continue
                     #print(trial_data['skeleton'][0].shape)
                     if self._len_check(trial_data):
                         self._add_trial_data(trial_data)

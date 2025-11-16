@@ -94,16 +94,37 @@ class Bmhad_mm(torch.utils.data.Dataset):
 
 class UTD_mm(torch.utils.data.Dataset):
     def __init__(self, dataset, batch_size):
-        self.inertial_modality = next((modality for modality in dataset if modality in ['accelerometer', 'gyroscope']), None)
-        #self.acc_data = dataset[self.inertial_modality]
-        self.acc_data = dataset[self.inertial_modality]
+        # Support both single modality (acc OR gyro) and multi-modal (acc AND gyro)
+        self.has_accelerometer = 'accelerometer' in dataset
+        self.has_gyroscope = 'gyroscope' in dataset
+
+        # Determine inertial modalities available
+        if self.has_accelerometer and self.has_gyroscope:
+            self.inertial_modality = 'imu'  # Combined accelerometer + gyroscope
+            self.acc_data = dataset['accelerometer']
+            self.gyro_data = dataset['gyroscope']
+        elif self.has_accelerometer:
+            self.inertial_modality = 'accelerometer'
+            self.acc_data = dataset['accelerometer']
+            self.gyro_data = None
+        elif self.has_gyroscope:
+            self.inertial_modality = 'gyroscope'
+            self.acc_data = dataset['gyroscope']
+            self.gyro_data = None
+        else:
+            raise ValueError("Dataset must contain at least 'accelerometer' or 'gyroscope' data")
+
         self.labels = dataset['labels']
-        self.skl_data = dataset['skeleton']
+        self.has_skeleton = 'skeleton' in dataset
+        self.skl_data = dataset['skeleton'] if self.has_skeleton else None
         #self.skl_data = np.random.randn(self.acc_data.shape[0], 32,3)
         self.num_samples = self.acc_data.shape[0]
         self.acc_seq = self.acc_data.shape[1]
-        self.skl_seq, self.skl_length, self.skl_features = self.skl_data.shape
-        self.skl_data = self.skl_data.reshape(self.skl_seq, self.skl_length, -1, 3)
+        if self.has_skeleton:
+            self.skl_seq, self.skl_length, self.skl_features = self.skl_data.shape
+            self.skl_data = self.skl_data.reshape(self.skl_seq, self.skl_length, -1, 3)
+        else:
+            self.skl_seq = self.skl_length = self.skl_features = 0
         self.channels = self.acc_data.shape[2]
         self.batch_size = batch_size
         self.transform = None
@@ -185,19 +206,36 @@ class UTD_mm(torch.utils.data.Dataset):
         return self.num_samples
 
     def __getitem__(self, index):
-        skl_data = torch.tensor(self.skl_data[index, :, :,:])
         acc_data = torch.tensor(self.acc_data[index, : , :])
         data = dict()
+        if self.has_skeleton:
+            skl_data = torch.tensor(self.skl_data[index, :, :, :])
+            data['skeleton'] = skl_data
 
-        watch_smv = self.cal_smv(acc_data)
-        watch_weight = self.calculate_weight(acc_data)
-        # watch_roll = self.calculate_roll(acc_data)
-        # watch_pitch = self.calculate_pitch(acc_data)
-        acc_data = torch.cat(( watch_smv,acc_data), dim = -1)
-        #data[self.inertial_modality] = acc_data
+        # Handle combined accelerometer + gyroscope data
+        if self.inertial_modality == 'imu' and self.gyro_data is not None:
+            gyro_data = torch.tensor(self.gyro_data[index, :, :])
 
-        data[self.inertial_modality] = acc_data
-        data['skeleton'] = skl_data
+            # Calculate features for accelerometer
+            acc_smv = self.cal_smv(acc_data)
+            # acc_weight = self.calculate_weight(acc_data)
+
+            # Calculate features for gyroscope (magnitude)
+            gyro_magnitude = torch.sqrt(torch.sum(gyro_data**2, dim=-1, keepdim=True))
+
+            # Concatenate: [acc_smv, ax, ay, az, gx, gy, gz, gyro_mag] = 8 channels
+            # For simpler model to avoid overfitting, use: [ax, ay, az, gx, gy, gz] = 6 channels
+            imu_data = torch.cat((acc_data, gyro_data), dim=-1)
+            data['accelerometer'] = imu_data  # Store as 'accelerometer' for backward compatibility
+        else:
+            # Single modality (accelerometer or gyroscope only)
+            watch_smv = self.cal_smv(acc_data)
+            watch_weight = self.calculate_weight(acc_data)
+            # watch_roll = self.calculate_roll(acc_data)
+            # watch_pitch = self.calculate_pitch(acc_data)
+            acc_data = torch.cat((watch_smv, acc_data), dim=-1)
+            data['accelerometer'] = acc_data
+
         label = self.labels[index]
         label = torch.tensor(label)
         label = label.long()

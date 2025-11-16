@@ -1,5 +1,6 @@
 from typing import List, Dict
 import os
+import copy
 import numpy as np
 import pandas as pd
 from utils.loader  import DatasetBuilder
@@ -329,16 +330,23 @@ class SmartFallMM:
 
 
 
-def prepare_smartfallmm(arg )  -> DatasetBuilder: 
+def prepare_smartfallmm(arg )  -> DatasetBuilder:
     '''
     Function for dataset preparation
     '''
-    sm_dataset = SmartFallMM(root_dir=os.path.join(os.getcwd(), 'data/smartfallmm'))
-    sm_dataset.pipe_line(age_group=arg.dataset_args['age_group'], \
-                        modalities=arg.dataset_args['modalities'], \
-                        sensors=arg.dataset_args['sensors'])
-    builder = DatasetBuilder(sm_dataset, arg.dataset_args['mode'], arg.dataset_args['max_length'],
-                                arg.dataset_args['task'])
+    dataset_args = copy.deepcopy(arg.dataset_args)
+    use_skeleton = dataset_args.get('use_skeleton', True)
+    modalities = dataset_args.get('modalities', [])
+    if not use_skeleton:
+        modalities = [modality for modality in modalities if modality != 'skeleton']
+    dataset_args['modalities'] = modalities
+
+    sm_dataset = SmartFallMM(root_dir=os.path.join(os.getcwd(), 'data'))
+    sm_dataset.pipe_line(age_group=dataset_args['age_group'], \
+                        modalities=modalities, \
+                        sensors=dataset_args['sensors'])
+    # Pass all dataset_args to DatasetBuilder to support filtering and other options
+    builder = DatasetBuilder(sm_dataset, **dataset_args)
     return builder
 
 def split_by_subjects(builder, subjects, fuse) -> Dict[str, np.ndarray]:

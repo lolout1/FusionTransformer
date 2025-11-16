@@ -2,7 +2,7 @@
 Script to train the models
 '''
 import traceback
-from typing import List
+from typing import List, Dict
 import random 
 import sys
 import os
@@ -77,8 +77,10 @@ def get_args():
     #dataset args 
     parser.add_argument('--dataset-args', default=str, help = 'Arguements for dataset')
 
-    #dataloader 
+    #dataloader
     parser.add_argument('--subjects', nargs='+', type=int)
+    parser.add_argument('--validation-subjects', nargs='+', type=int, default=[38,46],
+                        help='Subjects reserved for validation (excluded from training)')
     parser.add_argument('--feeder', default= None , help = 'Dataloader location')
     parser.add_argument('--train-feeder-args',default=str, help = 'A dict for dataloader args' )
     parser.add_argument('--val-feeder-args', default=str , help = 'A dict for validation data loader')
@@ -152,12 +154,18 @@ class Trainer():
         self.train_loss_summary = []
         self.val_loss_summary = []
         self.best_loss = float('inf')
-        self.test_accuracy = 0 
+        self.test_accuracy = 0
         self.test_f1 = 0
         self.test_accuracy = 0
-        self.test_auc = 0 
+        self.test_auc = 0
         self.test_precision = 0
-        self.test_recall = 0 
+        self.test_recall = 0
+        self.fold_metrics = []
+        self.epoch_logs = []
+        self.best_val_metrics = None
+        self.current_fold_metrics = {'train': None, 'val': None, 'test': None}
+        self.current_fold_index = None
+        self.current_test_subject = None
         self.train_subjects = []
         self.val_subject = None
         self.test_subject = None
@@ -170,6 +178,7 @@ class Trainer():
         #self.intertial_modality = (lambda x: next((modality for modality in x if modality != 'skeleton'), None))(arg.dataset_args['modalities'])
         self.inertial_modality = [modality  for modality in arg.dataset_args['modalities'] if modality != 'skeleton']
         self.fuse = len(self.inertial_modality) > 1 
+        self.use_skeleton = arg.dataset_args.get('use_skeleton', True)
         if os.path.exists(self.arg.work_dir):
             self.arg.work_dir = f"{self.arg.work_dir}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
         os.makedirs(self.arg.work_dir) 
@@ -190,10 +199,56 @@ class Trainer():
         self.print_log(f'Model size : {num_params/ (1024 ** 2):.2f} MB')
     
     def add_avg_df(self, results):
-        averages = results.mean(numeric_only=True, axis = 0)
-        average_row = {col: round(averages[col],2) if col in averages else 'Average' for col in results.columns}
+        if results.empty:
+            return results
+        averages = results.mean(numeric_only=True, axis=0)
+        average_row = {}
+        for col in results.columns:
+            if col == 'test_subject':
+                average_row[col] = 'Average'
+            elif col in averages:
+                precision = 6 if 'loss' in col else 2
+                average_row[col] = round(averages[col], precision)
+            else:
+                average_row[col] = None
         results = pd.concat([results, pd.DataFrame([average_row])], ignore_index=True)
         return results
+
+    def _format_metrics(self, loss, accuracy, f1, precision, recall, auc_score):
+        return {
+            'loss': float(loss),
+            'accuracy': float(accuracy),
+            'f1_score': float(f1),
+            'precision': float(precision),
+            'recall': float(recall),
+            'auc': float(auc_score)
+        }
+
+    def _round_metrics(self, metrics):
+        if not metrics:
+            return {}
+        return {
+            key: round(value, 6 if key == 'loss' else 2)
+            for key, value in metrics.items()
+        }
+
+    def _record_epoch_metrics(self, phase, epoch, metrics):
+        if not metrics:
+            return
+        entry = {
+            'fold': (self.current_fold_index + 1) if self.current_fold_index is not None else None,
+            'test_subject': str(self.current_test_subject) if self.current_test_subject is not None else None,
+            'phase': phase,
+            'epoch': epoch
+        }
+        entry.update(metrics)
+        self.epoch_logs.append(entry)
+
+    def _init_fold_tracking(self, fold_index, test_subject):
+        self.current_fold_index = fold_index
+        self.current_test_subject = test_subject
+        self.current_fold_metrics = {'train': None, 'val': None, 'test': None}
+        self.best_val_metrics = None
     
     def save_config(self,src_path : str, desc_path : str) -> None: 
         '''
@@ -218,17 +273,38 @@ class Trainer():
         for buffer in model.buffers():
             total_size += buffer.nelement() * buffer.element_size()
         return total_size
+
+    def _get_inertial_key(self, inputs: Dict[str, torch.Tensor]) -> str:
+        """
+        Determine which inertial modality key is present in the current batch.
+        Falls back to 'accelerometer' when combined IMU data is stored there.
+        """
+        for modality in self.inertial_modality:
+            if modality in inputs:
+                return modality
+        if 'accelerometer' in inputs:
+            return 'accelerometer'
+        available = ', '.join(inputs.keys())
+        raise KeyError(f'No inertial modality found in batch inputs: {available}')
     
-    def has_empty_value(self, *lists):
+    def has_empty_value(self, lists):
+        """Check if any array/list in the collection is empty"""
         return any(len(lst) == 0 for lst in lists)
     def load_model(self, model, model_args):
         '''
-        Function to load model 
+        Function to load model
         '''
         use_cuda = torch.cuda.is_available()
         self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
+
+        # Determine device
+        if use_cuda:
+            device = f'cuda:{self.output_device}'
+        else:
+            device = 'cpu'
+
         Model = import_class(model)
-        model = Model(**model_args).to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+        model = Model(**model_args).to(device)
         return model 
     
     def load_loss(self):
@@ -297,9 +373,11 @@ class Trainer():
             # dataset class for futher processing
             builder = prepare_smartfallmm(self.arg)
 
-            self.norm_train = split_by_subjects(builder, self.train_subjects, self.fuse) 
-            self.norm_val = split_by_subjects(builder , self.val_subject, self.fuse)          # print(norm_val['skeleton'].shape)
+            self.norm_train = split_by_subjects(builder, self.train_subjects, self.fuse)
+            self.norm_val = split_by_subjects(builder , self.val_subject, self.fuse)
+
             if self.has_empty_value(list(self.norm_val.values())):
+                self.print_log(f'Warning: Validation data is empty for subjects {self.val_subject}. Skipping iteration.')
                 return False
 
             #validation dataset
@@ -386,10 +464,17 @@ class Trainer():
         plt.savefig(self.arg.work_dir + '/' + 'Confusion Matrix')
         plt.close()
     
-    def create_df(self, columns = ['test_subject', 'accuracy', 'f1_score', 'precision', 'recall', 'auc']) -> pd.DataFrame:
+    def create_df(self, columns=None) -> pd.DataFrame:
         '''
         Initiats a new dataframe
         '''
+        if columns is None:
+            columns = [
+                'test_subject',
+                'train_loss', 'train_accuracy', 'train_f1_score', 'train_precision', 'train_recall', 'train_auc',
+                'val_loss', 'val_accuracy', 'val_f1_score', 'val_precision', 'val_recall', 'val_auc',
+                'test_loss', 'test_accuracy', 'test_f1_score', 'test_precision', 'test_recall', 'test_auc'
+            ]
         df = pd.DataFrame(columns=columns)
         return df
     
@@ -419,10 +504,13 @@ class Trainer():
     def cal_metrics(self, targets, predictions): 
         targets = np.array(targets)
         predictions = np.array(predictions)
-        f1 = f1_score(targets, predictions)
-        precision = precision_score(targets, predictions)
-        recall = recall_score(targets, predictions)
-        auc_score = roc_auc_score(targets, predictions)
+        f1 = f1_score(targets, predictions, zero_division=0)
+        precision = precision_score(targets, predictions, zero_division=0)
+        recall = recall_score(targets, predictions, zero_division=0)
+        if np.unique(targets).size < 2 or np.unique(predictions).size < 2:
+            auc_score = 0.5
+        else:
+            auc_score = roc_auc_score(targets, predictions)
         accuracy = accuracy_score(targets, predictions)
         return accuracy*100, f1*100, recall*100, precision*100, auc_score*100
 
@@ -435,43 +523,42 @@ class Trainer():
         self.record_time()
         loader = self.data_loader['train']
         timer = dict(dataloader = 0.001, model = 0.001, stats = 0.001)
-        acc_value = []
         label_list = []
         pred_list = []
-        accuracy = 0
         cnt = 0
-        train_loss = 0
+        loss_accum = 0.0
 
         process = tqdm(loader, ncols = 80)
 
         for batch_idx, (inputs, targets, idx) in enumerate(process):
             with torch.no_grad():
-                acc_data = inputs[self.inertial_modality[0]].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
-                skl_data = inputs['skeleton'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                acc_key = self._get_inertial_key(inputs)
+                acc_data = inputs[acc_key].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                skl_tensor = None
+                if self.use_skeleton and 'skeleton' in inputs:
+                    skl_tensor = inputs['skeleton'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
                 targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
 
             
             timer['dataloader'] += self.split_time()
 
             self.optimizer.zero_grad()
-            logits, _= self.model(acc_data.float(), skl_data.float())
-            loss = self.criterion(logits.squeeze(1), targets.float())
-            loss.backward()
+            logits, _= self.model(acc_data.float(), skl_tensor.float() if skl_tensor is not None else None)
+            batch_loss = self.criterion(logits.squeeze(1), targets.float())
+            batch_loss.backward()
             self.optimizer.step()
 
             timer['model'] += self.split_time()
             with torch.no_grad():
-                train_loss += loss.mean().item()
-                #accuracy += (torch.argmax(predictions, 1) == targets).sum().item()
-                #print(torch.argmax(F.log_softmax(logits,dim =1), 1))
+                loss_accum += batch_loss.item()
                 preds = self.cal_prediction(logits)
                 label_list.extend(targets.tolist())
                 pred_list.extend(preds.tolist())
-                
-            cnt += len(targets) 
+
+            cnt += len(targets)
             timer['stats'] += self.split_time()
-        
-        train_loss /= cnt
+
+        train_loss = loss_accum / cnt if cnt else 0.0
         accuracy, f1, recall, precision, auc_score = self.cal_metrics(label_list, pred_list)
 
         self.train_loss_summary.append(train_loss)
@@ -483,6 +570,9 @@ class Trainer():
             '\tTraining Loss: {:4f},  Acc: {:2f}%, F1 score: {:2f}%, Precision: {:2f}%, Recall: {:2f}%, AUC: {:2f}%  '.format(train_loss, accuracy, f1, precision, recall, auc_score)
         )
         self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
+        train_metrics = self._format_metrics(train_loss, accuracy, f1, precision, recall, auc_score)
+        self.current_fold_metrics['train'] = train_metrics
+        self._record_epoch_metrics('train', epoch + 1, train_metrics)
         val_loss = self.eval(epoch, loader_name='val', result_file=self.arg.result_file)
         self.val_loss_summary.append(val_loss)
         self.early_stop(val_loss)
@@ -499,50 +589,57 @@ class Trainer():
 
         self.print_log('Eval epoch: {}'.format(epoch+1))
 
-        loss = 0
+        loss_accum = 0.0
         cnt = 0
-        accuracy = 0
         label_list = []
         pred_list = []
         wrong_idx = []
-        
+
         process = tqdm(self.data_loader[loader_name], ncols=80)
         with torch.no_grad():
             for batch_idx, (inputs, targets, idx) in enumerate(process):
-                acc_data = inputs[self.inertial_modality[0]].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
-                skl_data = inputs['skeleton'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                acc_key = self._get_inertial_key(inputs)
+                acc_data = inputs[acc_key].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                skl_tensor = None
+                if self.use_skeleton and 'skeleton' in inputs:
+                    skl_tensor = inputs['skeleton'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
                 targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
 
-                logits, _ = self.model(acc_data.float(), skl_data.float())
+                logits, _ = self.model(acc_data.float(), skl_tensor.float() if skl_tensor is not None else None)
                 batch_loss = self.criterion(logits.squeeze(1), targets.float())
-                loss += batch_loss.sum().item()
+                loss_accum += batch_loss.item()
                 preds = self.cal_prediction(logits)
                 label_list.extend(targets.tolist())
                 pred_list.extend(preds.tolist())
                 cnt += len(targets)
-            loss /= cnt
+            avg_loss = loss_accum / cnt if cnt else 0.0
             accuracy, f1, recall, precision, auc_score = self.cal_metrics(label_list, pred_list)
 
-        if result_file is not None: 
+        if result_file is not None:
             predict = pred_list
             true = label_list
 
             for i, x in enumerate(predict):
                 f_r.write(str(x) +  '==>' + str(true[i]) + '\n')
-        self.print_log('{} Loss: {:4f}. {} Acc: {:2f}% F1 score: {:2f}%, Precision: {:2f}%, Recall: {:2f}%, AUC: {:2f}%'.format(loader_name.capitalize(),loss,loader_name.capitalize(), accuracy, f1, precision, recall, auc_score))
+        metrics = self._format_metrics(avg_loss, accuracy, f1, precision, recall, auc_score)
+        epoch_label = epoch + 1 if loader_name != 'test' else 'best'
+        self._record_epoch_metrics(loader_name, epoch_label, metrics)
+        self.print_log('{} Loss: {:4f}. {} Acc: {:2f}% F1 score: {:2f}%, Precision: {:2f}%, Recall: {:2f}%, AUC: {:2f}%'.format(loader_name.capitalize(), avg_loss, loader_name.capitalize(), accuracy, f1, precision, recall, auc_score))
         if loader_name == 'val':
-            if loss < self.best_loss :
-                    self.best_loss = loss
+            self.current_fold_metrics['val'] = metrics
+            if avg_loss < self.best_loss :
+                    self.best_loss = avg_loss
+                    self.best_val_metrics = metrics
                     torch.save(deepcopy(self.model.state_dict()), f'{self.model_path}_{self.test_subject[0]}.pth')
                     self.print_log('Weights Saved')
-        else: 
-            self.test_accuracy = accuracy
-            self.test_f1 = f1
-            self.test_recall = recall
-            self.test_precision = precision
-            self.test_recall = recall
-            self.test_auc = auc_score
-        return loss       
+        elif loader_name == 'test':
+            self.current_fold_metrics['test'] = metrics
+            self.test_accuracy = metrics['accuracy']
+            self.test_f1 = metrics['f1_score']
+            self.test_recall = metrics['recall']
+            self.test_precision = metrics['precision']
+            self.test_auc = metrics['auc']
+        return avg_loss
 
     def start(self):
 
@@ -559,15 +656,32 @@ class Trainer():
                 self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
             
                 results = self.create_df()
-                for i in range(len(self.arg.subjects[:-3])): 
+                # Filter out validation subjects from training/testing subjects
+                available_subjects = [s for s in self.arg.subjects if s not in self.arg.validation_subjects]
+                self.print_log(f'Total subjects: {len(self.arg.subjects)}')
+                self.print_log(f'Validation subjects (held out): {self.arg.validation_subjects}')
+                self.print_log(f'Available subjects for train/test: {available_subjects}')
+                self.print_log(f'Number of train/test iterations: {len(available_subjects)}\n')
+
+                for i in range(len(available_subjects)):
                     self.train_loss_summary = []
                     self.val_loss_summary = []
                     self.best_loss = float('inf')
-                    test_subject = self.arg.subjects[i]
-                    train_subjects = list(filter(lambda x : x not in [test_subject], self.arg.subjects))
-                    self.val_subject = [38,46]
+                    test_subject = available_subjects[i]
+                    self._init_fold_tracking(i, test_subject)
+                    # Exclude both test subject AND validation subjects from training
+                    train_subjects = [s for s in available_subjects if s != test_subject]
+                    self.val_subject = self.arg.validation_subjects
                     self.test_subject = [test_subject]
                     self.train_subjects = train_subjects
+
+                    self.print_log(f'\n{"="*60}')
+                    self.print_log(f'Iteration {i+1}/{len(available_subjects)}')
+                    self.print_log(f'Test subject: {test_subject}')
+                    self.print_log(f'Validation subjects: {self.val_subject}')
+                    self.print_log(f'Training subjects: {train_subjects}')
+                    self.print_log(f'{"="*60}\n')
+
                     self.model = self.load_model(self.arg.model, self.arg.model_args)
                     self.print_log(f'Model Parameters: {self.count_parameters(self.model)}')
                     if not self.load_data():
@@ -581,6 +695,8 @@ class Trainer():
                         if self.early_stop.early_stop:
                             self.early_stop = EarlyStopping(min_delta=.001)
                             break
+                    train_metrics = deepcopy(self.current_fold_metrics['train'])
+                    val_metrics = deepcopy(self.best_val_metrics if self.best_val_metrics else self.current_fold_metrics['val'])
                     self.load_model(self.arg.model,self.arg.model_args)
                     self.load_weights()
                     self.model.eval()
@@ -589,12 +705,32 @@ class Trainer():
                     self.print_log(f'Test accuracy for : {self.test_accuracy}')
                     self.print_log(f'Test F-Score: {self.test_f1}')
                     self.loss_viz(self.train_loss_summary, self.val_loss_summary)
-                    subject_result = pd.DataFrame([{'test_subject' : str(self.test_subject[0]), 
-                                                'accuracy':round(self.test_accuracy,2), 'f1_score':round(self.test_f1, 2), 'precision':round(self.test_precision, 2),
-                                                'recall' : round(self.test_recall,2), 'auc': round(self.test_auc, 2) }])
+                    test_metrics = deepcopy(self.current_fold_metrics['test'])
+                    if not all([train_metrics, val_metrics, test_metrics]):
+                        self.print_log(f'Warning: Missing metrics for subject {self.test_subject[0]}, skipping summary row.')
+                        continue
+                    fold_record = {
+                        'test_subject': str(self.test_subject[0]),
+                        'train': train_metrics,
+                        'val': val_metrics,
+                        'test': test_metrics
+                    }
+                    self.fold_metrics.append(fold_record)
+                    row = {'test_subject': str(self.test_subject[0])}
+                    for split_name, metrics in [('train', train_metrics), ('val', val_metrics), ('test', test_metrics)]:
+                        rounded_metrics = self._round_metrics(metrics)
+                        for metric_name, metric_value in rounded_metrics.items():
+                            row[f'{split_name}_{metric_name}'] = metric_value
+                    subject_result = pd.DataFrame([row])
                     results = pd.concat([results, subject_result], ignore_index=True)
-                results = self.add_avg_df(results) 
-                results.to_csv(f'{self.arg.work_dir}/scores.csv')
+                if not results.empty:
+                    results = self.add_avg_df(results)
+                    results.to_csv(f'{self.arg.work_dir}/scores.csv', index=False)
+                if self.epoch_logs:
+                    log_df = pd.DataFrame(self.epoch_logs)
+                    log_columns = ['fold', 'test_subject', 'phase', 'epoch', 'loss', 'accuracy', 'f1_score', 'precision', 'recall', 'auc']
+                    log_df = log_df.reindex(columns=log_columns)
+                    log_df.to_csv(f'{self.arg.work_dir}/training_log.csv', index=False)
     
     def viz_feature(self, teacher_features, student_features, epoch):
         teacher_features = torch.flatten(teacher_features, start_dim=1)

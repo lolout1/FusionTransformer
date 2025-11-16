@@ -7,4 +7,8 @@ exps/
 /config.py
 .DS_Store
 .venv
-.vscode
+*.md
+*.out
+.vscoode
+
+SmartFallMM-Dataset/
