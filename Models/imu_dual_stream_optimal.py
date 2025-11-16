@@ -1,16 +1,4 @@
-"""
-Optimal Dual Stream IMU Transformer for Motion Filtering
-Architecture similar to TransModel but with separate encoders for acc and gyro
-
-Key Design Principles:
-1. Accelerometer is MORE RELIABLE → Stronger encoder (deeper, wider)
-2. Gyroscope is NOISY → Weaker encoder (lighter, more regularization)
-3. 4 channels each: acc [SMV, ax, ay, az], gyro [mag, gx, gy, gz]
-4. Asymmetric fusion: Acc features weighted higher than gyro
-5. Research-based: Similar to TransModel (proven baseline)
-
-This architecture is optimized for ~1000 samples with noisy gyroscope data.
-"""
+"""Asymmetric dual-stream IMU transformer tuned for filtered signals."""
 
 import torch
 from torch import nn
@@ -21,28 +9,7 @@ import math
 
 
 class OptimalDualStreamIMU(nn.Module):
-    """
-    Optimal asymmetric dual-stream architecture for noisy IMU data
-
-    Architecture:
-    - Acc stream: Stronger (TransModel-like): 4 heads, 2 layers, 64d
-    - Gyro stream: Weaker (regularized): 2 heads, 1 layer, 32d
-    - Asymmetric fusion: Acc weighted 0.7, Gyro weighted 0.3
-
-    Args:
-        imu_frames: Number of time steps (default: 128)
-        imu_channels: Total IMU channels, must be 8 (4 acc + 4 gyro)
-        num_classes: Number of output classes (1 for binary fall detection)
-        acc_heads: Attention heads for accelerometer stream (default: 4)
-        gyro_heads: Attention heads for gyroscope stream (default: 2)
-        acc_layers: Transformer layers for accelerometer (default: 2)
-        gyro_layers: Transformer layers for gyroscope (default: 1)
-        acc_dim: Embedding dimension for accelerometer (default: 64)
-        gyro_dim: Embedding dimension for gyroscope (default: 32)
-        dropout: Dropout rate (default: 0.6)
-        activation: Activation function (default: 'relu')
-        norm_first: Whether to apply normalization first (default: True)
-    """
+    """Asymmetric accelerometer/gyroscope encoder with learnable fusion."""
 
     def __init__(self,
                  imu_frames: int = 128,
@@ -87,21 +54,18 @@ class OptimalDualStreamIMU(nn.Module):
 
         assert self.imu_channels == 8, "OptimalDualStreamIMU requires 8 channels (4 acc + 4 gyro)"
 
-        # ========== ACCELEROMETER STREAM (STRONGER - TransModel-like) ==========
-        # Input: 4 channels [SMV, ax, ay, az]
-        # Similar to TransModel for proven performance on reliable data
+        # Accelerometer stream (high capacity)
         self.acc_input_proj = nn.Sequential(
             nn.Conv1d(4, self.acc_dim, kernel_size=8, stride=1, padding='same'),
             nn.BatchNorm1d(self.acc_dim),
-            nn.Dropout(dropout * 0.5)  # Light dropout on input
+            nn.Dropout(dropout * 0.5)
         )
 
-        # Multi-layer transformer for accelerometer (like TransModel)
         self.acc_transformer_layers = nn.ModuleList([
             TransformerEncoderLayer(
                 d_model=self.acc_dim,
                 nhead=self.acc_heads,
-                dim_feedforward=self.acc_dim * 2,  # Standard expansion
+                dim_feedforward=self.acc_dim * 2,
                 dropout=dropout,
                 activation=activation,
                 norm_first=norm_first,
@@ -112,22 +76,19 @@ class OptimalDualStreamIMU(nn.Module):
 
         self.acc_norm = LayerNorm(self.acc_dim)
 
-        # ========== GYROSCOPE STREAM (WEAKER - for noisy data) ==========
-        # Input: 4 channels [mag, gx, gy, gz]
-        # Lighter architecture to avoid overfitting on noise
+        # Gyroscope stream (lightweight)
         self.gyro_input_proj = nn.Sequential(
             nn.Conv1d(4, self.gyro_dim, kernel_size=5, stride=1, padding='same'),
             nn.BatchNorm1d(self.gyro_dim),
-            nn.Dropout(dropout * 0.7)  # STRONGER dropout for noisy data
+            nn.Dropout(dropout * 0.7)
         )
 
-        # Single-layer transformer for gyroscope (minimal capacity)
         self.gyro_transformer_layers = nn.ModuleList([
             TransformerEncoderLayer(
                 d_model=self.gyro_dim,
                 nhead=self.gyro_heads,
-                dim_feedforward=self.gyro_dim,  # No expansion (prevent overfit)
-                dropout=dropout * 1.2,  # Extra dropout for noise
+                dim_feedforward=self.gyro_dim,
+                dropout=dropout * 1.2,
                 activation=activation,
                 norm_first=norm_first,
                 batch_first=False
@@ -137,8 +98,6 @@ class OptimalDualStreamIMU(nn.Module):
 
         self.gyro_norm = LayerNorm(self.gyro_dim)
 
-        # ========== ASYMMETRIC FUSION ==========
-        # Weighted combination: acc features more important than gyro
         fusion_dim = self.acc_dim + self.gyro_dim
 
         self.fusion = nn.Sequential(
@@ -156,75 +115,40 @@ class OptimalDualStreamIMU(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
     def forward(self, acc_data, skl_data=None, **kwargs):
-        """
-        Forward pass with asymmetric dual-stream processing
+        """Return logits and fused features for eight-channel IMU input."""
+        acc = acc_data[:, :, :4]
+        gyro = acc_data[:, :, 4:]
 
-        Args:
-            acc_data: IMU data tensor of shape (batch, time, 8)
-                      Channels = [SMV, ax, ay, az, mag, gx, gy, gz]
-            skl_data: Skeleton data (not used, for compatibility)
-
-        Returns:
-            logits: Output predictions (B, num_classes)
-            features: Concatenated features (B, acc_dim + gyro_dim) for analysis
-        """
-        # Split into accelerometer and gyroscope
-        acc = acc_data[:, :, :4]   # (B, T, 4) - [SMV, ax, ay, az]
-        gyro = acc_data[:, :, 4:]  # (B, T, 4) - [mag, gx, gy, gz]
-
-        # ========== ACCELEROMETER STREAM (STRONGER) ==========
-        # Project input: (B, T, 4) -> (B, 4, T) -> (B, acc_dim, T)
         acc_x = rearrange(acc, 'b t c -> b c t')
         acc_x = self.acc_input_proj(acc_x)
-
-        # Transformer processing: (B, acc_dim, T) -> (T, B, acc_dim)
         acc_x = rearrange(acc_x, 'b c t -> t b c')
-
-        # Apply transformer layers (2 layers like TransModel)
         for layer in self.acc_transformer_layers:
             acc_x = layer(acc_x)
+        acc_feat = torch.mean(self.acc_norm(acc_x), dim=0)
 
-        acc_x = self.acc_norm(acc_x)
-
-        # Global average pooling: (T, B, acc_dim) -> (B, acc_dim)
-        acc_feat = torch.mean(acc_x, dim=0)
-
-        # ========== GYROSCOPE STREAM (WEAKER) ==========
-        # Project input: (B, T, 4) -> (B, 4, T) -> (B, gyro_dim, T)
         gyro_x = rearrange(gyro, 'b t c -> b c t')
         gyro_x = self.gyro_input_proj(gyro_x)
-
-        # Transformer processing: (B, gyro_dim, T) -> (T, B, gyro_dim)
         gyro_x = rearrange(gyro_x, 'b c t -> t b c')
-
-        # Apply transformer layers (1 layer for minimal capacity)
         for layer in self.gyro_transformer_layers:
             gyro_x = layer(gyro_x)
+        gyro_feat = torch.mean(self.gyro_norm(gyro_x), dim=0)
 
-        gyro_x = self.gyro_norm(gyro_x)
+        total_weight = self.acc_weight + self.gyro_weight
+        acc_weight = self.acc_weight / total_weight
+        gyro_weight = self.gyro_weight / total_weight
 
-        # Global average pooling: (T, B, gyro_dim) -> (B, gyro_dim)
-        gyro_feat = torch.mean(gyro_x, dim=0)
-
-        # ========== ASYMMETRIC FUSION ==========
-        # Weight features based on reliability (acc > gyro)
-        acc_feat_weighted = acc_feat * self.acc_weight
-        gyro_feat_weighted = gyro_feat * self.gyro_weight
-
-        # Concatenate weighted features
-        features = torch.cat([acc_feat_weighted, gyro_feat_weighted], dim=-1)
-
-        # Final classification
+        features = torch.cat(
+            [acc_feat * acc_weight, gyro_feat * gyro_weight],
+            dim=-1,
+        )
         logits = self.fusion(features)
-
         return logits, features
 
 
-# Test the model
 if __name__ == "__main__":
     batch_size = 16
     seq_len = 128
-    imu_channels = 8  # [SMV, ax, ay, az, mag, gx, gy, gz]
+    imu_channels = 8
 
     imu_data = torch.randn(batch_size, seq_len, imu_channels)
 
@@ -250,7 +174,6 @@ if __name__ == "__main__":
     print(f"Output features shape: {features.shape}")
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    # Print parameter breakdown
     print("\nParameter breakdown:")
     print(f"  Acc encoder: {sum(p.numel() for p in model.acc_input_proj.parameters()):,}")
     print(f"  Gyro encoder: {sum(p.numel() for p in model.gyro_input_proj.parameters()):,}")

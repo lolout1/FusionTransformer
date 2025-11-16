@@ -1,9 +1,3 @@
-"""
-Option 3: Asymmetric Dual Stream IMU Transformer
-Accelerometer gets larger network (primary signal), gyroscope gets smaller network (auxiliary)
-Reflects domain knowledge that accelerometer is often more informative for fall detection
-"""
-
 import torch
 from torch import nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
@@ -13,22 +7,7 @@ import math
 
 
 class DualStreamAsymmetricIMU(nn.Module):
-    """
-    Asymmetric dual-stream architecture with learnable fusion weights
-
-    Args:
-        imu_frames: Number of time steps (default: 128)
-        imu_channels: Total IMU channels, must be 6 for acc+gyro (default: 6)
-        num_classes: Number of output classes (1 for binary fall detection)
-        num_heads: Number of attention heads (default: 2)
-        acc_layers: Number of transformer layers for accelerometer (default: 2)
-        gyro_layers: Number of transformer layers for gyroscope (default: 1)
-        acc_dim: Embedding dimension for accelerometer (default: 16)
-        gyro_dim: Embedding dimension for gyroscope (default: 8)
-        dropout: Dropout rate (default: 0.6)
-        activation: Activation function (default: 'relu')
-        norm_first: Whether to apply normalization first (default: True)
-    """
+    """Dual-stream IMU encoder with asymmetric capacity and learnable fusion."""
 
     def __init__(self,
                  imu_frames: int = 128,
@@ -103,11 +82,10 @@ class DualStreamAsymmetricIMU(nn.Module):
             nn.Dropout(dropout * 0.4)
         )
 
-        # Single attention layer for gyroscope (kept simple)
         gyro_encoder_layer = TransformerEncoderLayer(
             d_model=self.gyro_dim,
-            nhead=2,  # Fewer heads for auxiliary branch
-            dim_feedforward=self.gyro_dim,  # Minimal feedforward
+            nhead=2,
+            dim_feedforward=self.gyro_dim,
             dropout=dropout,
             activation=activation,
             norm_first=norm_first,
@@ -120,12 +98,9 @@ class DualStreamAsymmetricIMU(nn.Module):
             norm=nn.LayerNorm(self.gyro_dim)
         )
 
-        # ========== Learnable Fusion Weights ==========
-        # Initialize with domain knowledge: acc is typically more important
         self.acc_weight = nn.Parameter(torch.tensor(0.7))
         self.gyro_weight = nn.Parameter(torch.tensor(0.3))
 
-        # Fusion layer
         fusion_input_dim = self.acc_dim + self.gyro_dim
 
         self.fusion = nn.Sequential(
@@ -143,77 +118,39 @@ class DualStreamAsymmetricIMU(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
     def forward(self, acc_data, skl_data=None, **kwargs):
-        """
-        Forward pass
+        """Return logits and fused features for accelerometer + gyro inputs."""
+        acc = acc_data[:, :, :3]
+        gyro = acc_data[:, :, 3:]
 
-        Args:
-            acc_data: IMU data tensor of shape (batch, time, 6)
-                      Channels = [ax, ay, az, gx, gy, gz]
-            skl_data: Skeleton data (not used, for compatibility)
-
-        Returns:
-            logits: Output predictions (B, num_classes)
-            features: Weighted concatenated features (B, acc_dim + gyro_dim)
-        """
-        # Split into accelerometer and gyroscope
-        acc = acc_data[:, :, :3]   # (B, T, 3)
-        gyro = acc_data[:, :, 3:]  # (B, T, 3)
-
-        # ========== Accelerometer Stream (Primary) ==========
-        # (B, T, 3) -> (B, 3, T)
         acc_x = rearrange(acc, 'b t c -> b c t')
-        acc_x = self.acc_encoder(acc_x)  # (B, acc_dim, T)
-
-        # Prepare for transformer: (T, B, acc_dim)
+        acc_x = self.acc_encoder(acc_x)
         acc_x = rearrange(acc_x, 'b c t -> t b c')
-        acc_feat = self.acc_transformer(acc_x)  # (T, B, acc_dim)
-
-        # Back to (B, T, acc_dim)
+        acc_feat = self.acc_transformer(acc_x)
         acc_feat = rearrange(acc_feat, 't b c -> b t c')
-
-        # Global average pooling: (B, T, acc_dim) -> (B, acc_dim)
         acc_feat = torch.mean(acc_feat, dim=1)
 
-        # ========== Gyroscope Stream (Auxiliary) ==========
-        # (B, T, 3) -> (B, 3, T)
         gyro_x = rearrange(gyro, 'b t c -> b c t')
-        gyro_x = self.gyro_encoder(gyro_x)  # (B, gyro_dim, T)
-
-        # Prepare for transformer: (T, B, gyro_dim)
+        gyro_x = self.gyro_encoder(gyro_x)
         gyro_x = rearrange(gyro_x, 'b c t -> t b c')
-        gyro_feat = self.gyro_transformer(gyro_x)  # (T, B, gyro_dim)
-
-        # Back to (B, T, gyro_dim)
+        gyro_feat = self.gyro_transformer(gyro_x)
         gyro_feat = rearrange(gyro_feat, 't b c -> b t c')
-
-        # Global average pooling: (B, T, gyro_dim) -> (B, gyro_dim)
         gyro_feat = torch.mean(gyro_feat, dim=1)
 
-        # ========== Learnable Weighted Fusion ==========
-        # Normalize weights to sum to 1
         total_weight = torch.abs(self.acc_weight) + torch.abs(self.gyro_weight)
         normalized_acc_weight = torch.abs(self.acc_weight) / total_weight
         normalized_gyro_weight = torch.abs(self.gyro_weight) / total_weight
 
-        # Apply learned weights
         weighted_acc_feat = acc_feat * normalized_acc_weight
         weighted_gyro_feat = gyro_feat * normalized_gyro_weight
 
-        # Concatenate weighted features
         features = torch.cat([weighted_acc_feat, weighted_gyro_feat], dim=-1)
 
-        # Final classification
         logits = self.fusion(features)
 
         return logits, features
 
     def get_fusion_weights(self):
-        """
-        Get the current learned fusion weights (for interpretability)
-
-        Returns:
-            dict: Normalized weights for acc and gyro
-        """
+        """Return normalized fusion weights for each stream."""
         total_weight = torch.abs(self.acc_weight) + torch.abs(self.gyro_weight)
         return {
             'acc_weight': (torch.abs(self.acc_weight) / total_weight).item(),
@@ -221,11 +158,10 @@ class DualStreamAsymmetricIMU(nn.Module):
         }
 
 
-# Test the model
 if __name__ == "__main__":
     batch_size = 16
     seq_len = 128
-    imu_channels = 6  # ax, ay, az, gx, gy, gz
+    imu_channels = 6
 
     imu_data = torch.randn(batch_size, seq_len, imu_channels)
 
@@ -249,7 +185,6 @@ if __name__ == "__main__":
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     print(f"\nLearned fusion weights: {model.get_fusion_weights()}")
 
-    # Print parameter breakdown
     print("\nParameter breakdown:")
     print(f"  Acc encoder: {sum(p.numel() for p in model.acc_encoder.parameters()):,}")
     print(f"  Gyro encoder: {sum(p.numel() for p in model.gyro_encoder.parameters()):,}")

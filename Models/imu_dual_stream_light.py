@@ -1,9 +1,3 @@
-"""
-Option 2: Lightweight Independent Dual Stream IMU Transformer
-Separate but ultra-lightweight encoders for accelerometer and gyroscope
-Captures modality-specific patterns while minimizing parameters
-"""
-
 import torch
 from torch import nn
 from torch.nn import TransformerEncoderLayer
@@ -13,24 +7,7 @@ import math
 
 
 class DualStreamLightIMU(nn.Module):
-    """
-    Lightweight independent dual-stream architecture
-
-    Key Features:
-    - Separate encoders for acc and gyro (modality-specific learning)
-    - Late fusion of features
-
-    Args:
-        imu_frames: Number of time steps (default: 128)
-        imu_channels: Total IMU channels, must be 6 for acc+gyro (default: 6)
-        num_classes: Number of output classes (1 for binary fall detection)
-        num_heads: Number of attention heads (default: 2)
-        num_layers: Number of transformer layers per stream (default: 1)
-        stream_dim: Embedding dimension per stream (default: 8)
-        dropout: Dropout rate (default: 0.65)
-        activation: Activation function (default: 'relu')
-        norm_first: Whether to apply normalization first (default: True)
-    """
+    """Lightweight dual-stream IMU encoder with late feature fusion."""
 
     def __init__(self,
                  imu_frames: int = 128,
@@ -50,57 +27,48 @@ class DualStreamLightIMU(nn.Module):
                  **kwargs):
         super().__init__()
 
-        # Handle both old and new parameter names
         self.imu_frames = imu_frames if imu_frames else acc_frames
         self.imu_channels = imu_channels if imu_channels else acc_coords
 
-        # Use stream_dim if provided, otherwise use embed_dim
-        # For Option 2, we want each stream to be small (8 dimensions)
         self.stream_dim = stream_dim if stream_dim != 8 or embed_dim == 8 else embed_dim
 
         assert self.imu_channels == 6, "DualStreamLightIMU requires 6 channels (3 acc + 3 gyro)"
 
-        # Separate encoder for accelerometer
         self.acc_encoder = nn.Sequential(
             nn.Conv1d(3, self.stream_dim, kernel_size=5, padding='same'),
             nn.BatchNorm1d(self.stream_dim),
             nn.Dropout(dropout * 0.4)
         )
 
-        # Separate encoder for gyroscope
         self.gyro_encoder = nn.Sequential(
             nn.Conv1d(3, self.stream_dim, kernel_size=5, padding='same'),
             nn.BatchNorm1d(self.stream_dim),
             nn.Dropout(dropout * 0.4)
         )
 
-        # Separate transformer for accelerometer
         self.acc_transformer = TransformerEncoderLayer(
             d_model=self.stream_dim,
             nhead=num_heads,
-            dim_feedforward=self.stream_dim,  # Very small FFN
+            dim_feedforward=self.stream_dim,
             dropout=dropout,
             activation=activation,
             norm_first=norm_first,
             batch_first=False
         )
 
-        # Separate transformer for gyroscope
         self.gyro_transformer = TransformerEncoderLayer(
             d_model=self.stream_dim,
             nhead=num_heads,
-            dim_feedforward=self.stream_dim,  # Very small FFN
+            dim_feedforward=self.stream_dim,
             dropout=dropout,
             activation=activation,
             norm_first=norm_first,
             batch_first=False
         )
 
-        # Layer norms for each stream
         self.acc_norm = nn.LayerNorm(self.stream_dim)
         self.gyro_norm = nn.LayerNorm(self.stream_dim)
 
-        # Late fusion: concatenate both stream features
         fusion_input_dim = self.stream_dim * 2
 
         self.fusion = nn.Sequential(
@@ -110,7 +78,6 @@ class DualStreamLightIMU(nn.Module):
             nn.Linear(self.stream_dim * 2, num_classes)
         )
 
-        # Initialize weights
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, math.sqrt(2. / m.out_features))
@@ -118,69 +85,36 @@ class DualStreamLightIMU(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
     def forward(self, acc_data, skl_data=None, **kwargs):
-        """
-        Forward pass
+        """Return logits and fused representations for accelerometer + gyro."""
+        acc = acc_data[:, :, :3]
+        gyro = acc_data[:, :, 3:]
 
-        Args:
-            acc_data: IMU data tensor of shape (batch, time, 6)
-                      Channels = [ax, ay, az, gx, gy, gz]
-            skl_data: Skeleton data (not used, for compatibility)
-
-        Returns:
-            logits: Output predictions (B, num_classes)
-            features: Concatenated features (B, stream_dim * 2) for distillation
-        """
-        # Split into accelerometer and gyroscope
-        acc = acc_data[:, :, :3]   # (B, T, 3)
-        gyro = acc_data[:, :, 3:]  # (B, T, 3)
-
-        # ========== Accelerometer Stream ==========
-        # (B, T, 3) -> (B, 3, T)
         acc_x = rearrange(acc, 'b t c -> b c t')
-        acc_x = self.acc_encoder(acc_x)  # (B, stream_dim, T)
-
-        # Prepare for transformer: (T, B, stream_dim)
+        acc_x = self.acc_encoder(acc_x)
         acc_x = rearrange(acc_x, 'b c t -> t b c')
-        acc_feat = self.acc_transformer(acc_x)  # (T, B, stream_dim)
-
-        # Back to (B, T, stream_dim) and normalize
+        acc_feat = self.acc_transformer(acc_x)
         acc_feat = rearrange(acc_feat, 't b c -> b t c')
         acc_feat = self.acc_norm(acc_feat)
-
-        # Global average pooling: (B, T, stream_dim) -> (B, stream_dim)
         acc_feat = torch.mean(acc_feat, dim=1)
 
-        # ========== Gyroscope Stream ==========
-        # (B, T, 3) -> (B, 3, T)
         gyro_x = rearrange(gyro, 'b t c -> b c t')
-        gyro_x = self.gyro_encoder(gyro_x)  # (B, stream_dim, T)
-
-        # Prepare for transformer: (T, B, stream_dim)
+        gyro_x = self.gyro_encoder(gyro_x)
         gyro_x = rearrange(gyro_x, 'b c t -> t b c')
-        gyro_feat = self.gyro_transformer(gyro_x)  # (T, B, stream_dim)
-
-        # Back to (B, T, stream_dim) and normalize
+        gyro_feat = self.gyro_transformer(gyro_x)
         gyro_feat = rearrange(gyro_feat, 't b c -> b t c')
         gyro_feat = self.gyro_norm(gyro_feat)
-
-        # Global average pooling: (B, T, stream_dim) -> (B, stream_dim)
         gyro_feat = torch.mean(gyro_feat, dim=1)
 
-        # ========== Feature Fusion ==========
-        # Concatenate features from both streams
-        features = torch.cat([acc_feat, gyro_feat], dim=-1)  # (B, stream_dim * 2)
-
-        # Final classification
+        features = torch.cat([acc_feat, gyro_feat], dim=-1)
         logits = self.fusion(features)
 
         return logits, features
 
 
-# Test the model
 if __name__ == "__main__":
     batch_size = 16
     seq_len = 128
-    imu_channels = 6  # ax, ay, az, gx, gy, gz
+    imu_channels = 6
 
     imu_data = torch.randn(batch_size, seq_len, imu_channels)
 
@@ -201,7 +135,6 @@ if __name__ == "__main__":
     print(f"Output features shape: {features.shape}")
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    # Print parameter breakdown
     print("\nParameter breakdown:")
     print(f"  Acc encoder: {sum(p.numel() for p in model.acc_encoder.parameters()):,}")
     print(f"  Gyro encoder: {sum(p.numel() for p in model.gyro_encoder.parameters()):,}")

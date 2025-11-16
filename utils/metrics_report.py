@@ -1,10 +1,4 @@
-"""
-Enhanced Metrics Reporting Module
-Provides comprehensive per-fold analysis and summary statistics for model evaluation.
-
-Author: Claude Code
-Date: 2025-11-15
-"""
+"""Utilities to format and persist LOSO metrics."""
 
 import pandas as pd
 import numpy as np
@@ -14,16 +8,7 @@ import json
 
 
 def format_per_fold_table(fold_metrics: List[Dict]) -> pd.DataFrame:
-    """
-    Convert fold_metrics list to detailed DataFrame with all subjects.
-
-    Args:
-        fold_metrics: List of dictionaries, one per fold, containing:
-                     {'test_subject': str, 'train': {...}, 'val': {...}, 'test': {...}}
-
-    Returns:
-        DataFrame with columns: test_subject, train_*, val_*, test_* metrics
-    """
+    """Expand fold metric dicts into a per-subject DataFrame."""
     rows = []
 
     for fold in fold_metrics:
@@ -59,16 +44,7 @@ def format_per_fold_table(fold_metrics: List[Dict]) -> pd.DataFrame:
 
 
 def calculate_summary_stats(df: pd.DataFrame, metrics: Optional[List[str]] = None) -> pd.DataFrame:
-    """
-    Calculate mean, std, min, max across all subjects for specified metrics.
-
-    Args:
-        df: DataFrame from format_per_fold_table()
-        metrics: List of column names to summarize. If None, summarizes all numeric columns.
-
-    Returns:
-        DataFrame with rows: mean, std, min, max for each metric
-    """
+    """Compute mean/std/min/max for the provided columns."""
     if metrics is None:
         # Auto-detect numeric columns (exclude test_subject)
         metrics = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -90,18 +66,7 @@ def identify_outliers(df: pd.DataFrame,
                      metric: str = 'test_f1_score',
                      n_top: int = 5,
                      n_bottom: int = 5) -> Dict[str, List[Tuple[str, float]]]:
-    """
-    Identify best and worst performing subjects for a given metric.
-
-    Args:
-        df: DataFrame from format_per_fold_table()
-        metric: Column name to rank by
-        n_top: Number of top performers to return
-        n_bottom: Number of bottom performers to return
-
-    Returns:
-        Dict with keys 'best' and 'worst', each containing list of (subject, value) tuples
-    """
+    """Return the best and worst subjects for a metric."""
     if metric not in df.columns:
         raise ValueError(f"Metric '{metric}' not found in DataFrame. Available: {df.columns.tolist()}")
 
@@ -119,15 +84,7 @@ def identify_outliers(df: pd.DataFrame,
 
 
 def calculate_overfitting_gaps(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate and rank subjects by overfitting gap (val - test performance).
-
-    Args:
-        df: DataFrame from format_per_fold_table()
-
-    Returns:
-        DataFrame sorted by overfitting gap, highest first
-    """
+    """Return per-subject (val - test) gaps for all metrics."""
     gap_df = df[['test_subject']].copy()
 
     # Calculate gaps for all metrics
@@ -147,16 +104,7 @@ def calculate_overfitting_gaps(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def generate_text_report(fold_metrics: List[Dict], model_name: str) -> str:
-    """
-    Generate human-readable text summary of results.
-
-    Args:
-        fold_metrics: List of fold results
-        model_name: Name of the model
-
-    Returns:
-        Formatted string report
-    """
+    """Create a plain-text summary for one model."""
     df = format_per_fold_table(fold_metrics)
 
     # Calculate key statistics
@@ -208,15 +156,7 @@ def generate_text_report(fold_metrics: List[Dict], model_name: str) -> str:
 
 
 def generate_per_fold_summary_table(df: pd.DataFrame) -> str:
-    """
-    Generate formatted table showing key metrics per subject.
-
-    Args:
-        df: DataFrame from format_per_fold_table()
-
-    Returns:
-        Formatted string table
-    """
+    """Render a compact table of key metrics per subject."""
     # Select key columns for display
     display_cols = ['test_subject', 'test_accuracy', 'test_f1_score',
                    'test_precision', 'test_recall', 'val_accuracy', 'val_f1_score']
@@ -251,15 +191,7 @@ def save_enhanced_results(fold_metrics: List[Dict],
                          output_dir: str,
                          model_name: str,
                          save_validation_report: bool = True) -> None:
-    """
-    Save comprehensive results including per-fold details and summaries.
-
-    Args:
-        fold_metrics: List of fold results from training
-        output_dir: Directory to save results
-        model_name: Name of the model
-        save_validation_report: Whether to save data validation info
-    """
+    """Persist per-fold tables, summary stats, and textual reports."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -326,15 +258,7 @@ def save_enhanced_results(fold_metrics: List[Dict],
 
 
 def merge_model_results(model_data_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """
-    Merge per-fold results from multiple models into a single comparison table.
-
-    Args:
-        model_data_dict: Dict mapping model_name -> per_fold DataFrame
-
-    Returns:
-        Wide-format DataFrame with all models side-by-side
-    """
+    """Merge per-model DataFrames into a wide comparison table."""
     if not model_data_dict:
         return pd.DataFrame()
 
@@ -359,13 +283,7 @@ def merge_model_results(model_data_dict: Dict[str, pd.DataFrame]) -> pd.DataFram
 
 # Utility function for backward compatibility
 def create_scores_csv_compatible(fold_metrics: List[Dict], output_file: str) -> None:
-    """
-    Create scores.csv in the original format for backward compatibility.
-
-    Args:
-        fold_metrics: List of fold results
-        output_file: Path to save scores.csv
-    """
+    """Write scores.csv matching the legacy layout."""
     df = format_per_fold_table(fold_metrics)
 
     # Calculate average row
