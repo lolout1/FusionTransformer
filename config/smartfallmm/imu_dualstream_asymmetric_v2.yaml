@@ -9,7 +9,7 @@ dataset: smartfallmm
 subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
 
 # Validation subjects
-validation_subjects: [56]
+validation_subjects: [38, 44]
 
 model_args:
   num_layers: 2          # Used as acc_layers (primary branch)
@@ -41,6 +41,8 @@ dataset_args:
   filter_cutoff: 5.5
   filter_fs: 25
   enable_normalization: False
+  discard_mismatched_modalities: True
+  length_sensitive_modalities: ['accelerometer', 'gyroscope']
 
 # Training configuration
 batch_size: 64

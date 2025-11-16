@@ -81,8 +81,8 @@ def get_args():
 
     #dataloader
     parser.add_argument('--subjects', nargs='+', type=int)
-    parser.add_argument('--validation-subjects', nargs='+', type=int, default=[38,46],
-                        help='Subjects reserved for validation (excluded from training)')
+    parser.add_argument('--validation-subjects', nargs='+', type=int, default=[38,44],
+                        help='Subjects reserved for validation (excluded from training). Optimized for 60% ADLs in both acc-only and acc+gyro.')
     parser.add_argument('--feeder', default= None , help = 'Dataloader location')
     parser.add_argument('--train-feeder-args',default=str, help = 'A dict for dataloader args' )
     parser.add_argument('--val-feeder-args', default=str , help = 'A dict for validation data loader')
@@ -177,6 +177,9 @@ class Trainer():
         self.norm_test = None
         self.data_loader = dict()
         self.early_stop = EarlyStopping(patience=15, min_delta=.001)
+        # Dataset statistics tracking for comprehensive CSV
+        self.dataset_statistics = []
+        self.builder = None  # Will store DatasetBuilder reference to access statistics
         #self.intertial_modality = (lambda x: next((modality for modality in x if modality != 'skeleton'), None))(arg.dataset_args['modalities'])
         self.inertial_modality = [modality  for modality in arg.dataset_args['modalities'] if modality != 'skeleton']
         self.fuse = len(self.inertial_modality) > 1 
@@ -288,10 +291,100 @@ class Trainer():
             return 'accelerometer'
         available = ', '.join(inputs.keys())
         raise KeyError(f'No inertial modality found in batch inputs: {available}')
+
+    def _log_dataset_split(self) -> None:
+        """Log the number of windows available per split at the beginning of a fold, including class distribution."""
+        from collections import Counter
+
+        def _count_windows(split: Dict[str, np.ndarray]) -> int:
+            if not split or 'labels' not in split or split['labels'] is None:
+                return 0
+            return len(split['labels'])
+
+        def _count_classes(split: Dict[str, np.ndarray]) -> tuple:
+            """Count fall (label=1) and ADL (label=0) windows in a split."""
+            if not split or 'labels' not in split or split['labels'] is None:
+                return 0, 0
+            labels = split['labels']
+            label_counts = Counter(labels)
+            adl = int(label_counts.get(0, 0))
+            fall = int(label_counts.get(1, 0))
+            return fall, adl
+
+        fold_id = (self.current_fold_index + 1) if self.current_fold_index is not None else 'N/A'
+        train_windows = _count_windows(self.norm_train)
+        val_windows = _count_windows(self.norm_val)
+        test_windows = _count_windows(self.norm_test)
+
+        train_fall, train_adl = _count_classes(self.norm_train)
+        val_fall, val_adl = _count_classes(self.norm_val)
+        test_fall, test_adl = _count_classes(self.norm_test)
+
+        train_subjects = len(self.train_subjects) if self.train_subjects else 0
+        val_subjects = len(self.val_subject) if self.val_subject else 0
+        test_subject = self.test_subject[0] if self.test_subject else 'unknown'
+
+        # Log with class distribution
+        self.print_log(
+            f'[Fold {fold_id}] Dataset windows -> '
+            f'train: {train_windows} ({train_subjects} subjects, fall={train_fall}, adl={train_adl}), '
+            f'val: {val_windows} ({val_subjects} subjects, fall={val_fall}, adl={val_adl}), '
+            f'test: {test_windows} (subject {test_subject}, fall={test_fall}, adl={test_adl})'
+        )
+
+        # Store dataset statistics for later export to comprehensive CSV
+        dataset_stats = {
+            'fold': fold_id,
+            'test_subject': test_subject,
+            'train_subjects': ','.join(map(str, self.train_subjects)) if self.train_subjects else '',
+            'val_subject': ','.join(map(str, self.val_subject)) if self.val_subject else '',
+            'train_windows': train_windows,
+            'train_fall': train_fall,
+            'train_adl': train_adl,
+            'train_subjects_count': train_subjects,
+            'val_windows': val_windows,
+            'val_fall': val_fall,
+            'val_adl': val_adl,
+            'val_subjects_count': val_subjects,
+            'test_windows': test_windows,
+            'test_fall': test_fall,
+            'test_adl': test_adl
+        }
+
+        # Store in instance variable for later CSV export
+        if not hasattr(self, 'dataset_statistics'):
+            self.dataset_statistics = []
+        self.dataset_statistics.append(dataset_stats)
     
     def has_empty_value(self, lists):
         """Check if any array/list in the collection is empty"""
         return any(len(lst) == 0 for lst in lists)
+
+    def has_inertial_data(self, dataset_dict):
+        """
+        Ensure at least one inertial modality (accelerometer/gyroscope) is present with samples.
+        """
+        if not dataset_dict:
+            return False
+        for key in ('accelerometer', 'gyroscope'):
+            if key in dataset_dict and len(dataset_dict[key]) > 0:
+                return True
+        return False
+
+    def validate_split(self, dataset_dict, split_name):
+        """
+        Validate a split before creating a DataLoader to avoid crashes when data is missing.
+        """
+        if not dataset_dict:
+            self.print_log(f'Warning: {split_name} data is empty. Skipping iteration.')
+            return False
+        if not self.has_inertial_data(dataset_dict):
+            self.print_log(f'Warning: {split_name} data is missing accelerometer/gyroscope streams. Skipping iteration.')
+            return False
+        if self.has_empty_value(list(dataset_dict.values())):
+            self.print_log(f'Warning: {split_name} data contains empty arrays. Skipping iteration.')
+            return False
+        return True
     def load_model(self, model, model_args):
         '''
         Function to load model
@@ -373,13 +466,14 @@ class Trainer():
             # if self.arg.dataset == 'smartfallmm':
 
             # dataset class for futher processing
-            builder = prepare_smartfallmm(self.arg)
+            self.builder = prepare_smartfallmm(self.arg)
 
-            self.norm_train = split_by_subjects(builder, self.train_subjects, self.fuse, print_validation=True)
-            self.norm_val = split_by_subjects(builder , self.val_subject, self.fuse)
-
-            if self.has_empty_value(list(self.norm_val.values())):
-                self.print_log(f'Warning: Validation data is empty for subjects {self.val_subject}. Skipping iteration.')
+            # Load all splits (don't print validation yet - wait until all splits are loaded)
+            self.norm_train = split_by_subjects(self.builder, self.train_subjects, self.fuse, print_validation=False)
+            if not self.validate_split(self.norm_train, 'train'):
+                return False
+            self.norm_val = split_by_subjects(self.builder , self.val_subject, self.fuse, print_validation=False)
+            if not self.validate_split(self.norm_val, f'validation subjects {self.val_subject}'):
                 return False
 
             #validation dataset
@@ -389,11 +483,11 @@ class Trainer():
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
-            
+
             self.cal_weights()
 
             self.distribution_viz(self.norm_train['labels'], self.arg.work_dir, 'train')
-            
+
             self.data_loader['val'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.val_feeder_args,
                                dataset = self.norm_val
@@ -402,8 +496,9 @@ class Trainer():
                 shuffle=True,
                 num_workers=self.arg.num_worker)
             #self.distribution_viz(self.norm_val['labels'], self.arg.work_dir, 'val')
-            self.norm_test = split_by_subjects(builder , self.test_subject, self.fuse)
-            if self.has_empty_value(list(self.norm_test.values())):
+            self.norm_test = split_by_subjects(self.builder , self.test_subject, self.fuse, print_validation=False)
+            test_split_name = f'test subject {self.test_subject[0]}' if self.test_subject else 'test'
+            if not self.validate_split(self.norm_test, test_split_name):
                     return  False
             self.data_loader['test'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.test_feeder_args, dataset = self.norm_test),
@@ -411,6 +506,12 @@ class Trainer():
                 shuffle=True,
                 num_workers=self.arg.num_worker)
             self.distribution_viz(self.norm_test['labels'], self.arg.work_dir, f'test_{self.test_subject[0]}')
+
+            # Print comprehensive validation and skip summaries after all splits are loaded
+            self.builder.print_validation_summary()
+            self.builder.print_skip_summary()
+
+            self._log_dataset_split()
             return True
 
     def record_time(self):
@@ -419,6 +520,218 @@ class Trainer():
         '''
         self.cur_time = time.time()
         return self.cur_time
+
+    def _sanitize_row_dict(self, row_dict: dict) -> dict:
+        """
+        Remove duplicate keys from a dictionary by keeping only the last value.
+        This prevents pandas from creating DataFrames with duplicate columns.
+
+        Args:
+            row_dict: Dictionary potentially containing duplicate keys
+
+        Returns:
+            Dictionary with unique keys only
+        """
+        # Convert to dict to ensure uniqueness (dict preserves insertion order in Python 3.7+)
+        return dict(row_dict)
+
+    def _build_metrics_row(self, fold_stat: dict, fold_index: int) -> dict:
+        """
+        Build a comprehensive metrics row combining fold statistics, model metrics,
+        and builder statistics.
+
+        Args:
+            fold_stat: Base fold statistics dictionary
+            fold_index: Index of the current fold
+
+        Returns:
+            Complete row dictionary with all metrics
+        """
+        # Start with a fresh dictionary to avoid duplicate keys
+        row = {}
+
+        # Add dataset split information (only non-metric keys)
+        for key, value in fold_stat.items():
+            # Skip any metric keys that might be in fold_stat to prevent duplicates
+            if not any(key.startswith(f'{split}_') for split in ['train', 'val', 'test']):
+                row[key] = value
+
+        # Add model metrics if available
+        if fold_index < len(self.fold_metrics):
+            fold_metric = self.fold_metrics[fold_index]
+            for split in ['train', 'val', 'test']:
+                if split in fold_metric and fold_metric[split]:
+                    metrics = self._round_metrics(fold_metric[split])
+                    for metric_name, metric_value in metrics.items():
+                        metric_key = f'{split}_{metric_name}'
+                        row[metric_key] = metric_value
+
+        # Add builder-level statistics
+        if self.builder:
+            skip_stats = self.builder.skip_stats
+
+            # Add skip statistics
+            row['total_trials_attempted'] = skip_stats.get('total_trials', 0)
+            row['valid_trials_processed'] = skip_stats.get('valid_trials', 0)
+
+            if skip_stats.get('total_trials', 0) > 0:
+                row['skip_rate'] = round(
+                    (skip_stats['total_trials'] - skip_stats['valid_trials']) / skip_stats['total_trials'] * 100,
+                    2
+                )
+            else:
+                row['skip_rate'] = 0.0
+
+            row['skipped_missing'] = skip_stats.get('skipped_missing_modality', 0)
+            row['skipped_mismatch'] = skip_stats.get('skipped_length_mismatch', 0)
+            row['skipped_short'] = skip_stats.get('skipped_too_short', 0)
+            row['skipped_dtw'] = skip_stats.get('skipped_dtw_length_mismatch', 0)
+            row['skipped_preprocessing'] = skip_stats.get('skipped_preprocessing_error', 0)
+
+            # Motion filtering statistics
+            motion_enabled = self.arg.dataset_args.get('enable_motion_filtering', False)
+            row['motion_enabled'] = motion_enabled
+            if motion_enabled:
+                row['motion_total'] = skip_stats.get('motion_total_windows', 0)
+                row['motion_passed'] = skip_stats.get('motion_passed_windows', 0)
+                row['motion_rejected'] = skip_stats.get('motion_rejected_windows', 0)
+                row['motion_rejection_rate'] = round(
+                    skip_stats.get('motion_rejection_rate', 0.0) * 100,
+                    2
+                )
+            else:
+                row['motion_total'] = None
+                row['motion_passed'] = None
+                row['motion_rejected'] = None
+                row['motion_rejection_rate'] = None
+
+        return row
+
+    def _add_average_row(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add an average row to the DataFrame for numeric columns.
+
+        Args:
+            df: DataFrame to add average row to
+
+        Returns:
+            DataFrame with average row appended
+        """
+        if len(df) <= 1:
+            return df
+
+        # Calculate averages for numeric columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        averages = df[numeric_cols].mean()
+
+        # Build average row with proper column alignment
+        avg_row = {}
+        for col in df.columns:
+            # Special handling for identifier columns (always set to 'Average')
+            if col in ['test_subject', 'val_subject', 'fold']:
+                avg_row[col] = 'Average' if col == 'test_subject' else None
+            elif col in numeric_cols:
+                # Round based on column type
+                if 'loss' in col:
+                    avg_row[col] = round(averages[col], 6)
+                else:
+                    avg_row[col] = round(averages[col], 2)
+            else:
+                avg_row[col] = None
+
+        # Create new DataFrame with average row and concatenate
+        avg_df = pd.DataFrame([avg_row])
+
+        # Ensure column order matches
+        avg_df = avg_df[df.columns]
+
+        # Use robust concatenation
+        result = pd.concat([df, avg_df], ignore_index=True, sort=False)
+
+        return result
+
+    def _reorder_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Reorder DataFrame columns for better readability.
+
+        Args:
+            df: DataFrame to reorder
+
+        Returns:
+            DataFrame with reordered columns
+        """
+        # Define priority columns
+        priority_cols = [
+            'fold', 'test_subject', 'train_subjects', 'val_subject',
+            'train_windows', 'train_fall', 'train_adl', 'train_subjects_count',
+            'val_windows', 'val_fall', 'val_adl', 'val_subjects_count',
+            'test_windows', 'test_fall', 'test_adl'
+        ]
+
+        # Categorize columns
+        existing_priority = [col for col in priority_cols if col in df.columns]
+        metric_cols = [col for col in df.columns if any(
+            col.startswith(f'{split}_') for split in ['train', 'val', 'test']
+        ) and col not in existing_priority]
+        other_cols = [col for col in df.columns
+                     if col not in existing_priority and col not in metric_cols]
+
+        # Reorder
+        ordered_cols = existing_priority + metric_cols + other_cols
+
+        return df[ordered_cols]
+
+    def save_comprehensive_statistics(self) -> None:
+        """
+        Save comprehensive dataset statistics including class splits, motion filtering,
+        and per-subject breakdowns to a CSV file.
+
+        This method creates a robust CSV export with proper handling of:
+        - Duplicate column prevention
+        - Metric aggregation from multiple sources
+        - Average row calculation
+        - Column ordering for readability
+        """
+        if not self.dataset_statistics or not self.builder:
+            self.print_log("No dataset statistics available for comprehensive CSV export")
+            return
+
+        try:
+            # Build comprehensive rows
+            comprehensive_rows = []
+            for i, fold_stat in enumerate(self.dataset_statistics):
+                row = self._build_metrics_row(fold_stat, i)
+                comprehensive_rows.append(row)
+
+            # Create DataFrame
+            if not comprehensive_rows:
+                self.print_log("No comprehensive statistics to save")
+                return
+
+            df = pd.DataFrame(comprehensive_rows)
+
+            # Verify no duplicate columns exist
+            if df.columns.duplicated().any():
+                duplicate_cols = df.columns[df.columns.duplicated()].tolist()
+                self.print_log(f"Warning: Duplicate columns detected and removed: {duplicate_cols}")
+                # Keep only the last occurrence of each column
+                df = df.loc[:, ~df.columns.duplicated(keep='last')]
+
+            # Reorder columns for readability
+            df = self._reorder_columns(df)
+
+            # Add average row
+            df = self._add_average_row(df)
+
+            # Save to CSV
+            output_path = f'{self.arg.work_dir}/scores_comprehensive.csv'
+            df.to_csv(output_path, index=False)
+            self.print_log(f'Comprehensive statistics saved to: {output_path}')
+
+        except Exception as e:
+            self.print_log(f"Error saving comprehensive statistics: {str(e)}")
+            import traceback
+            self.print_log(traceback.format_exc())
 
     def split_time(self):
         '''
@@ -656,7 +969,21 @@ class Trainer():
 
                 self.best_f1 = float('inf')
                 self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
-            
+
+                # Auto-select optimal validation subjects based on config (if not explicitly overridden)
+                from utils.val_split_selector import get_optimal_validation_subjects, get_validation_split_info
+                optimal_val_subjects = get_optimal_validation_subjects(self.arg.dataset_args)
+
+                # Override default validation subjects with optimal selection
+                # This ensures proper ADL ratios for motion-filtered vs non-filtered experiments
+                if self.arg.validation_subjects == [38, 44]:  # Default value
+                    self.arg.validation_subjects = optimal_val_subjects
+                    self.print_log(f'Auto-selected validation subjects: {optimal_val_subjects}')
+                    self.print_log(f'  → {get_validation_split_info(optimal_val_subjects)}')
+                elif self.arg.validation_subjects != optimal_val_subjects:
+                    self.print_log(f'Using custom validation subjects: {self.arg.validation_subjects}')
+                    self.print_log(f'  (Optimal would be: {optimal_val_subjects})')
+
                 results = self.create_df()
                 # Filter out validation subjects from training/testing subjects
                 available_subjects = [s for s in self.arg.subjects if s not in self.arg.validation_subjects]
@@ -746,6 +1073,9 @@ class Trainer():
                     log_columns = ['fold', 'test_subject', 'phase', 'epoch', 'loss', 'accuracy', 'f1_score', 'precision', 'recall', 'auc']
                     log_df = log_df.reindex(columns=log_columns)
                     log_df.to_csv(f'{self.arg.work_dir}/training_log.csv', index=False)
+
+                # Save comprehensive statistics including class splits and motion filtering
+                self.save_comprehensive_statistics()
     
     def viz_feature(self, teacher_features, student_features, epoch):
         teacher_features = torch.flatten(teacher_features, start_dim=1)

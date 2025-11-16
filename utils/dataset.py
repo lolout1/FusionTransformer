@@ -360,9 +360,13 @@ def split_by_subjects(builder, subjects, fuse, print_validation=False) -> Dict[s
     '''
     builder.make_dataset(subjects, fuse)
 
-    # Print validation summary if requested (typically after first full dataset build)
+    # Compute motion rejection rate after dataset is built
+    builder.compute_motion_rejection_rate()
+
+    # Print validation and skip summaries if requested (typically after first full dataset build)
     if print_validation:
         builder.print_validation_summary()
+        builder.print_skip_summary()
 
     # if len(subjects) == 1 and subjects[0] in [35, 38,39,44, 46]:
     #     builder.random_resampling()

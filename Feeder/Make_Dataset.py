@@ -103,6 +103,26 @@ class UTD_mm(torch.utils.data.Dataset):
             self.inertial_modality = 'imu'  # Combined accelerometer + gyroscope
             self.acc_data = dataset['accelerometer']
             self.gyro_data = dataset['gyroscope']
+
+            # CRITICAL: Validate that acc and gyro have same length
+            # This catches data preprocessing bugs early (before training)
+            if self.acc_data.shape[0] != self.gyro_data.shape[0]:
+                raise ValueError(
+                    f"FATAL: Accelerometer and gyroscope data have mismatched lengths!\n"
+                    f"  Accelerometer: {self.acc_data.shape[0]} samples\n"
+                    f"  Gyroscope:     {self.gyro_data.shape[0]} samples\n"
+                    f"  Difference:    {abs(self.acc_data.shape[0] - self.gyro_data.shape[0])} samples\n"
+                    f"\n"
+                    f"This indicates a data preprocessing error. Possible causes:\n"
+                    f"  1. DTW alignment failed for some trials (check loader.py logs)\n"
+                    f"  2. Old .npz file created with buggy code (regenerate dataset)\n"
+                    f"  3. Trials concatenated before synchronization (check _synchronize_modalities)\n"
+                    f"\n"
+                    f"To fix:\n"
+                    f"  - Enable debug mode: dataset_args.debug = True\n"
+                    f"  - Check skip_stats in loader output\n"
+                    f"  - Regenerate .npz files with fixed loader.py"
+                )
         elif self.has_accelerometer:
             self.inertial_modality = 'accelerometer'
             self.acc_data = dataset['accelerometer']
@@ -119,6 +139,12 @@ class UTD_mm(torch.utils.data.Dataset):
         self.skl_data = dataset['skeleton'] if self.has_skeleton else None
         #self.skl_data = np.random.randn(self.acc_data.shape[0], 32,3)
         self.num_samples = self.acc_data.shape[0]
+
+        # Additional validation: Ensure labels match data length
+        if len(self.labels) != self.num_samples:
+            raise ValueError(
+                f"Labels length ({len(self.labels)}) doesn't match data length ({self.num_samples})"
+            )
         self.acc_seq = self.acc_data.shape[1]
         if self.has_skeleton:
             self.skl_seq, self.skl_length, self.skl_features = self.skl_data.shape
@@ -212,28 +238,42 @@ class UTD_mm(torch.utils.data.Dataset):
             skl_data = torch.tensor(self.skl_data[index, :, :, :])
             data['skeleton'] = skl_data
 
-        # Handle combined accelerometer + gyroscope data
+        # Handle combined accelerometer + gyroscope/orientation data
         if self.inertial_modality == 'imu' and self.gyro_data is not None:
-            gyro_data = torch.tensor(self.gyro_data[index, :, :])
+            gyro_or_orient = torch.tensor(self.gyro_data[index, :, :])
 
-            # Calculate features for accelerometer
-            acc_smv = self.cal_smv(acc_data)
-            # acc_weight = self.calculate_weight(acc_data)
+            # Check if this is raw gyro (3 ch) or orientation (3 ch from fusion)
+            # Both are 3 channels, but we distinguish by adding SMV for orientation
+            # Option 1: Raw gyro -> [ax, ay, az, gx, gy, gz] = 6 channels
+            # Option 2: Orientation -> [SMV, ax, ay, az, roll, pitch, yaw] = 7 channels
 
-            # Calculate features for gyroscope (magnitude)
-            gyro_magnitude = torch.sqrt(torch.sum(gyro_data**2, dim=-1, keepdim=True))
+            # For now, assume if gyro exists, try both paths:
+            # Check if we should add engineered features (SMV)
+            # If gyro_data represents orientation (from sensor fusion), add SMV
+            # If gyro_data is raw gyro, concatenate directly
 
-            # Concatenate: [acc_smv, ax, ay, az, gx, gy, gz, gyro_mag] = 8 channels
-            # For simpler model to avoid overfitting, use: [ax, ay, az, gx, gy, gz] = 6 channels
-            imu_data = torch.cat((acc_data, gyro_data), dim=-1)
+            # Simple heuristic: if gyro values are very large (>50), likely orientation angles
+            # Otherwise, raw gyro (typically < 10 rad/s for wrist motion)
+            max_val = gyro_or_orient.abs().max().item()
+
+            if max_val > 50:  # Likely orientation in degrees
+                # Sensor fusion output: add SMV to acc, then concat orientation
+                watch_smv = self.cal_smv(acc_data)
+                acc_with_smv = torch.cat((watch_smv, acc_data), dim=-1)  # 4 channels
+                imu_data = torch.cat((acc_with_smv, gyro_or_orient), dim=-1)  # 7 channels
+            else:
+                # Raw gyroscope: concatenate acc + gyro
+                imu_data = torch.cat((acc_data, gyro_or_orient), dim=-1)  # 6 channels
+
             data['accelerometer'] = imu_data  # Store as 'accelerometer' for backward compatibility
+
         else:
             # Single modality (accelerometer or gyroscope only)
             watch_smv = self.cal_smv(acc_data)
             watch_weight = self.calculate_weight(acc_data)
             # watch_roll = self.calculate_roll(acc_data)
             # watch_pitch = self.calculate_pitch(acc_data)
-            acc_data = torch.cat((watch_smv, acc_data), dim=-1)
+            acc_data = torch.cat((watch_smv, acc_data), dim=-1)  # 4 channels
             data['accelerometer'] = acc_data
 
         label = self.labels[index]

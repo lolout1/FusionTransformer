@@ -23,16 +23,35 @@ class TransformerEncoderWAttention(nn.TransformerEncoder):
 
 
 class TransModel(nn.Module):
+    """
+    Accelerometer-only Transformer for Activity Recognition
+
+    Optimized for accelerometer + SMV data (4 channels: ax, ay, az, smv)
+    This is the baseline/standard model for comparison
+
+    Args:
+        acc_frames: Number of time steps (default: 128)
+        num_classes: Number of output classes (default: 2 for smartfallmm)
+        num_heads: Number of attention heads (default: 4 per config)
+        num_layer: Number of transformer layers (default: 2 per config)
+        embed_dim: Embedding dimension (default: 64 per config)
+        dropout: Dropout rate (default: 0.5 for regularization)
+        activation: Activation function (default: 'relu')
+        norm_first: Whether to apply normalization first (default: True)
+    """
     def __init__(self,
                 mocap_frames = 128,
                 num_joints = 32,
                 acc_frames = 128,
-                num_classes:int = 8, 
-                num_heads = 2, 
-                acc_coords = 3, 
+                num_classes:int = 2,  # Default from config/smartfallmm/transformer.yaml
+                num_heads = 4,         # Standard from config
+                acc_coords = 3,
                 av = False,
-                num_layer = 2, norm_first = True, 
-                embed_dim= 16, activation = 'relu',
+                num_layer = 2,
+                norm_first = True,
+                embed_dim = 64,        # Standard from config
+                dropout = 0.5,
+                activation = 'relu',
                 **kwargs) :
         super().__init__()
 
@@ -45,20 +64,41 @@ class TransModel(nn.Module):
         self.data_shape = (acc_frames, acc_coords)
         self.length = self.data_shape[0]
         size = self.data_shape[1]
-        self.input_proj = nn.Sequential(nn.Conv1d(4, embed_dim, kernel_size=8, stride=1, padding='same'), 
-                                        nn.BatchNorm1d(embed_dim))
 
+        # Input projection with standardized dropout
+        # Input: 4 channels (ax, ay, az, smv)
+        self.input_proj = nn.Sequential(
+            nn.Conv1d(4, embed_dim, kernel_size=8, stride=1, padding='same'),
+            nn.BatchNorm1d(embed_dim),
+            nn.Dropout(dropout * 0.5)  # Light dropout on input
+        )
 
+        # Transformer encoder with standardized dropout
+        self.encoder_layer = TransformerEncoderLayer(
+            d_model = embed_dim,
+            activation = activation,
+            dim_feedforward = embed_dim*2,
+            nhead = num_heads,
+            dropout = dropout,
+            norm_first = norm_first,
+            batch_first = False
+        )
 
-        #dropout = 0.3 best
-        self.encoder_layer = TransformerEncoderLayer(d_model = embed_dim,  activation = activation, 
-                                                     dim_feedforward =embed_dim*2, nhead = num_heads,dropout=0.5)
-        
-        self.encoder = TransformerEncoderWAttention(encoder_layer = self.encoder_layer, num_layers = num_layer, 
-                                          norm=nn.LayerNorm(embed_dim))
+        self.encoder = TransformerEncoderWAttention(
+            encoder_layer = self.encoder_layer,
+            num_layers = num_layer,
+            norm = nn.LayerNorm(embed_dim)
+        )
 
-        self.output = nn.Linear(embed_dim, num_classes)
+        # Output layers with dropout
         self.temporal_norm = nn.LayerNorm(embed_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.output = nn.Linear(embed_dim, num_classes)
+
+        # Initialize output layer with small weights
+        nn.init.normal_(self.output.weight, 0, math.sqrt(2. / num_classes))
+        if self.output.bias is not None:
+            nn.init.constant_(self.output.bias, 0)
         # self.ln1 = nn.Conv1d(64,32, kernel_size=3, stride=1, padding = 1)
         # self.bn1 = nn.BatchNorm1d(32)
         # self.drop1 = nn.Dropout(p = 0.5)
@@ -81,32 +121,62 @@ class TransModel(nn.Module):
              for param in layer.parameters():
                   param.requires_grad = True
 
-    def forward(self, acc_data, skl_data, **kwargs):
+    def forward(self, acc_data, skl_data=None, **kwargs):
+        """
+        Forward pass
+
+        Args:
+            acc_data: Accelerometer data tensor of shape (batch, time, channels)
+                      Expected: (B, 128, 4) where channels = [ax, ay, az, smv]
+            skl_data: Skeleton data (not used, for compatibility)
+
+        Returns:
+            logits: Output predictions (B, num_classes)
+            features: Intermediate features (B, time, embed_dim) for distillation
+        """
         epochs = kwargs.get('epoch')
-        # if isinstance(epochs,int) and ( epochs+1) % 25 == 0: 
+        # if isinstance(epochs,int) and ( epochs+1) % 25 == 0:
         #       self.unfreeze_pretrained(epochs)
         # b, l, c = acc_data.shape
         # x = rearrange(acc_data, 'b l c -> b c l')
         # x = self.embeding_model(acc_data)
-       
-        
-        ###### for transformer ############
-        x = rearrange(acc_data, 'b l c -> b c l')
-        x = self.input_proj(x) # [ 8, 64, 3]
-        x = rearrange(x, 'b c l -> l b c ')
-        x = self.encoder(x)
-        x = rearrange(x ,'l b c -> b l c')
 
+
+        # Input shape: (batch, time, channels)
+        # Rearrange to (batch, channels, time) for Conv1d
+        x = rearrange(acc_data, 'b l c -> b c l')
+
+        # Project to embedding space: (B, embed_dim, time)
+        x = self.input_proj(x)
+
+        # Rearrange for transformer: (time, batch, embed_dim)
+        x = rearrange(x, 'b c l -> l b c')
+
+        # Transformer encoding
+        x = self.encoder(x)
+
+        # Rearrange back: (batch, time, embed_dim)
+        x = rearrange(x, 'l b c -> b l c')
+
+        # Normalize features
         x = self.temporal_norm(x)
-        #feature = rearrange(x, 'b l c -> b c l' )
-        feature = x
-        # feature = F.avg_pool1d(feature, kernel_size=feature.shape[-1], stride=1)
-        # feature = torch.flatten(feature, 1)
+
+        # Store features for knowledge distillation
+        features = x
+
+        # Global average pooling over time dimension
+        # (batch, time, embed_dim) -> (batch, embed_dim)
         x = rearrange(x, 'b f c -> b c f')
-        x = F.avg_pool1d(x, kernel_size=x.shape[-1], stride = 1)
+        x = F.avg_pool1d(x, kernel_size=x.shape[-1], stride=1)
         x = rearrange(x, 'b c f -> b (c f)')
-        x = self.output(x)
-        return x , feature
+
+        # Apply dropout before final layer
+        x = self.dropout(x)
+
+        # Final classification
+        logits = self.output(x)
+
+        return logits, features
 
 if __name__ == "__main__":
         data = torch.randn(size = (16,128,4))
