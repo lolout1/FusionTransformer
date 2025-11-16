@@ -1,8 +1,8 @@
-# IMU Student Model Configuration
-# Combined Accelerometer + Gyroscope for Fall Detection
-# Optimized for young participants with limited data to minimize overfitting
+# Option 1: Shared-Weight Dual Stream IMU Configuration
+# Minimal parameters through weight sharing between acc and gyro streams
+# Optimal for preventing overfitting with limited data
 
-model: Models.imu_transformer.IMUTransformer
+model: Models.imu_dual_stream_shared.DualStreamSharedIMU
 dataset: smartfallmm
 
 # Subjects for fall detection (young participants only)
@@ -13,9 +13,9 @@ subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,
 validation_subjects: [56]
 
 model_args:
-  num_layers: 2          # Keep shallow to prevent overfitting
+  num_layers: 1          # Single layer to prevent overfitting
   norm_first: True
-  embed_dim: 32          # Small embedding dimension
+  embed_dim: 16          # Very small embedding (shared between streams)
   activation: relu
   imu_channels: 6        # 6 channels: ax, ay, az, gx, gy, gz
   acc_coords: 6          # Alias for backward compatibility
@@ -24,7 +24,7 @@ model_args:
   acc_frames: 128        # Alias for backward compatibility
   mocap_frames: 128      # For compatibility with multimodal code
   num_heads: 2           # Small number of attention heads
-  dropout: 0.6           # Increased dropout for better regularization (was 0.5)
+  dropout: 0.65          # High dropout for strong regularization
 
 dataset_args:
   mode: 'sliding_window'
@@ -70,8 +70,7 @@ base_lr: 1e-3          # Learning rate
 weight_decay: 1e-3     # Increased weight decay for better regularization (was 5e-4)
 
 # Notes:
-# - This configuration uses both accelerometer and gyroscope data
-# - Model is kept lightweight to prevent overfitting with limited data
-# - Filtering is enabled by default to reduce noise
-# - Only young participants are used for training
-# - Suitable for real-time inference on Android with 128-sample sliding window
+# - Shared-weight architecture minimizes parameters (~15K vs 110K baseline)
+# - Weight sharing between acc and gyro provides natural regularization
+# - Suitable for limited training data (30 subjects)
+# - Real-time inference friendly on Android devices

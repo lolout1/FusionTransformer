@@ -1,8 +1,8 @@
-# IMU Student Model Configuration
-# Combined Accelerometer + Gyroscope for Fall Detection
-# Optimized for young participants with limited data to minimize overfitting
+# Option 2: Lightweight Independent Dual Stream IMU Configuration
+# Separate but ultra-small encoders for acc and gyro
+# Captures modality-specific patterns while minimizing parameters
 
-model: Models.imu_transformer.IMUTransformer
+model: Models.imu_dual_stream_light.DualStreamLightIMU
 dataset: smartfallmm
 
 # Subjects for fall detection (young participants only)
@@ -13,9 +13,10 @@ subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,
 validation_subjects: [56]
 
 model_args:
-  num_layers: 2          # Keep shallow to prevent overfitting
+  num_layers: 1          # Single layer per stream to prevent overfitting
   norm_first: True
-  embed_dim: 32          # Small embedding dimension
+  stream_dim: 8          # Very small embedding per stream (8d acc + 8d gyro = 16d total)
+  embed_dim: 8           # Alias for stream_dim
   activation: relu
   imu_channels: 6        # 6 channels: ax, ay, az, gx, gy, gz
   acc_coords: 6          # Alias for backward compatibility
@@ -24,7 +25,7 @@ model_args:
   acc_frames: 128        # Alias for backward compatibility
   mocap_frames: 128      # For compatibility with multimodal code
   num_heads: 2           # Small number of attention heads
-  dropout: 0.6           # Increased dropout for better regularization (was 0.5)
+  dropout: 0.65          # High dropout for strong regularization
 
 dataset_args:
   mode: 'sliding_window'
@@ -70,8 +71,8 @@ base_lr: 1e-3          # Learning rate
 weight_decay: 1e-3     # Increased weight decay for better regularization (was 5e-4)
 
 # Notes:
-# - This configuration uses both accelerometer and gyroscope data
-# - Model is kept lightweight to prevent overfitting with limited data
-# - Filtering is enabled by default to reduce noise
-# - Only young participants are used for training
-# - Suitable for real-time inference on Android with 128-sample sliding window
+# - Independent streams learn modality-specific representations
+# - Each stream is very small (8 dimensions) to prevent overfitting
+# - More parameters than shared version but still lightweight (~25K params)
+# - Better interpretability: can analyze acc vs gyro contributions
+# - Suitable for real-time inference on Android devices

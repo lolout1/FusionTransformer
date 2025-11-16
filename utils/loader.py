@@ -286,12 +286,16 @@ class DatasetBuilder:
         self.task = task
         self.fuse = None
         self.diff = []
-        # Add configurable filtering option
+        # Add configurable preprocessing flags
         self.enable_filtering = kwargs.get('enable_filtering', True)
+        self.enable_normalization = kwargs.get('enable_normalization', True)
         self.filter_cutoff = kwargs.get('filter_cutoff', 5.5)
         self.filter_fs = kwargs.get('filter_fs', 25)
         self.use_skeleton = kwargs.get('use_skeleton', True)
         self.align_with_skeleton = kwargs.get('enable_skeleton_alignment', self.use_skeleton)
+        # Track modality validation per subject
+        self.subject_modality_stats = defaultdict(lambda: {'accelerometer': 0, 'gyroscope': 0, 'skeleton': 0, 'total_trials': 0, 'valid_trials': 0})
+        self.required_modalities = kwargs.get('required_modalities', [])
 
     def _get_reference_key(self, data: Dict[str, np.ndarray]) -> str:
         if self.use_skeleton and 'skeleton' in data:
@@ -303,6 +307,25 @@ class DatasetBuilder:
             if key != 'labels':
                 return key
         raise ValueError('No valid modality found for sliding window')
+
+    def _validate_required_modalities(self, trial_data: Dict[str, np.ndarray], subject_id: str, trial_id: str) -> bool:
+        """
+        Validate that all required modalities are present in trial_data.
+        Returns True if valid, False if missing required modalities.
+        """
+        if not self.required_modalities:
+            return True  # No validation required
+
+        missing_modalities = []
+        for modality in self.required_modalities:
+            if modality not in trial_data or trial_data[modality] is None:
+                missing_modalities.append(modality)
+
+        if missing_modalities:
+            print(f"[Validation] Subject {subject_id} trial {trial_id}: Missing required modalities {missing_modalities} - SKIPPING")
+            return False
+
+        return True
 
     def _synchronize_modalities(self, trial_data: Dict[str, np.ndarray]) -> int:
         """Trim all modalities to the minimum available length."""
@@ -326,6 +349,16 @@ class DatasetBuilder:
         #self.set_input_shape(data)
         return data
     
+    def _maybe_filter(self, modality: str, data: np.ndarray) -> np.ndarray:
+        """
+        Optionally apply Butterworth filtering to inertial signals.
+        """
+        if not self.enable_filtering:
+            return data
+        if modality not in ('accelerometer', 'gyroscope'):
+            return data
+        return butterworth_filter(data, cutoff=self.filter_cutoff, fs=self.filter_fs)
+
 
     def _import_loader(self, file_path:str) -> np.array :
         '''
@@ -450,9 +483,7 @@ class DatasetBuilder:
                     try:
                         executed  = True
                         unimodal_data = self.load_file(file_path)
-                        # Apply configurable Butterworth filtering to inertial data
-                        if modality in ['accelerometer' , 'gyroscope'] and self.enable_filtering:
-                            unimodal_data = butterworth_filter(unimodal_data, cutoff=self.filter_cutoff, fs=self.filter_fs)
+                        unimodal_data = self._maybe_filter(modality, unimodal_data)
                         trial_data[modality] = unimodal_data
                         if modality in ['accelerometer', 'gyroscope'] and unimodal_data.shape[0]>250:
                             trial_data[modality] = self.select_subwindow_pandas(unimodal_data)                            
@@ -465,7 +496,19 @@ class DatasetBuilder:
                 # trial_difference = self.get_size_diff(trial_data)
                 # self.store_trial_diff(trial_difference)
                 
-                if executed : 
+                if executed :
+                    # Track which modalities were loaded for this subject
+                    subject_id = str(trial.subject_id)
+                    trial_id = str(trial.trial_id) if hasattr(trial, 'trial_id') else 'unknown'
+                    self.subject_modality_stats[subject_id]['total_trials'] += 1
+                    for modality in trial_data.keys():
+                        if modality in self.subject_modality_stats[subject_id]:
+                            self.subject_modality_stats[subject_id][modality] += 1
+
+                    # Validate required modalities are present
+                    if not self._validate_required_modalities(trial_data, subject_id, trial_id):
+                        continue  # Skip this trial if validation fails
+
                     if self.align_with_skeleton and 'skeleton' in trial_data:
                         trial_data = align_sequence(trial_data)
                         # os.remove(file_path)
@@ -482,6 +525,7 @@ class DatasetBuilder:
                     #print(trial_data['skeleton'][0].shape)
                     if self._len_check(trial_data):
                         self._add_trial_data(trial_data)
+                        self.subject_modality_stats[subject_id]['valid_trials'] += 1
                 # for modality, file_path in trial_data.files.items():
                 #     window_stack = self.process(trial_data[modality])
                 #     if len(window_stack) != 0 : 
@@ -530,11 +574,63 @@ class DatasetBuilder:
         '''
         Function to normalize  the data
         '''
+        if not self.enable_normalization:
+            return self.data
 
-        for key ,value  in self.data.items():        
+        for key ,value  in self.data.items():
             if key != 'labels':
                 num_samples, length = value.shape[:2]
                 norm_data = StandardScaler().fit_transform(value.reshape(num_samples*length, -1))
                 self.data[key] = norm_data.reshape(num_samples, length, -1)
         return self.data
+
+    def get_validation_report(self) -> Dict[str, Dict]:
+        """
+        Get validation report showing modality completeness per subject.
+
+        Returns:
+            Dictionary with subject validation statistics
+        """
+        return dict(self.subject_modality_stats)
+
+    def print_validation_summary(self) -> None:
+        """
+        Print a summary of modality validation results.
+        """
+        if not self.subject_modality_stats:
+            print("[Validation] No validation statistics available")
+            return
+
+        print("\n" + "=" * 70)
+        print("DATA VALIDATION SUMMARY")
+        print("=" * 70)
+
+        total_subjects = len(self.subject_modality_stats)
+        subjects_with_all_modalities = 0
+        excluded_subjects = []
+
+        for subject_id, stats in sorted(self.subject_modality_stats.items()):
+            has_all_required = True
+            if self.required_modalities:
+                for modality in self.required_modalities:
+                    if stats[modality] == 0:
+                        has_all_required = False
+                        break
+
+            if has_all_required and stats['valid_trials'] > 0:
+                subjects_with_all_modalities += 1
+            else:
+                excluded_subjects.append(subject_id)
+
+        print(f"Total subjects processed: {total_subjects}")
+        print(f"Subjects with all required modalities: {subjects_with_all_modalities}")
+        print(f"Subjects excluded (missing modalities): {len(excluded_subjects)}")
+
+        if excluded_subjects:
+            print(f"\nExcluded subjects: {', '.join(excluded_subjects)}")
+
+        if self.required_modalities:
+            print(f"\nRequired modalities: {', '.join(self.required_modalities)}")
+
+        print("=" * 70 + "\n")
     

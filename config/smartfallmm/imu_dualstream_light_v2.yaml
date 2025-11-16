@@ -1,0 +1,76 @@
+# Option 2 V2: Improved Lightweight Independent Dual Stream IMU Configuration
+# INCREASED CAPACITY: ~15-18K params (vs 1.5K in V1)
+# Addresses underfitting by increasing stream_dim and num_layers
+
+model: Models.imu_dual_stream_light.DualStreamLightIMU
+dataset: smartfallmm
+
+# Subjects for fall detection (young participants only)
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+
+# Validation subjects
+validation_subjects: [56]
+
+model_args:
+  num_layers: 2          # INCREASED from 1 → 2 per stream
+  norm_first: True
+  stream_dim: 16         # INCREASED from 8 → 16 per stream (32d total)
+  embed_dim: 16          # Alias for stream_dim
+  activation: relu
+  imu_channels: 6        # 6 channels: ax, ay, az, gx, gy, gz
+  acc_coords: 6          # Alias for backward compatibility
+  num_classes: 1         # Binary fall detection
+  imu_frames: 128        # Window size
+  acc_frames: 128        # Alias for backward compatibility
+  mocap_frames: 128      # For compatibility
+  num_heads: 4           # INCREASED from 2 → 4 for richer attention
+  dropout: 0.6           # REDUCED from 0.65
+
+dataset_args:
+  mode: 'sliding_window'
+  max_length: 128
+  task: 'fd'
+  modalities: ['skeleton', 'accelerometer', 'gyroscope']
+  age_group: ['young']
+  sensors: ['watch']
+  use_skeleton: False
+  enable_filtering: False
+  filter_cutoff: 5.5
+  filter_fs: 25
+  enable_normalization: False
+
+# Training configuration
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 120          # INCREASED from 80
+
+# Dataloader
+feeder: Feeder.Make_Dataset.UTD_mm
+
+# Feeder arguments
+train_feeder_args:
+  batch_size: 64
+
+val_feeder_args:
+  batch_size: 64
+
+test_feeder_args:
+  batch_size: 64
+
+# Random seed
+seed: 2
+
+# Optimizer configuration
+optimizer: adamw
+base_lr: 1e-3
+weight_decay: 1e-3
+
+# Notes:
+# V2 IMPROVEMENTS:
+# - 2x larger streams (8→16 per stream)
+# - 2x more transformer layers per stream (1→2)
+# - 2x more attention heads (2→4)
+# - Expected params: ~15-18K (vs 1.5K in V1, ~60% of baseline)
+# - Independent streams maintain modality-specific learning
+# - Should achieve much better performance than V1

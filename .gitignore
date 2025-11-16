@@ -10,5 +10,6 @@ exps/
 *.md
 *.out
 .vscoode
-
+work_dir/
+work_dir/*
 SmartFallMM-Dataset/

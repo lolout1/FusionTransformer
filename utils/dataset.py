@@ -341,6 +341,11 @@ def prepare_smartfallmm(arg )  -> DatasetBuilder:
         modalities = [modality for modality in modalities if modality != 'skeleton']
     dataset_args['modalities'] = modalities
 
+    # Set required modalities for validation (exclude skeleton if not used)
+    # This ensures subjects have both accelerometer AND gyroscope if both are requested
+    required_modalities = [m for m in modalities if m != 'skeleton'] if not use_skeleton else modalities
+    dataset_args['required_modalities'] = required_modalities
+
     sm_dataset = SmartFallMM(root_dir=os.path.join(os.getcwd(), 'data'))
     sm_dataset.pipe_line(age_group=dataset_args['age_group'], \
                         modalities=modalities, \
@@ -349,13 +354,17 @@ def prepare_smartfallmm(arg )  -> DatasetBuilder:
     builder = DatasetBuilder(sm_dataset, **dataset_args)
     return builder
 
-def split_by_subjects(builder, subjects, fuse) -> Dict[str, np.ndarray]:
+def split_by_subjects(builder, subjects, fuse, print_validation=False) -> Dict[str, np.ndarray]:
     '''
     Function to Filter out expects subjects
     '''
     builder.make_dataset(subjects, fuse)
 
-    # if len(subjects) == 1 and subjects[0] in [35, 38,39,44, 46]: 
+    # Print validation summary if requested (typically after first full dataset build)
+    if print_validation:
+        builder.print_validation_summary()
+
+    # if len(subjects) == 1 and subjects[0] in [35, 38,39,44, 46]:
     #     builder.random_resampling()
     norm_data = builder.normalization()
     #norm_data = builder.data

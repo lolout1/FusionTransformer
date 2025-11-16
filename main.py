@@ -28,10 +28,12 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, precision_score, recall_score, roc_auc_score
 
-#local import 
+#local import
 from utils.dataset import prepare_smartfallmm, split_by_subjects
 from utils.callbacks import EarlyStopping
 from utils.loss import BinaryFocalLoss
+from utils.metrics_report import (save_enhanced_results, generate_text_report,
+                                  create_scores_csv_compatible)
 
 def get_args():
     '''
@@ -373,7 +375,7 @@ class Trainer():
             # dataset class for futher processing
             builder = prepare_smartfallmm(self.arg)
 
-            self.norm_train = split_by_subjects(builder, self.train_subjects, self.fuse)
+            self.norm_train = split_by_subjects(builder, self.train_subjects, self.fuse, print_validation=True)
             self.norm_val = split_by_subjects(builder , self.val_subject, self.fuse)
 
             if self.has_empty_value(list(self.norm_val.values())):
@@ -726,6 +728,19 @@ class Trainer():
                 if not results.empty:
                     results = self.add_avg_df(results)
                     results.to_csv(f'{self.arg.work_dir}/scores.csv', index=False)
+
+                    # Enhanced reporting: Save detailed per-fold analysis
+                    if self.fold_metrics:
+                        model_name = self.arg.model.split('.')[-1] if '.' in self.arg.model else self.arg.model
+                        save_enhanced_results(
+                            fold_metrics=self.fold_metrics,
+                            output_dir=self.arg.work_dir,
+                            model_name=model_name
+                        )
+                        # Print summary to console
+                        summary_text = generate_text_report(self.fold_metrics, model_name)
+                        self.print_log("\n" + summary_text)
+
                 if self.epoch_logs:
                     log_df = pd.DataFrame(self.epoch_logs)
                     log_columns = ['fold', 'test_subject', 'phase', 'epoch', 'loss', 'accuracy', 'f1_score', 'precision', 'recall', 'auc']
