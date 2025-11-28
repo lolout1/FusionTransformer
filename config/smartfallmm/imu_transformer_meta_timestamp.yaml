@@ -1,0 +1,108 @@
+# IMUTransformer: Acc+Gyro with META_WRIST Sensors + TIMESTAMP ALIGNMENT
+# *** KEY TEST: Timestamp-based alignment to recover 8 failed subjects ***
+#
+# Previous result (DTW): 20/28 subjects (8 subjects failed due to acc-gyro length mismatches)
+# Expected result (timestamp): 28/28 subjects (all recovered via timestamp matching!)
+#
+# This config enables timestamp-based alignment which solves the problem where:
+# - Meta_wrist acc samples at 25Hz, gyro at 32Hz (not the claimed 50Hz)
+# - Gyro continues recording after acc stops (e.g., 117s vs 75s)
+# - Sample count differences range from 12 to 2040 samples
+#
+# Timestamp alignment matches samples by their epoch_ms timestamps (±20ms tolerance)
+# instead of by sample index, recovering 100% of accelerometer data.
+
+model: Models.imu_transformer.IMUTransformer
+dataset: smartfallmm
+
+# Leave-One-Subject-Out (LOSO) setup
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [48, 57]
+
+model_args:
+  # Auto-tuned for 6-channel input (acc + gyro, no SMV)
+  imu_channels: 6
+  acc_coords: 6
+  num_classes: 1
+  imu_frames: 128
+  acc_frames: 128
+  mocap_frames: 128
+  dropout: 0.3
+  auto_tune: True  # Auto-select: num_heads=4, num_layers=2, embed_dim=64
+
+dataset_args:
+  mode: 'sliding_window'
+  max_length: 128
+  task: 'fd'
+  modalities: ['accelerometer', 'gyroscope']
+  age_group: ['young']
+  sensors: ['meta_wrist']  # *** Using meta_wrist for BOTH acc and gyro ***
+  use_skeleton: False
+
+  # Filtering DISABLED
+  enable_filtering: False
+  acc_filter_cutoff: 5.5
+  acc_filter_type: 'low'
+  gyro_filter_cutoff: 0.5
+  gyro_filter_type: 'high'
+  filter_fs: 25  # Meta sensors: actual sampling varies (25-32Hz, not 50Hz)
+  filter_order: 4
+  enable_normalization: False
+
+  # Gyro-acc alignment configuration
+  discard_mismatched_modalities: False
+  length_sensitive_modalities: ['accelerometer', 'gyroscope']
+
+  # *** DISABLED: DTW alignment (replaced by timestamp alignment) ***
+  enable_gyro_alignment: False  # DTW would skip trials with diff >= 10
+
+  # *** ENABLED: Timestamp-based alignment (NEW!) ***
+  enable_timestamp_alignment: True  # Match by epoch_ms timestamps
+  timestamp_tolerance_ms: 20.0      # ±20ms = 1 sample at nominal 50Hz
+
+  # Motion filtering DISABLED
+  enable_motion_filtering: False
+  motion_threshold: 10.0
+  motion_min_axes: 2
+
+  # Class-aware stride ENABLED
+  enable_class_aware_stride: True
+  fall_stride: 10  # FIXED: Smaller stride = MORE fall windows (minority class)
+  adl_stride: 32   # FIXED: Larger stride = FEWER ADL windows (majority class)
+
+  # Stride synchronization ENABLED
+  enable_stride_sync: True
+  stride_sync_low_fall_threshold: 15
+  stride_sync_low_fall_stride: 10
+  stride_sync_imbalanced_ratio: 3.0
+  stride_sync_imbalanced_stride: 16
+
+# Training configuration
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+# DataLoader
+feeder: Feeder.Make_Dataset.UTD_mm
+
+train_feeder_args:
+  batch_size: 64
+
+val_feeder_args:
+  batch_size: 64
+
+test_feeder_args:
+  batch_size: 64
+
+# Reproducibility + Optimizer
+seed: 2
+optimizer: adamw
+base_lr: 1e-3
+weight_decay: 1e-3
+
+# Expected outcomes:
+# - Subjects 29, 30, 31, 34, 37, 38, 39 should NOW complete (previously failed)
+# - Total: 28/28 subjects (vs previous 20/28)
+# - All trials with acc-gyro mismatches will be aligned by timestamp
+# - Analysis showed 100% match rate with ±20ms tolerance for subject 29

@@ -1,0 +1,86 @@
+# TransModel: Accelerometer-only with META_WRIST Sensors
+# Timestamp Alignment Test - Baseline (acc-only doesn't need timestamp alignment)
+#
+# This config tests meta_wrist accelerometer data as a baseline.
+# Should get 28/28 subjects (same as before) since no gyro alignment needed.
+
+model: Models.transformer.TransModel
+dataset: smartfallmm
+
+# Leave-One-Subject-Out (LOSO) setup
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [48, 57]
+
+model_args:
+  num_heads: 4
+  num_layer: 2
+  norm_first: True
+  embed_dim: 64
+  activation: relu
+  num_classes: 1
+  acc_frames: 128
+  dropout: 0.3
+
+dataset_args:
+  mode: 'sliding_window'
+  max_length: 128
+  task: 'fd'
+  modalities: ['accelerometer']
+  age_group: ['young']
+  sensors: ['meta_wrist']
+  use_skeleton: False
+
+  # Filtering DISABLED
+  enable_filtering: False
+  filter_cutoff: 5.5
+  filter_fs: 25  # Meta sensors: actual sampling varies (25-32Hz)
+  enable_normalization: False
+
+  # Motion filtering DISABLED
+  enable_motion_filtering: False
+  motion_threshold: 10.0
+  motion_min_axes: 2
+
+  # Class-aware stride ENABLED
+  enable_class_aware_stride: True
+  fall_stride: 10  # FIXED: Smaller stride = MORE fall windows (minority class)
+  adl_stride: 32   # FIXED: Larger stride = FEWER ADL windows (majority class)
+
+  # Stride synchronization ENABLED
+  enable_stride_sync: True
+  stride_sync_low_fall_threshold: 15
+  stride_sync_low_fall_stride: 10
+  stride_sync_imbalanced_ratio: 3.0
+  stride_sync_imbalanced_stride: 16
+
+  # Gyro alignment NOT NEEDED (acc-only model)
+  enable_gyro_alignment: False
+
+  # Timestamp alignment NOT NEEDED (acc-only model)
+  enable_timestamp_alignment: False
+
+# Training configuration
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+# DataLoader
+feeder: Feeder.Make_Dataset.UTD_mm
+
+train_feeder_args:
+  batch_size: 64
+
+val_feeder_args:
+  batch_size: 64
+
+test_feeder_args:
+  batch_size: 64
+
+# Reproducibility + Optimizer
+seed: 2
+optimizer: adamw
+base_lr: 1e-3
+weight_decay: 1e-3
+
+# Expected result: 28/28 subjects (baseline - no gyro issues)

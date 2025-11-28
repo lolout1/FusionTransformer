@@ -382,7 +382,19 @@ def butterworth_filter(data, cutoff, fs, order=4, filter_type='low'):
     nyquist = 0.5 * fs  # Nyquist frequency
     normal_cutoff = cutoff / nyquist  # Normalized cutoff frequency
     b, a = butter(order, normal_cutoff, btype=filter_type, analog=False)
-    return filtfilt(b, a, data, axis=0) 
+    return filtfilt(b, a, data, axis=0)
+
+def convert_gyro_to_radians(data: np.ndarray) -> np.ndarray:
+    """
+    Convert gyroscope data from deg/s to rad/s.
+
+    Args:
+        data: Gyroscope data in deg/s (N, 3) or (N, 4) with magnitude
+
+    Returns:
+        Gyroscope data in rad/s
+    """
+    return data * (np.pi / 180.0) 
 
 class DatasetBuilder:
     '''
@@ -506,6 +518,13 @@ class DatasetBuilder:
 
         # Debug mode control
         self.debug = kwargs.get('debug', False)
+
+        # Gyroscope unit conversion (deg/s -> rad/s)
+        self.convert_gyro_to_rad = kwargs.get('convert_gyro_to_rad', False)
+
+        # Skip file logging
+        self.log_skipped_files = kwargs.get('log_skipped_files', False)
+        self.skipped_files = []
 
     def _get_reference_key(self, data: Dict[str, np.ndarray]) -> str:
         if self.use_skeleton and 'skeleton' in data:
@@ -824,6 +843,11 @@ class DatasetBuilder:
                         executed  = True
                         unimodal_data = self.load_file(file_path)
                         unimodal_data = self._maybe_filter(modality, unimodal_data)
+
+                        # Convert gyroscope from deg/s to rad/s if enabled
+                        if modality == 'gyroscope' and self.convert_gyro_to_rad:
+                            unimodal_data = convert_gyro_to_radians(unimodal_data)
+
                         trial_data[modality] = unimodal_data
                         if modality in ['accelerometer', 'gyroscope'] and unimodal_data.shape[0]>250:
                             trial_data[modality] = self.select_subwindow_pandas(unimodal_data)                            
@@ -846,6 +870,16 @@ class DatasetBuilder:
 
                     # Validate required modalities are present
                     if not self._validate_required_modalities(trial_data, subject_id, trial_id):
+                        # Log skipped file
+                        if self.log_skipped_files:
+                            file_paths = [f for f in trial.files.values()]
+                            self.skipped_files.append({
+                                'subject': subject_id,
+                                'action': action_id,
+                                'trial': trial_id,
+                                'reason': 'missing_required_modality',
+                                'files': file_paths
+                            })
                         continue  # Skip this trial if validation fails
 
                     if self.align_with_skeleton and 'skeleton' in trial_data:
@@ -867,6 +901,19 @@ class DatasetBuilder:
                                 if self.debug:
                                     print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
                                           f"Length mismatch without DTW (acc={acc_len}, gyro={gyro_len}, diff={length_diff})")
+                                # Log skipped file
+                                if self.log_skipped_files:
+                                    file_paths = [f for f in trial.files.values()]
+                                    self.skipped_files.append({
+                                        'subject': subject_id,
+                                        'action': action_id,
+                                        'trial': trial_id,
+                                        'reason': 'gyroscope_length_mismatch',
+                                        'acc_len': acc_len,
+                                        'gyro_len': gyro_len,
+                                        'diff': length_diff,
+                                        'files': file_paths
+                                    })
                                 self.skip_stats['skipped_length_mismatch'] += 1
                                 self.subject_modality_stats[subject_id]['skipped_length_mismatch'] += 1
                                 continue

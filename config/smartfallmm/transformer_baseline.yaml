@@ -1,0 +1,53 @@
+model: Models.transformer.TransModel
+dataset: smartfallmm
+
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [38, 44]
+
+model_args:
+  acc_frames: 128
+  acc_coords: 4
+  num_classes: 1
+  num_heads: 4
+  num_layer: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: relu
+  norm_first: True
+
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  modalities: [accelerometer]
+  age_group: [young]
+  sensors: [watch]
+  stride: 32
+  use_skeleton: False
+
+  # All preprocessing disabled for baseline comparison
+  enable_filtering: False
+  enable_normalization: False
+  enable_motion_filtering: False
+  enable_class_aware_stride: False
+
+  # Gyro conversion (not used for acc-only but kept for consistency)
+  convert_gyro_to_rad: True
+
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.Make_Dataset.UTD_mm
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

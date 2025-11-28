@@ -66,7 +66,7 @@ def get_args():
     parser.add_argument('--model' ,default= None, help = 'Name of Model to load')
 
     #model args
-    parser.add_argument('--device', nargs='+', default=[0], type = int)
+    parser.add_argument('--device', nargs='+', default=[0], type=device_type)
 
     parser.add_argument('--model-args', default= str, help = 'A dictionary for model args')
     parser.add_argument('--weights', type = str, help = 'Location of weight file')
@@ -118,6 +118,17 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Unsupported value encountered.')
+
+def device_type(v):
+    '''
+    Parse device argument: accepts integer GPU ID or "cpu"
+    '''
+    if v.lower() == 'cpu':
+        return 'cpu'
+    try:
+        return int(v)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f'Device must be "cpu" or an integer GPU ID, got: {v}')
     
 def init_seed(seed):
     '''
@@ -262,11 +273,18 @@ class Trainer():
         print(f'{desc_path}/{src_path.rpartition("/")[-1]}') 
         shutil.copy(src_path, f'{desc_path}/{src_path.rpartition("/")[-1]}')
     
+    def _get_device_str(self):
+        '''Returns the device string for tensor allocation'''
+        if self.output_device == 'cpu':
+            return 'cpu'
+        if torch.cuda.is_available():
+            return f'cuda:{self.output_device}'
+        return 'cpu'
+
     def cal_weights(self):
         label_count = Counter(self.norm_train['labels'])
         self.pos_weights = torch.Tensor([label_count[0] / label_count[1]])
-        self.pos_weights = self.pos_weights.to(f'cuda:{self.output_device}' 
-                            if torch.cuda.is_available() else 'cpu')
+        self.pos_weights = self.pos_weights.to(self._get_device_str())
 
     def count_parameters(self, model):
         '''
@@ -390,12 +408,16 @@ class Trainer():
         Function to load model
         '''
         use_cuda = torch.cuda.is_available()
-        self.output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
+        raw_device = self.arg.device[0] if isinstance(self.arg.device, list) else self.arg.device
 
-        # Determine device
-        if use_cuda:
+        if raw_device == 'cpu':
+            self.output_device = 'cpu'
+            device = 'cpu'
+        elif use_cuda:
+            self.output_device = raw_device
             device = f'cuda:{self.output_device}'
         else:
+            self.output_device = 'cpu'
             device = 'cpu'
 
         Model = import_class(model)
@@ -845,14 +867,15 @@ class Trainer():
 
         process = tqdm(loader, ncols = 80)
 
+        device_str = self._get_device_str()
         for batch_idx, (inputs, targets, idx) in enumerate(process):
             with torch.no_grad():
                 acc_key = self._get_inertial_key(inputs)
-                acc_data = inputs[acc_key].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                acc_data = inputs[acc_key].to(device_str)
                 skl_tensor = None
                 if self.use_skeleton and 'skeleton' in inputs:
-                    skl_tensor = inputs['skeleton'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
-                targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                    skl_tensor = inputs['skeleton'].to(device_str)
+                targets = targets.to(device_str)
 
             
             timer['dataloader'] += self.split_time()
@@ -911,14 +934,15 @@ class Trainer():
         wrong_idx = []
 
         process = tqdm(self.data_loader[loader_name], ncols=80)
+        device_str = self._get_device_str()
         with torch.no_grad():
             for batch_idx, (inputs, targets, idx) in enumerate(process):
                 acc_key = self._get_inertial_key(inputs)
-                acc_data = inputs[acc_key].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                acc_data = inputs[acc_key].to(device_str)
                 skl_tensor = None
                 if self.use_skeleton and 'skeleton' in inputs:
-                    skl_tensor = inputs['skeleton'].to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
-                targets = targets.to(f'cuda:{self.output_device}' if use_cuda else 'cpu')
+                    skl_tensor = inputs['skeleton'].to(device_str)
+                targets = targets.to(device_str)
 
                 logits, _ = self.model(acc_data.float(), skl_tensor.float() if skl_tensor is not None else None)
                 batch_loss = self.criterion(logits.squeeze(1), targets.float())
