@@ -53,14 +53,22 @@ class TransformerEncoderWAttention(nn.TransformerEncoder):
 
 
 class IMUTransformer(nn.Module):
-    """Transformer backbone with optional auto-tuning per channel count."""
+    """
+    Transformer backbone for IMU (accelerometer + gyroscope) data.
+
+    Supports flexible channel configurations:
+      - 6 channels (default): ax, ay, az, gx, gy, gz (3 acc + 3 gyro)
+      - 8 channels (with SMV): acc_smv, ax, ay, az, gyro_mag, gx, gy, gz
+
+    Optional auto-tuning adjusts model hyperparameters based on channel count.
+    """
     def __init__(self,
                  imu_frames: int = 128,
                  mocap_frames: int = 128,  # For compatibility, not used
                  num_joints: int = 32,     # For compatibility, not used
                  acc_frames: int = 128,    # Alias for imu_frames for compatibility
-                 imu_channels: int = 8,    # 8 channels: acc_smv, ax, ay, az, gyro_mag, gx, gy, gz
-                 acc_coords: int = 8,      # Alias for imu_channels for compatibility
+                 imu_channels: int = 6,    # 6 channels default: ax, ay, az, gx, gy, gz (use 8 for SMV)
+                 acc_coords: int = 6,      # Alias for imu_channels for compatibility
                  num_classes: int = 2,     # Matching TransModel default
                  num_heads: Optional[int] = None,       # Auto-tuned based on channels if None
                  num_layers: Optional[int] = None,      # Auto-tuned based on channels if None
@@ -192,34 +200,58 @@ class IMUTransformerLight(nn.Module):
 if __name__ == "__main__":
     batch_size = 16
     seq_len = 128
-    imu_channels = 7
 
-    imu_data = torch.randn(batch_size, seq_len, imu_channels)
+    # Test with 6 channels (ax, ay, az, gx, gy, gz) - default
+    print("=" * 50)
+    print("Test 1: 6 channels (acc + gyro, no SMV)")
+    print("=" * 50)
+    imu_channels_6 = 6
+    imu_data_6 = torch.randn(batch_size, seq_len, imu_channels_6)
     skl_data = torch.randn(batch_size, seq_len, 32, 3)
 
-    model = IMUTransformer(
+    model_6ch = IMUTransformer(
         imu_frames=seq_len,
-        imu_channels=imu_channels,
-        num_classes=2,   # Matching TransModel default
-        num_layers=2,
-        embed_dim=64,    # Matching TransModel (was 32)
-        num_heads=4,     # Matching TransModel (was 2)
+        imu_channels=imu_channels_6,
+        num_classes=2,
         dropout=0.5
     )
 
-    logits, features = model(imu_data, skl_data)
-
-    print(f"Input shape: {imu_data.shape}")
+    logits, features = model_6ch(imu_data_6, skl_data)
+    print(f"Input shape: {imu_data_6.shape}")
     print(f"Output logits shape: {logits.shape}")
     print(f"Output features shape: {features.shape}")
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"Model parameters: {sum(p.numel() for p in model_6ch.parameters()):,}")
 
+    # Test with 8 channels (with SMV: acc_smv, ax, ay, az, gyro_mag, gx, gy, gz)
+    print("\n" + "=" * 50)
+    print("Test 2: 8 channels (acc + gyro + SMV)")
+    print("=" * 50)
+    imu_channels_8 = 8
+    imu_data_8 = torch.randn(batch_size, seq_len, imu_channels_8)
+
+    model_8ch = IMUTransformer(
+        imu_frames=seq_len,
+        imu_channels=imu_channels_8,
+        num_classes=2,
+        dropout=0.5
+    )
+
+    logits, features = model_8ch(imu_data_8, skl_data)
+    print(f"Input shape: {imu_data_8.shape}")
+    print(f"Output logits shape: {logits.shape}")
+    print(f"Output features shape: {features.shape}")
+    print(f"Model parameters: {sum(p.numel() for p in model_8ch.parameters()):,}")
+
+    # Test lightweight model
+    print("\n" + "=" * 50)
+    print("Test 3: Lightweight model (6 channels)")
+    print("=" * 50)
     model_light = IMUTransformerLight(
         imu_frames=seq_len,
-        imu_channels=imu_channels,
+        imu_channels=imu_channels_6,
         num_classes=2,
         embed_dim=16
     )
 
-    logits_light, features_light = model_light(imu_data, skl_data)
-    print(f"\nLightweight model parameters: {sum(p.numel() for p in model_light.parameters()):,}")
+    logits_light, features_light = model_light(imu_data_6, skl_data)
+    print(f"Lightweight model parameters: {sum(p.numel() for p in model_light.parameters()):,}")

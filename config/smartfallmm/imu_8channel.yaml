@@ -8,6 +8,8 @@ dataset: smartfallmm
 # Leave-One-Subject-Out (LOSO) setup
 subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
 validation_subjects: [38, 44]  # Subjects [38, 44]: ~60% ADLs for both acc-only and acc+gyro
+# Subjects with poor gyroscope data - permanently in training, never tested (consistency across all configs)
+train_only_subjects: [29, 30, 32, 35, 39, 59]  # Subjects with poor gyro data or imbalanced class distribution
 
 model_args:
   # Standardized hyperparameters matching TransModel for fair comparison

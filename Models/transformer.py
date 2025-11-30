@@ -26,11 +26,15 @@ class TransModel(nn.Module):
     """
     Accelerometer-only Transformer for Activity Recognition
 
-    Optimized for accelerometer + SMV data (4 channels: ax, ay, az, smv)
-    This is the baseline/standard model for comparison
+    Supports flexible channel configurations:
+      - 3 channels (default): ax, ay, az (accelerometer only)
+      - 4 channels (with SMV): ax, ay, az, smv
+
+    This is the baseline/standard model for comparison with IMU models.
 
     Args:
         acc_frames: Number of time steps (default: 128)
+        acc_coords: Number of input channels (default: 3 for ax,ay,az; use 4 with SMV)
         num_classes: Number of output classes (default: 2 for smartfallmm)
         num_heads: Number of attention heads (default: 4 per config)
         num_layer: Number of transformer layers (default: 2 per config)
@@ -45,7 +49,7 @@ class TransModel(nn.Module):
                 acc_frames = 128,
                 num_classes:int = 2,  # Default from config/smartfallmm/transformer.yaml
                 num_heads = 4,         # Standard from config
-                acc_coords = 3,
+                acc_coords = 3,        # 3 channels default: ax, ay, az (use 4 for SMV)
                 av = False,
                 num_layer = 2,
                 norm_first = True,
@@ -63,12 +67,12 @@ class TransModel(nn.Module):
 
         self.data_shape = (acc_frames, acc_coords)
         self.length = self.data_shape[0]
-        size = self.data_shape[1]
+        self.input_channels = acc_coords  # Use parameter, not hardcoded
 
         # Input projection with standardized dropout
-        # Input: 4 channels (ax, ay, az, smv)
+        # Supports 3 channels (ax, ay, az) or 4 channels (ax, ay, az, smv)
         self.input_proj = nn.Sequential(
-            nn.Conv1d(4, embed_dim, kernel_size=8, stride=1, padding='same'),
+            nn.Conv1d(acc_coords, embed_dim, kernel_size=8, stride=1, padding='same'),
             nn.BatchNorm1d(embed_dim),
             nn.Dropout(dropout * 0.5)  # Light dropout on input
         )
@@ -179,7 +183,32 @@ class TransModel(nn.Module):
         return logits, features
 
 if __name__ == "__main__":
-        data = torch.randn(size = (16,128,4))
-        skl_data = torch.randn(size = (16,128,32,3))
-        model = TransModel()
-        output = model(data, skl_data, epochs = 20)
+    batch_size = 16
+    seq_len = 128
+
+    # Test with 3 channels (ax, ay, az) - default
+    print("=" * 50)
+    print("Test 1: 3 channels (acc only, no SMV)")
+    print("=" * 50)
+    data_3ch = torch.randn(size=(batch_size, seq_len, 3))
+    skl_data = torch.randn(size=(batch_size, seq_len, 32, 3))
+
+    model_3ch = TransModel(acc_coords=3)
+    logits, features = model_3ch(data_3ch, skl_data, epoch=20)
+    print(f"Input shape: {data_3ch.shape}")
+    print(f"Output logits shape: {logits.shape}")
+    print(f"Output features shape: {features.shape}")
+    print(f"Model parameters: {sum(p.numel() for p in model_3ch.parameters()):,}")
+
+    # Test with 4 channels (ax, ay, az, smv) - with SMV
+    print("\n" + "=" * 50)
+    print("Test 2: 4 channels (acc + SMV)")
+    print("=" * 50)
+    data_4ch = torch.randn(size=(batch_size, seq_len, 4))
+
+    model_4ch = TransModel(acc_coords=4)
+    logits, features = model_4ch(data_4ch, skl_data, epoch=20)
+    print(f"Input shape: {data_4ch.shape}")
+    print(f"Output logits shape: {logits.shape}")
+    print(f"Output features shape: {features.shape}")
+    print(f"Model parameters: {sum(p.numel() for p in model_4ch.parameters()):,}")

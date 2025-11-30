@@ -1,49 +1,43 @@
-model: Models.imu_transformer_se.IMUTransformerSE
+model: Models.transformer.TransModel
 dataset: smartfallmm
 
 subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
-validation_subjects: [38, 44]
-# Subjects with poor gyroscope data - permanently in training, never tested
+validation_subjects: [48, 57]
+# Subjects with poor gyroscope data - permanently in training, never tested (consistency across all configs)
 train_only_subjects: [29, 30, 32, 35, 39, 59]  # Subjects with poor gyro data or imbalanced class distribution
 
 model_args:
-  imu_frames: 128
-  imu_channels: 8
   acc_frames: 128
-  acc_coords: 8
+  acc_coords: 4
   num_classes: 1
   num_heads: 4
-  num_layers: 2
+  num_layer: 2
   embed_dim: 64
   dropout: 0.5
   activation: relu
   norm_first: True
-  se_reduction: 4
-  acc_ratio: 0.75
 
 dataset_args:
   mode: sliding_window
   max_length: 128
   task: fd
-  modalities: [accelerometer, gyroscope]
+  modalities: [accelerometer]
   age_group: [young]
   sensors: [watch]
   stride: 32
   use_skeleton: False
 
-  # All preprocessing disabled for baseline comparison
+  # SMV control - WITH SMV (4 channels: smv, ax, ay, az)
+  include_smv: True
+
+  # Preprocessing disabled for baseline
   enable_filtering: False
   enable_normalization: False
   enable_motion_filtering: False
-  enable_class_aware_stride: False
-
-  # Gyro conversion enabled
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 32
   convert_gyro_to_rad: True
-
-  # Skip files with missing/mismatched gyro
-  discard_mismatched_modalities: True
-  length_sensitive_modalities: [accelerometer, gyroscope]
-  log_skipped_files: True
 
 batch_size: 64
 test_batch_size: 64

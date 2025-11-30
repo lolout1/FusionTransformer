@@ -83,6 +83,9 @@ def get_args():
     parser.add_argument('--subjects', nargs='+', type=int)
     parser.add_argument('--validation-subjects', nargs='+', type=int, default=[38,44],
                         help='Subjects reserved for validation (excluded from training). Optimized for 60% ADLs in both acc-only and acc+gyro.')
+    parser.add_argument('--train-only-subjects', nargs='+', type=int, default=[],
+                        help='Subjects permanently fixed in training, excluded from LOSO test iterations. '
+                             'Use [29,32,35,39] for IMU models - these have poor gyroscope data quality.')
     parser.add_argument('--feeder', default= None , help = 'Dataloader location')
     parser.add_argument('--train-feeder-args',default=str, help = 'A dict for dataloader args' )
     parser.add_argument('--val-feeder-args', default=str , help = 'A dict for validation data loader')
@@ -498,10 +501,16 @@ class Trainer():
             if not self.validate_split(self.norm_val, f'validation subjects {self.val_subject}'):
                 return False
 
+            # Get SMV control flags from dataset_args (default: True for backward compatibility)
+            include_smv = self.arg.dataset_args.get('include_smv', True)
+            include_gyro_mag = self.arg.dataset_args.get('include_gyro_mag', True)
+
             #validation dataset
             self.data_loader['train'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.train_feeder_args,
-                               dataset = self.norm_train),
+                               dataset=self.norm_train,
+                               include_smv=include_smv,
+                               include_gyro_mag=include_gyro_mag),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
@@ -512,8 +521,9 @@ class Trainer():
 
             self.data_loader['val'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.val_feeder_args,
-                               dataset = self.norm_val
-                               ),
+                               dataset=self.norm_val,
+                               include_smv=include_smv,
+                               include_gyro_mag=include_gyro_mag),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
@@ -523,7 +533,10 @@ class Trainer():
             if not self.validate_split(self.norm_test, test_split_name):
                     return  False
             self.data_loader['test'] = torch.utils.data.DataLoader(
-                dataset=Feeder(**self.arg.test_feeder_args, dataset = self.norm_test),
+                dataset=Feeder(**self.arg.test_feeder_args,
+                               dataset=self.norm_test,
+                               include_smv=include_smv,
+                               include_gyro_mag=include_gyro_mag),
                 batch_size=self.arg.test_batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
@@ -994,9 +1007,14 @@ class Trainer():
                 self.best_f1 = float('inf')
                 self.print_log('Parameters: \n{}\n'.format(str(vars(self.arg))))
 
-                # Auto-select optimal validation subjects based on config (if not explicitly overridden)
-                from utils.val_split_selector import get_optimal_validation_subjects, get_validation_split_info
+                # Auto-select optimal validation subjects and train-only subjects based on config
+                from utils.val_split_selector import (
+                    get_optimal_validation_subjects, get_validation_split_info,
+                    validate_imu_validation_subjects, get_train_only_subjects,
+                    POOR_GYRO_SUBJECTS
+                )
                 optimal_val_subjects = get_optimal_validation_subjects(self.arg.dataset_args)
+                optimal_train_only = get_train_only_subjects(self.arg.dataset_args)
 
                 # Override default validation subjects with optimal selection
                 # This ensures proper ADL ratios for motion-filtered vs non-filtered experiments
@@ -1008,31 +1026,62 @@ class Trainer():
                     self.print_log(f'Using custom validation subjects: {self.arg.validation_subjects}')
                     self.print_log(f'  (Optimal would be: {optimal_val_subjects})')
 
+                # Auto-select train-only subjects for IMU models if not explicitly set
+                # These subjects have poor gyro data and should not be used for testing
+                current_train_only = getattr(self.arg, 'train_only_subjects', []) or []
+                if not current_train_only and optimal_train_only:
+                    self.arg.train_only_subjects = optimal_train_only
+                    self.print_log(f'Auto-selected train-only subjects: {optimal_train_only}')
+                    self.print_log(f'  → These subjects have poor gyroscope data quality')
+                elif current_train_only:
+                    self.print_log(f'Using configured train-only subjects: {current_train_only}')
+
+                # Validate that validation subjects don't include poor gyro subjects for IMU models
+                is_valid, problematic = validate_imu_validation_subjects(
+                    self.arg.validation_subjects, self.arg.dataset_args, print_warning=True
+                )
+                if not is_valid:
+                    self.print_log(f'WARNING: Validation subjects {problematic} have poor gyro data!')
+                    self.print_log(f'  Train-only subjects (not for val/test): {POOR_GYRO_SUBJECTS}')
+
                 results = self.create_df()
-                # Filter out validation subjects from training/testing subjects
-                available_subjects = [s for s in self.arg.subjects if s not in self.arg.validation_subjects]
+
+                # Get train-only subjects (permanently fixed in training, never tested)
+                # These subjects have poor data quality for certain modalities (e.g., corrupt gyro timestamps)
+                train_only_subjects = getattr(self.arg, 'train_only_subjects', []) or []
+
+                # Filter out validation subjects AND train-only subjects from test candidates
+                # Train-only subjects are always in training, never become test subjects
+                test_candidates = [s for s in self.arg.subjects
+                                   if s not in self.arg.validation_subjects
+                                   and s not in train_only_subjects]
+
                 self.print_log(f'Total subjects: {len(self.arg.subjects)}')
                 self.print_log(f'Validation subjects (held out): {self.arg.validation_subjects}')
-                self.print_log(f'Available subjects for train/test: {available_subjects}')
-                self.print_log(f'Number of train/test iterations: {len(available_subjects)}\n')
+                if train_only_subjects:
+                    self.print_log(f'Train-only subjects (never tested): {train_only_subjects}')
+                self.print_log(f'Test candidates for LOSO: {test_candidates}')
+                self.print_log(f'Number of LOSO iterations: {len(test_candidates)}\n')
 
-                for i in range(len(available_subjects)):
+                for i in range(len(test_candidates)):
                     self.train_loss_summary = []
                     self.val_loss_summary = []
                     self.best_loss = float('inf')
-                    test_subject = available_subjects[i]
+                    test_subject = test_candidates[i]
                     self._init_fold_tracking(i, test_subject)
-                    # Exclude both test subject AND validation subjects from training
-                    train_subjects = [s for s in available_subjects if s != test_subject]
+
+                    # Training includes: all test candidates except current test subject + train-only subjects
+                    # This ensures train-only subjects always contribute to training
+                    train_subjects = [s for s in test_candidates if s != test_subject] + train_only_subjects
                     self.val_subject = self.arg.validation_subjects
                     self.test_subject = [test_subject]
                     self.train_subjects = train_subjects
 
                     self.print_log(f'\n{"="*60}')
-                    self.print_log(f'Iteration {i+1}/{len(available_subjects)}')
+                    self.print_log(f'Iteration {i+1}/{len(test_candidates)}')
                     self.print_log(f'Test subject: {test_subject}')
                     self.print_log(f'Validation subjects: {self.val_subject}')
-                    self.print_log(f'Training subjects: {train_subjects}')
+                    self.print_log(f'Training subjects ({len(train_subjects)}): {sorted(train_subjects)}')
                     self.print_log(f'{"="*60}\n')
 
                     self.model = self.load_model(self.arg.model, self.arg.model_args)

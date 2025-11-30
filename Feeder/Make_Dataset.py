@@ -93,7 +93,24 @@ class Bmhad_mm(torch.utils.data.Dataset):
     
 
 class UTD_mm(torch.utils.data.Dataset):
-    def __init__(self, dataset, batch_size):
+    def __init__(self, dataset, batch_size, include_smv=True, include_gyro_mag=True):
+        """
+        Initialize UTD_mm dataset.
+
+        Args:
+            dataset: Dictionary containing sensor data
+            batch_size: Batch size for training
+            include_smv: If True, add SMV (Signal Vector Magnitude) to accelerometer data
+                        - Acc only: 3ch -> 4ch [smv, ax, ay, az]
+                        - IMU with SMV: 6ch -> 8ch [smv, ax, ay, az, gyro_mag, gx, gy, gz]
+                        If False, use raw channels only
+                        - Acc only: 3ch [ax, ay, az]
+                        - IMU: 6ch [ax, ay, az, gx, gy, gz]
+            include_gyro_mag: If True and include_smv=True, add gyro magnitude for IMU data
+        """
+        self.include_smv = include_smv
+        self.include_gyro_mag = include_gyro_mag
+
         # Support both single modality (acc OR gyro) and multi-modal (acc AND gyro)
         self.has_accelerometer = 'accelerometer' in dataset
         self.has_gyroscope = 'gyroscope' in dataset
@@ -238,42 +255,31 @@ class UTD_mm(torch.utils.data.Dataset):
             skl_data = torch.tensor(self.skl_data[index, :, :, :])
             data['skeleton'] = skl_data
 
-        # Handle combined accelerometer + gyroscope/orientation data
+        # Handle combined accelerometer + gyroscope data
         if self.inertial_modality == 'imu' and self.gyro_data is not None:
-            gyro_or_orient = torch.tensor(self.gyro_data[index, :, :])
+            gyro_data = torch.tensor(self.gyro_data[index, :, :])
 
-            # Check if this is raw gyro (3 ch) or orientation (3 ch from fusion)
-            # Both are 3 channels, but we distinguish by adding SMV for orientation
-            # Option 1: Raw gyro -> [ax, ay, az, gx, gy, gz] = 6 channels
-            # Option 2: Orientation -> [SMV, ax, ay, az, roll, pitch, yaw] = 7 channels
-
-            # For now, assume if gyro exists, try both paths:
-            # Check if we should add engineered features (SMV)
-            # If gyro_data represents orientation (from sensor fusion), add SMV
-            # If gyro_data is raw gyro, concatenate directly
-
-            # Simple heuristic: if gyro values are very large (>50), likely orientation angles
-            # Otherwise, raw gyro (typically < 10 rad/s for wrist motion)
-            max_val = gyro_or_orient.abs().max().item()
-
-            if max_val > 50:  # Likely orientation in degrees
-                # Sensor fusion output: add SMV to acc, then concat orientation
-                watch_smv = self.cal_smv(acc_data)
-                acc_with_smv = torch.cat((watch_smv, acc_data), dim=-1)  # 4 channels
-                imu_data = torch.cat((acc_with_smv, gyro_or_orient), dim=-1)  # 7 channels
+            if self.include_smv:
+                # 8 channels: [smv, ax, ay, az, gyro_mag, gx, gy, gz]
+                acc_smv = self.cal_smv(acc_data)
+                if self.include_gyro_mag:
+                    gyro_mag = self.cal_smv(gyro_data)
+                    imu_data = torch.cat((acc_smv, acc_data, gyro_mag, gyro_data), dim=-1)  # 8 ch
+                else:
+                    imu_data = torch.cat((acc_smv, acc_data, gyro_data), dim=-1)  # 7 ch
             else:
-                # Raw gyroscope: concatenate acc + gyro
-                imu_data = torch.cat((acc_data, gyro_or_orient), dim=-1)  # 6 channels
+                # 6 channels: [ax, ay, az, gx, gy, gz]
+                imu_data = torch.cat((acc_data, gyro_data), dim=-1)  # 6 ch
 
             data['accelerometer'] = imu_data  # Store as 'accelerometer' for backward compatibility
 
         else:
             # Single modality (accelerometer or gyroscope only)
-            watch_smv = self.cal_smv(acc_data)
-            watch_weight = self.calculate_weight(acc_data)
-            # watch_roll = self.calculate_roll(acc_data)
-            # watch_pitch = self.calculate_pitch(acc_data)
-            acc_data = torch.cat((watch_smv, acc_data), dim=-1)  # 4 channels
+            if self.include_smv:
+                # 4 channels: [smv, ax, ay, az]
+                watch_smv = self.cal_smv(acc_data)
+                acc_data = torch.cat((watch_smv, acc_data), dim=-1)
+            # else: 3 channels: [ax, ay, az] - no modification needed
             data['accelerometer'] = acc_data
 
         label = self.labels[index]

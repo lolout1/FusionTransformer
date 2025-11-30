@@ -2,11 +2,13 @@ model: Models.transformer_se.TransModelSE
 dataset: smartfallmm
 
 subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
-validation_subjects: [38, 44]
+validation_subjects: [48, 57]
+# Subjects with poor gyroscope data - permanently in training, never tested (consistency across all configs)
+train_only_subjects: [29, 30, 32, 35, 39, 59]  # Subjects with poor gyro data or imbalanced class distribution
 
 model_args:
   acc_frames: 128
-  acc_coords: 4
+  acc_coords: 3
   num_classes: 1
   num_heads: 4
   num_layer: 2
@@ -26,13 +28,16 @@ dataset_args:
   stride: 32
   use_skeleton: False
 
-  # All preprocessing disabled for baseline comparison
+  # SMV control - NO SMV (raw 3 channels: ax, ay, az)
+  include_smv: False
+
+  # Preprocessing disabled for baseline
   enable_filtering: False
   enable_normalization: False
   enable_motion_filtering: False
-  enable_class_aware_stride: False
-
-  # Gyro conversion (not used for acc-only but kept for consistency)
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 32
   convert_gyro_to_rad: True
 
 batch_size: 64

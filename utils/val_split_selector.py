@@ -4,7 +4,91 @@ based on preprocessing configuration (motion filtering, modalities, etc.)
 
 This module provides intelligent validation split selection to maintain
 proper ADL ratios across different experimental configurations.
+
+IMPORTANT: Some subjects have poor gyroscope data quality and should NOT be
+used for validation/testing when using IMU (acc+gyro) models with timestamp alignment.
 """
+
+
+# Subjects with corrupt gyroscope timestamps - DO NOT use for validation/test with IMU models
+# These subjects have all their fall trials discarded after timestamp alignment
+# They should be permanently fixed in training (train_only_subjects) for IMU experiments
+POOR_GYRO_SUBJECTS = [29, 32, 35, 39]
+
+
+def get_train_only_subjects(dataset_args, force_consistency=True):
+    """
+    Get subjects that should be permanently fixed in training (never used for testing).
+
+    These subjects have data quality issues that make them unsuitable for evaluation,
+    but they can still contribute valuable training data.
+
+    Args:
+        dataset_args: Dictionary of dataset arguments from config
+        force_consistency: If True, always return POOR_GYRO_SUBJECTS for consistency
+                          across all experiments (recommended for academic research)
+
+    Returns:
+        list: Subject IDs that should only be used for training
+
+    Rationale:
+        - Subjects [29, 32, 35, 39] have corrupt gyroscope timestamps that cause
+          ALL their fall trials to be discarded after timestamp alignment.
+        - For CONSISTENCY across all experiments (acc-only and acc+gyro), we exclude
+          these subjects from testing in ALL configs. This ensures:
+          1. Fair comparison between acc-only and acc+gyro models
+          2. Same test subjects across all experimental conditions
+          3. Reproducible and comparable results for academic publication
+    """
+    # For consistency across all experiments, always exclude poor gyro subjects
+    # This ensures fair comparisons between acc-only and acc+gyro models
+    if force_consistency:
+        return POOR_GYRO_SUBJECTS.copy()
+
+    # Legacy behavior: only exclude for IMU models with timestamp alignment
+    modalities = dataset_args.get('modalities', ['accelerometer'])
+    uses_gyro = 'gyroscope' in modalities
+    enable_timestamp_alignment = dataset_args.get('enable_timestamp_alignment', False)
+
+    if uses_gyro and enable_timestamp_alignment:
+        return POOR_GYRO_SUBJECTS.copy()
+
+    return []
+
+
+def validate_imu_validation_subjects(validation_subjects, dataset_args, print_warning=True):
+    """
+    Check if validation subjects are appropriate for IMU models.
+
+    Args:
+        validation_subjects: List of validation subject IDs
+        dataset_args: Dictionary of dataset arguments from config
+        print_warning: Whether to print a warning if issues found
+
+    Returns:
+        tuple: (is_valid, problematic_subjects)
+    """
+    modalities = dataset_args.get('modalities', ['accelerometer'])
+    uses_gyro = 'gyroscope' in modalities
+    enable_timestamp_alignment = dataset_args.get('enable_timestamp_alignment', False)
+
+    if not uses_gyro:
+        return True, []
+
+    problematic = [s for s in validation_subjects if s in POOR_GYRO_SUBJECTS]
+
+    if problematic and print_warning:
+        print(f"\n{'='*70}")
+        print("WARNING: POOR GYROSCOPE DATA IN VALIDATION SUBJECTS")
+        print(f"{'='*70}")
+        print(f"Validation subjects {problematic} have corrupt gyroscope timestamps!")
+        print(f"These subjects will have ALL fall trials discarded after alignment.")
+        print(f"\nRecommendation: Use different validation subjects for IMU models.")
+        print(f"Current validation: {validation_subjects}")
+        print(f"Problematic subjects (train-only): {POOR_GYRO_SUBJECTS}")
+        print(f"{'='*70}\n")
+
+    return len(problematic) == 0, problematic
 
 
 def get_optimal_validation_subjects(dataset_args):

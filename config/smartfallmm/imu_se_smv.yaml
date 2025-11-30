@@ -2,7 +2,7 @@ model: Models.imu_transformer_se.IMUTransformerSE
 dataset: smartfallmm
 
 subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
-validation_subjects: [38, 44]
+validation_subjects: [48, 57]
 # Subjects with poor gyroscope data - permanently in training, never tested
 train_only_subjects: [29, 30, 32, 35, 39, 59]  # Subjects with poor gyro data or imbalanced class distribution
 
@@ -20,6 +20,7 @@ model_args:
   norm_first: True
   se_reduction: 4
   acc_ratio: 0.75
+  auto_tune: False
 
 dataset_args:
   mode: sliding_window
@@ -31,19 +32,31 @@ dataset_args:
   stride: 32
   use_skeleton: False
 
-  # All preprocessing disabled for baseline comparison
+  # SMV control - WITH SMV (8 channels: smv, ax, ay, az, gyro_mag, gx, gy, gz)
+  include_smv: True
+  include_gyro_mag: True
+
+  # Timestamp-based alignment (replaces DTW/discard)
+  enable_timestamp_alignment: True
+  alignment_target_rate: 30.0
+  alignment_method: linear
+  min_overlap_ratio: 0.8
+  max_time_gap_ms: 1000.0
+  min_output_samples: 64
+  length_threshold: 10
+
+  # Preprocessing disabled for baseline
   enable_filtering: False
   enable_normalization: False
   enable_motion_filtering: False
-  enable_class_aware_stride: False
-
-  # Gyro conversion enabled
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 32
   convert_gyro_to_rad: True
 
-  # Skip files with missing/mismatched gyro
-  discard_mismatched_modalities: True
-  length_sensitive_modalities: [accelerometer, gyroscope]
-  log_skipped_files: True
+  # Disable old alignment methods
+  enable_gyro_alignment: False
+  discard_mismatched_modalities: False
 
 batch_size: 64
 test_batch_size: 64

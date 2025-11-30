@@ -2,10 +2,12 @@
 Dual-Input IMU Transformer with SE Module and Temporal Attention Pooling.
 
 Architecture:
-    - Input: 8 channels [smv, ax, ay, az, gyro_mag, gx, gy, gz]
-    - Separate Conv1d projections for acc (4ch->48d) and gyro (4ch->16d)
+    - Input: 6 or 8 channels
+        - 6 channels: [ax, ay, az, gx, gy, gz] -> 3 acc, 3 gyro
+        - 8 channels: [smv, ax, ay, az, gyro_mag, gx, gy, gz] -> 4 acc, 4 gyro
+    - Separate Conv1d projections for acc and gyro with asymmetric capacity
     - Feature fusion with LayerNorm
-    - TransformerEncoder (2 layers, 4 heads, 64d)
+    - TransformerEncoder (2 layers, 4 heads)
     - Squeeze-and-Excitation channel attention
     - Temporal Attention Pooling (learnable temporal aggregation)
     - Linear classifier
@@ -80,9 +82,9 @@ class IMUTransformerSE(nn.Module):
 
     def __init__(self,
                  imu_frames: int = 128,
-                 imu_channels: int = 8,
+                 imu_channels: int = 6,
                  acc_frames: int = 128,
-                 acc_coords: int = 8,
+                 acc_coords: int = 6,
                  mocap_frames: int = 128,
                  num_joints: int = 32,
                  num_classes: int = 1,
@@ -101,20 +103,34 @@ class IMUTransformerSE(nn.Module):
         self.imu_frames = imu_frames if imu_frames else acc_frames
         self.imu_channels = imu_channels if imu_channels else acc_coords
 
+        # Determine input channel split based on total channels
+        # 8 channels: [smv, ax, ay, az, gyro_mag, gx, gy, gz] -> 4 acc, 4 gyro
+        # 6 channels: [ax, ay, az, gx, gy, gz] -> 3 acc, 3 gyro
+        if self.imu_channels == 8:
+            self.acc_in_channels = 4
+            self.gyro_in_channels = 4
+        elif self.imu_channels == 6:
+            self.acc_in_channels = 3
+            self.gyro_in_channels = 3
+        else:
+            # Flexible: split evenly
+            self.acc_in_channels = self.imu_channels // 2
+            self.gyro_in_channels = self.imu_channels - self.acc_in_channels
+
         # Asymmetric embedding allocation
         acc_dim = int(embed_dim * acc_ratio)
         gyro_dim = embed_dim - acc_dim
 
         # Separate input projections for acc and gyro
         self.acc_proj = nn.Sequential(
-            nn.Conv1d(4, acc_dim, kernel_size=8, padding='same'),
+            nn.Conv1d(self.acc_in_channels, acc_dim, kernel_size=8, padding='same'),
             nn.BatchNorm1d(acc_dim),
             nn.SiLU(),
             nn.Dropout(dropout * 0.2)  # Lower dropout for acc
         )
 
         self.gyro_proj = nn.Sequential(
-            nn.Conv1d(4, gyro_dim, kernel_size=8, padding='same'),
+            nn.Conv1d(self.gyro_in_channels, gyro_dim, kernel_size=8, padding='same'),
             nn.BatchNorm1d(gyro_dim),
             nn.SiLU(),
             nn.Dropout(dropout * 0.4)  # Higher dropout for noisy gyro
@@ -168,9 +184,9 @@ class IMUTransformerSE(nn.Module):
             logits: (B, num_classes) classification logits
             features: (B, T, embed_dim) encoder features before pooling
         """
-        # Split modalities
-        acc = acc_data[:, :, :4]  # (B, T, 4)
-        gyro = acc_data[:, :, 4:8]  # (B, T, 4)
+        # Split modalities based on channel configuration
+        acc = acc_data[:, :, :self.acc_in_channels]  # (B, T, acc_in)
+        gyro = acc_data[:, :, self.acc_in_channels:self.acc_in_channels + self.gyro_in_channels]  # (B, T, gyro_in)
 
         # Rearrange for Conv1d: (B, T, C) -> (B, C, T)
         acc = rearrange(acc, 'b t c -> b c t')
@@ -205,15 +221,40 @@ class IMUTransformerSE(nn.Module):
 
 
 if __name__ == "__main__":
-    # Test model instantiation and forward pass
-    model = IMUTransformerSE(imu_frames=128, imu_channels=8, num_classes=1)
-    x = torch.randn(16, 128, 8)
-    logits, features = model(x)
+    print("=" * 60)
+    print("IMUTransformerSE Model Architecture Test")
+    print("=" * 60)
 
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # Test with 6 channels (no SMV)
+    print("\n" + "=" * 50)
+    print("Test 1: 6 channels (ax, ay, az, gx, gy, gz)")
+    print("=" * 50)
+    model_6ch = IMUTransformerSE(imu_frames=128, imu_channels=6, embed_dim=64, num_classes=1)
+    x_6ch = torch.randn(16, 128, 6)
+    logits, features = model_6ch(x_6ch)
 
-    print(f"Total parameters: {total_params:,}")
-    print(f"Trainable parameters: {trainable_params:,}")
-    print(f"Output shape: {logits.shape}")
+    total_params = sum(p.numel() for p in model_6ch.parameters())
+    print(f"Input shape: {x_6ch.shape}")
+    print(f"Acc channels: {model_6ch.acc_in_channels}, Gyro channels: {model_6ch.gyro_in_channels}")
+    print(f"Output logits shape: {logits.shape}")
     print(f"Features shape: {features.shape}")
+    print(f"Total parameters: {total_params:,}")
+
+    # Test with 8 channels (with SMV)
+    print("\n" + "=" * 50)
+    print("Test 2: 8 channels (smv, ax, ay, az, gyro_mag, gx, gy, gz)")
+    print("=" * 50)
+    model_8ch = IMUTransformerSE(imu_frames=128, imu_channels=8, embed_dim=64, num_classes=1)
+    x_8ch = torch.randn(16, 128, 8)
+    logits, features = model_8ch(x_8ch)
+
+    total_params = sum(p.numel() for p in model_8ch.parameters())
+    print(f"Input shape: {x_8ch.shape}")
+    print(f"Acc channels: {model_8ch.acc_in_channels}, Gyro channels: {model_8ch.gyro_in_channels}")
+    print(f"Output logits shape: {logits.shape}")
+    print(f"Features shape: {features.shape}")
+    print(f"Total parameters: {total_params:,}")
+
+    print("\n" + "=" * 60)
+    print("All tests passed!")
+    print("=" * 60)

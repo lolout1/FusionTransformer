@@ -1,5 +1,10 @@
 '''
 Dataset Builder
+
+IMPORTANT - Subjects with poor gyroscope data quality (use for TRAINING ONLY):
+  [29, 32, 35, 39] - These subjects have corrupt gyroscope timestamps that
+  cause all their fall trials to be discarded after timestamp alignment.
+  They should NOT be used for validation or testing with IMU (acc+gyro) models.
 '''
 import os
 from typing import List, Dict, Tuple
@@ -23,6 +28,10 @@ from sklearn.preprocessing import StandardScaler
 import torch
 import torch.nn.functional as F
 from utils.processor.base import Processor
+from utils.alignment import (
+    AlignmentConfig, AlignmentResult,
+    create_alignment_config_from_kwargs, align_imu_modalities
+)
 
 
 
@@ -441,7 +450,21 @@ class DatasetBuilder:
         self.use_skeleton = kwargs.get('use_skeleton', True)
         self.align_with_skeleton = kwargs.get('enable_skeleton_alignment', self.use_skeleton)
         # DTW alignment for gyroscope to accelerometer (per-trial, pre-windowing)
+        # DEPRECATED: Use enable_timestamp_alignment instead
         self.enable_gyro_alignment = kwargs.get('enable_gyro_alignment', False)
+
+        # Timestamp-based alignment (replaces DTW)
+        # Parses ISO timestamps from CSVs, finds overlap region, interpolates to common grid
+        self.enable_timestamp_alignment = kwargs.get('enable_timestamp_alignment', False)
+        self.alignment_target_rate = kwargs.get('alignment_target_rate', 30.0)
+        self.alignment_method = kwargs.get('alignment_method', 'linear')
+        self.min_overlap_ratio = kwargs.get('min_overlap_ratio', 0.8)
+        self.max_time_gap_ms = kwargs.get('max_time_gap_ms', 1000.0)
+        self.min_output_samples = kwargs.get('min_output_samples', 64)
+        self.length_threshold = kwargs.get('length_threshold', 10)
+        # Conservative interpolation controls (prevent interpolation when timestamps drifted)
+        self.max_duration_ratio = kwargs.get('max_duration_ratio', 1.2)  # Default: 20% duration diff max
+        self.max_rate_divergence = kwargs.get('max_rate_divergence', 0.3)  # Default: 30% rate diff max
 
         # Class-aware stride configuration (helps balance ADL vs Fall samples)
         self.enable_class_aware_stride = kwargs.get('enable_class_aware_stride', False)
@@ -459,6 +482,13 @@ class DatasetBuilder:
             'skipped_dtw_length_mismatch': 0,
             'skipped_poor_gyro_hard': 0,
             'skipped_poor_gyro_adaptive': 0,
+            # Timestamp alignment tracking
+            'timestamp_aligned': 0,
+            'timestamp_use_as_is': 0,
+            'skipped_timestamp_unsync': 0,
+            'skipped_insufficient_overlap': 0,
+            'skipped_duration_drift': 0,  # NEW: Discarded due to duration ratio exceeded
+            'skipped_rate_drift': 0,      # NEW: Discarded due to sampling rate divergence
             # Class-level tracking
             'file_count': 0,
             'window_count': 0,
@@ -506,6 +536,13 @@ class DatasetBuilder:
             'skipped_dtw_length_mismatch': 0,
             'skipped_poor_gyro_hard': 0,
             'skipped_poor_gyro_adaptive': 0,
+            # Timestamp alignment statistics
+            'timestamp_aligned': 0,
+            'timestamp_use_as_is': 0,
+            'skipped_timestamp_unsync': 0,
+            'skipped_insufficient_overlap': 0,
+            'skipped_duration_drift': 0,  # NEW: Discarded due to duration ratio exceeded
+            'skipped_rate_drift': 0,      # NEW: Discarded due to sampling rate divergence
             # Motion filtering statistics
             'motion_total_windows': 0,
             'motion_passed_windows': 0,
@@ -886,21 +923,109 @@ class DatasetBuilder:
                         trial_data = align_sequence(trial_data)
                         # os.remove(file_path)
 
-                    # Per-trial DTW alignment and length validation
-                    # Two modes:
-                    # 1. enable_gyro_alignment = False: Skip trial if acc/gyro lengths don't match
-                    # 2. enable_gyro_alignment = True: Use DTW to align gyro to acc if diff < 10
+                    # Per-trial alignment and length validation
+                    # Three modes (in order of precedence):
+                    # 1. enable_timestamp_alignment = True: Use timestamp-based interpolation (RECOMMENDED)
+                    # 2. enable_gyro_alignment = True: Use DTW to align gyro to acc if diff < 10 (DEPRECATED)
+                    # 3. Neither enabled: Skip trial if acc/gyro lengths don't match exactly
                     if 'accelerometer' in trial_data and 'gyroscope' in trial_data:
                         acc_len = trial_data['accelerometer'].shape[0]
                         gyro_len = trial_data['gyroscope'].shape[0]
                         length_diff = abs(acc_len - gyro_len)
 
-                        if not self.enable_gyro_alignment:
-                            # Mode 1: No DTW - require exact length match
+                        if self.enable_timestamp_alignment:
+                            # Mode 1: Timestamp-based alignment (RECOMMENDED)
+                            # Uses ISO timestamps from CSVs to create uniform time grid
+                            acc_path = trial.files.get('accelerometer')
+                            gyro_path = trial.files.get('gyroscope')
+
+                            if not acc_path or not gyro_path:
+                                if self.debug:
+                                    print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
+                                          f"Missing file paths for timestamp alignment")
+                                self.skip_stats['skipped_missing_modality'] += 1
+                                self.subject_modality_stats[subject_id]['skipped_missing_modality'] += 1
+                                continue
+
+                            # Create alignment config with conservative interpolation controls
+                            align_config = AlignmentConfig(
+                                target_rate=self.alignment_target_rate,
+                                alignment_method=self.alignment_method,
+                                min_overlap_ratio=self.min_overlap_ratio,
+                                max_time_gap_ms=self.max_time_gap_ms,
+                                min_output_samples=self.min_output_samples,
+                                length_threshold=self.length_threshold,
+                                # Conservative: only interpolate if timestamps are truly synchronized
+                                max_duration_ratio=self.max_duration_ratio,
+                                max_rate_divergence=self.max_rate_divergence
+                            )
+
+                            # Perform timestamp-based alignment
+                            align_result = align_imu_modalities(acc_path, gyro_path, align_config)
+
+                            if not align_result.success:
+                                # Alignment failed - track reason and skip
+                                reason = align_result.reason.lower()
+                                if 'duration ratio' in reason or 'duration_ratio' in reason:
+                                    # NEW: Discarded due to timestamp drift (duration mismatch)
+                                    self.skip_stats['skipped_duration_drift'] += 1
+                                    self.subject_modality_stats[subject_id]['skipped_duration_drift'] += 1
+                                elif 'rate divergence' in reason or 'sampling rate' in reason:
+                                    # NEW: Discarded due to sampling rate divergence
+                                    self.skip_stats['skipped_rate_drift'] += 1
+                                    self.subject_modality_stats[subject_id]['skipped_rate_drift'] += 1
+                                elif 'offset' in reason or 'unsync' in reason:
+                                    self.skip_stats['skipped_timestamp_unsync'] += 1
+                                    self.subject_modality_stats[subject_id]['skipped_timestamp_unsync'] += 1
+                                elif 'overlap' in reason:
+                                    self.skip_stats['skipped_insufficient_overlap'] += 1
+                                    self.subject_modality_stats[subject_id]['skipped_insufficient_overlap'] += 1
+                                else:
+                                    self.skip_stats['skipped_length_mismatch'] += 1
+                                    self.subject_modality_stats[subject_id]['skipped_length_mismatch'] += 1
+
+                                if self.debug:
+                                    print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
+                                          f"Timestamp alignment failed - {align_result.reason}")
+
+                                # Log skipped file
+                                if self.log_skipped_files:
+                                    self.skipped_files.append({
+                                        'subject': subject_id,
+                                        'action': action_id,
+                                        'trial': trial_id,
+                                        'reason': f'timestamp_alignment_{align_result.action}',
+                                        'details': align_result.reason,
+                                        'acc_len': acc_len,
+                                        'gyro_len': gyro_len,
+                                        'files': [acc_path, gyro_path]
+                                    })
+                                continue
+
+                            # Update trial_data with aligned arrays
+                            trial_data['accelerometer'] = align_result.aligned_acc
+                            trial_data['gyroscope'] = align_result.aligned_gyro
+
+                            # Track alignment action
+                            if align_result.action == 'use_as_is':
+                                self.skip_stats['timestamp_use_as_is'] += 1
+                                self.subject_modality_stats[subject_id]['timestamp_use_as_is'] += 1
+                            elif align_result.action == 'aligned':
+                                self.skip_stats['timestamp_aligned'] += 1
+                                self.subject_modality_stats[subject_id]['timestamp_aligned'] += 1
+
+                            if self.debug:
+                                print(f"S{subject_id}A{action_id}T{trial_id}: {align_result.action} "
+                                      f"(acc={acc_len}→{align_result.output_samples}, "
+                                      f"gyro={gyro_len}→{align_result.output_samples}, "
+                                      f"rate={align_result.output_rate_hz:.0f}Hz)")
+
+                        elif not self.enable_gyro_alignment:
+                            # Mode 2: No alignment - require exact length match (STRICT)
                             if length_diff > 0:
                                 if self.debug:
                                     print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
-                                          f"Length mismatch without DTW (acc={acc_len}, gyro={gyro_len}, diff={length_diff})")
+                                          f"Length mismatch without alignment (acc={acc_len}, gyro={gyro_len}, diff={length_diff})")
                                 # Log skipped file
                                 if self.log_skipped_files:
                                     file_paths = [f for f in trial.files.values()]
@@ -918,7 +1043,7 @@ class DatasetBuilder:
                                 self.subject_modality_stats[subject_id]['skipped_length_mismatch'] += 1
                                 continue
                         else:
-                            # Mode 2: DTW enabled - align if diff < 10, else skip
+                            # Mode 3: DTW alignment (DEPRECATED - use timestamp alignment instead)
                             if length_diff >= 10:
                                 if self.debug:
                                     print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
@@ -1159,12 +1284,27 @@ class DatasetBuilder:
             print(f"  - Sequence too short (< {self.max_length} samples): {self.skip_stats['skipped_too_short']}")
             print(f"  - Preprocessing errors: {self.skip_stats['skipped_preprocessing_error']}")
             print(f"  - DTW length mismatch (acc-gyro diff > 10): {self.skip_stats['skipped_dtw_length_mismatch']}")
+            if self.enable_timestamp_alignment:
+                print(f"  - Timestamp unsynchronized: {self.skip_stats['skipped_timestamp_unsync']}")
+                print(f"  - Insufficient overlap: {self.skip_stats['skipped_insufficient_overlap']}")
+                print(f"  - Duration drift (timestamps drifted): {self.skip_stats['skipped_duration_drift']}")
+                print(f"  - Rate divergence (sampling rates differ): {self.skip_stats['skipped_rate_drift']}")
 
             # Print detailed preprocessing error breakdown
             if self.skip_stats['skipped_preprocessing_error'] > 0 and self.preprocessing_error_details:
                 print("\nPreprocessing error details:")
                 for error_msg, count in self.preprocessing_error_details.most_common():
                     print(f"  - '{error_msg}': Skipped {count} trials")
+
+        # Print timestamp alignment summary if enabled
+        if self.enable_timestamp_alignment:
+            aligned_count = self.skip_stats['timestamp_aligned']
+            use_as_is_count = self.skip_stats['timestamp_use_as_is']
+            total_successful = aligned_count + use_as_is_count
+            print(f"\nTimestamp alignment summary:")
+            print(f"  - Total aligned trials: {total_successful}")
+            print(f"  - Used as-is (diff <= {self.length_threshold}): {use_as_is_count}")
+            print(f"  - Interpolated to {self.alignment_target_rate}Hz: {aligned_count}")
 
         # Print per-subject statistics for subjects with issues
         print("\nPer-subject breakdown (subjects with skipped trials):")

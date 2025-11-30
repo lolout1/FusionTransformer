@@ -1,0 +1,96 @@
+# IMU Transformer with Timestamp-Based Alignment
+# ==============================================
+#
+# This config enables timestamp-based linear interpolation to align
+# accelerometer and gyroscope data that have different sampling rates.
+#
+# Problem: Android IMU API delivers acc and gyro at DIFFERENT rates
+# (e.g., acc at 87Hz, gyro at 52Hz), causing sample count mismatches
+# even when recordings are perfectly synchronized.
+#
+# Solution: Parse ISO timestamps, find overlap region, interpolate
+# both modalities to a common 30Hz grid.
+
+model: Models.imu_transformer.IMUTransformer
+dataset: smartfallmm
+
+# Young subjects (multimodal-ready per CLAUDE.md)
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [38, 44]
+# Subjects with poor gyroscope data - permanently in training, never tested
+train_only_subjects: [29, 30, 32, 35, 39, 59]  # Subjects with poor gyro data or imbalanced class distribution
+
+model_args:
+  imu_frames: 128
+  imu_channels: 6              # acc(3) + gyro(3), SMV added in dataloader
+  acc_frames: 128
+  acc_coords: 6
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: relu
+  norm_first: True
+  auto_tune: False
+
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  age_group: [young]
+  sensors: [watch]
+  stride: 32
+  use_skeleton: False
+
+  # ===========================================
+  # TIMESTAMP ALIGNMENT (replaces DTW-based)
+  # ===========================================
+  enable_timestamp_alignment: True
+  alignment_target_rate: 30.0        # Hz - output sampling rate
+  alignment_method: linear           # 'linear', 'cubic', 'nearest'
+  min_overlap_ratio: 0.8             # Discard if < 80% temporal overlap
+  max_time_gap_ms: 1000.0            # Max start/end offset (1 second)
+  min_output_samples: 64             # Min samples after alignment
+  length_threshold: 10               # If diff <= 10, use as-is (no interpolation)
+
+  # ===========================================
+  # PREPROCESSING (applied AFTER alignment)
+  # ===========================================
+  enable_filtering: False            # Butterworth filter OFF for baseline
+  enable_normalization: False        # Z-score normalization OFF
+  enable_motion_filtering: False     # Motion threshold filter OFF
+  convert_gyro_to_rad: True          # deg/s -> rad/s conversion ON
+
+  # ===========================================
+  # DATA HANDLING
+  # ===========================================
+  # These flags are superseded by timestamp alignment but kept for backward compat
+  discard_mismatched_modalities: True
+  length_sensitive_modalities: [accelerometer, gyroscope]
+  log_skipped_files: True
+
+  # Class-aware stride (disabled for fair comparison)
+  enable_class_aware_stride: False
+  fall_stride: 32
+  adl_stride: 10
+
+# Training settings
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.Make_Dataset.UTD_mm
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001
