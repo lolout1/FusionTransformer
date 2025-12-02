@@ -11,5 +11,22 @@ exps/
 *.out
 .vscoode
 work_dir/
-work_dir/*
 SmartFallMM-Dataset/
+
+# Only keep main.py, distiller.py, and train.sh in root
+# Exclude all other .py, .sh, .csv files in root
+/*.py
+!main.py
+!distiller.py
+/*.sh
+!train.sh
+/*.csv
+
+# Exclude experiment results and logs
+results/
+logs/
+experiments/
+scripts/
+
+# Exclude utility subdirectories that shouldn't be tracked
+utils/kalman/
