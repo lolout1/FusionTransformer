@@ -430,6 +430,11 @@ class DatasetBuilder:
         # Gyroscope: HIGH-pass 0.5 Hz (removes low-freq drift)
         self.enable_filtering = kwargs.get('enable_filtering', False)  # Default: OFF
         self.enable_normalization = kwargs.get('enable_normalization', True)
+        # Selective normalization: normalize only specific modalities
+        # Options: 'all' (default), 'gyro_only', 'acc_only', 'none'
+        # When enable_normalization=True and normalize_modalities='gyro_only',
+        # only gyroscope data is normalized (robust gyro normalization)
+        self.normalize_modalities = kwargs.get('normalize_modalities', 'all')
 
         # Separate filter parameters for accelerometer vs gyroscope
         # Accelerometer: Low-pass filter (human motion < 5 Hz)
@@ -439,6 +444,12 @@ class DatasetBuilder:
         # Gyroscope: High-pass filter (removes drift, preserves rotation)
         self.gyro_filter_cutoff = kwargs.get('gyro_filter_cutoff', 0.5)  # Hz (high-pass)
         self.gyro_filter_type = kwargs.get('gyro_filter_type', 'high')   # High-pass
+
+        # Gravity removal for accelerometer (converts raw acc to linear acceleration)
+        # Uses high-pass filter to remove DC component (gravity ~0 Hz)
+        # Cutoff 0.3-0.5 Hz recommended (gravity is static, motion > 0.5 Hz)
+        self.remove_gravity = kwargs.get('remove_gravity', False)  # Default: OFF
+        self.gravity_filter_cutoff = kwargs.get('gravity_filter_cutoff', 0.3)  # Hz
 
         # Common sampling rate
         self.filter_fs = kwargs.get('filter_fs', 25)                     # Sampling rate (Hz)
@@ -462,6 +473,12 @@ class DatasetBuilder:
         self.max_time_gap_ms = kwargs.get('max_time_gap_ms', 1000.0)
         self.min_output_samples = kwargs.get('min_output_samples', 64)
         self.length_threshold = kwargs.get('length_threshold', 10)
+
+        # Simple truncation mode (RECOMMENDED for acc+gyro)
+        # Instead of complex alignment, just truncate both modalities to min length
+        # Much simpler and more robust than DTW or timestamp interpolation
+        self.enable_simple_truncation = kwargs.get('enable_simple_truncation', False)
+        self.max_truncation_diff = kwargs.get('max_truncation_diff', 50)  # Max samples to truncate
         # Conservative interpolation controls (prevent interpolation when timestamps drifted)
         self.max_duration_ratio = kwargs.get('max_duration_ratio', 1.2)  # Default: 20% duration diff max
         self.max_rate_divergence = kwargs.get('max_rate_divergence', 0.3)  # Default: 30% rate diff max
@@ -489,6 +506,9 @@ class DatasetBuilder:
             'skipped_insufficient_overlap': 0,
             'skipped_duration_drift': 0,  # NEW: Discarded due to duration ratio exceeded
             'skipped_rate_drift': 0,      # NEW: Discarded due to sampling rate divergence
+            # Simple truncation tracking
+            'simple_truncation_applied': 0,
+            'skipped_truncation_too_large': 0,
             # Class-level tracking
             'file_count': 0,
             'window_count': 0,
@@ -543,6 +563,9 @@ class DatasetBuilder:
             'skipped_insufficient_overlap': 0,
             'skipped_duration_drift': 0,  # NEW: Discarded due to duration ratio exceeded
             'skipped_rate_drift': 0,      # NEW: Discarded due to sampling rate divergence
+            # Simple truncation statistics
+            'simple_truncation_applied': 0,
+            'skipped_truncation_too_large': 0,
             # Motion filtering statistics
             'motion_total_windows': 0,
             'motion_passed_windows': 0,
@@ -684,12 +707,25 @@ class DatasetBuilder:
         - Smartphone fall detection: 5 Hz low-pass for accelerometer
         - IMU preprocessing: High-pass for gyroscope drift removal
         """
+        # Gravity removal (independent of enable_filtering)
+        if modality == 'accelerometer' and self.remove_gravity:
+            # High-pass filter to remove gravity (DC component)
+            # Converts raw accelerometer to linear acceleration
+            data = butterworth_filter(
+                data,
+                cutoff=self.gravity_filter_cutoff,
+                fs=self.filter_fs,
+                order=self.filter_order,
+                filter_type='high'  # High-pass removes DC (gravity)
+            )
+
         if not self.enable_filtering:
             return data
 
         if modality == 'accelerometer':
             # Accelerometer: LOW-pass filter (removes high-frequency noise)
             # Preserves human motion frequencies (0-5 Hz)
+            # Note: If remove_gravity is enabled, this applies AFTER gravity removal
             return butterworth_filter(
                 data,
                 cutoff=self.acc_filter_cutoff,
@@ -924,16 +960,58 @@ class DatasetBuilder:
                         # os.remove(file_path)
 
                     # Per-trial alignment and length validation
-                    # Three modes (in order of precedence):
-                    # 1. enable_timestamp_alignment = True: Use timestamp-based interpolation (RECOMMENDED)
-                    # 2. enable_gyro_alignment = True: Use DTW to align gyro to acc if diff < 10 (DEPRECATED)
-                    # 3. Neither enabled: Skip trial if acc/gyro lengths don't match exactly
+                    # Four modes (in order of precedence):
+                    # 1. enable_simple_truncation = True: Just truncate to min length (RECOMMENDED)
+                    # 2. enable_timestamp_alignment = True: Use timestamp-based interpolation
+                    # 3. enable_gyro_alignment = True: Use DTW to align gyro to acc if diff < 10 (DEPRECATED)
+                    # 4. None enabled: Skip trial if acc/gyro lengths don't match exactly
                     if 'accelerometer' in trial_data and 'gyroscope' in trial_data:
                         acc_len = trial_data['accelerometer'].shape[0]
                         gyro_len = trial_data['gyroscope'].shape[0]
                         length_diff = abs(acc_len - gyro_len)
 
-                        if self.enable_timestamp_alignment:
+                        if self.enable_simple_truncation:
+                            # Mode 1: Simple truncation (RECOMMENDED)
+                            # Just truncate both modalities to the shorter length
+                            # Much simpler and more robust than DTW or timestamp interpolation
+                            if length_diff <= self.max_truncation_diff:
+                                if length_diff > 0:
+                                    min_len = min(acc_len, gyro_len)
+                                    trial_data['accelerometer'] = trial_data['accelerometer'][:min_len]
+                                    trial_data['gyroscope'] = trial_data['gyroscope'][:min_len]
+
+                                    self.skip_stats['simple_truncation_applied'] += 1
+                                    self.subject_modality_stats[subject_id]['simple_truncation_applied'] += 1
+
+                                    if self.debug:
+                                        print(f"S{subject_id}A{action_id}T{trial_id}: Simple truncation "
+                                              f"(acc={acc_len}, gyro={gyro_len}) → {min_len}")
+                                # else: lengths already match, no truncation needed
+                            else:
+                                # Difference too large - indicates data quality issue
+                                if self.debug:
+                                    print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
+                                          f"Length diff too large for truncation (acc={acc_len}, gyro={gyro_len}, "
+                                          f"diff={length_diff} > {self.max_truncation_diff})")
+                                self.skip_stats['skipped_truncation_too_large'] += 1
+                                self.subject_modality_stats[subject_id]['skipped_truncation_too_large'] += 1
+
+                                if self.log_skipped_files:
+                                    file_paths = [f for f in trial.files.values()]
+                                    self.skipped_files.append({
+                                        'subject': subject_id,
+                                        'action': action_id,
+                                        'trial': trial_id,
+                                        'reason': 'truncation_diff_too_large',
+                                        'acc_len': acc_len,
+                                        'gyro_len': gyro_len,
+                                        'diff': length_diff,
+                                        'max_allowed': self.max_truncation_diff,
+                                        'files': file_paths
+                                    })
+                                continue
+
+                        elif self.enable_timestamp_alignment:
                             # Mode 1: Timestamp-based alignment (RECOMMENDED)
                             # Uses ISO timestamps from CSVs to create uniform time grid
                             acc_path = trial.files.get('accelerometer')
@@ -1199,16 +1277,43 @@ class DatasetBuilder:
     
     def normalization(self) -> np.ndarray:
         '''
-        Function to normalize  the data
+        Function to normalize the data with selective modality support.
+
+        Normalization modes (via normalize_modalities):
+        - 'all': Normalize all modalities (default, backward compatible)
+        - 'gyro_only': Only normalize gyroscope data (robust gyro normalization)
+        - 'acc_only': Only normalize accelerometer data
+        - 'none': Skip normalization entirely (same as enable_normalization=False)
+
+        Robust gyroscope normalization rationale:
+        - Gyroscope data often has different units/scales across devices (deg/s vs rad/s)
+        - Normalizing gyro brings it to a standard scale for the model
+        - Accelerometer already has a natural reference (gravity ~9.8 m/s^2)
+        - Keeping acc unnormalized preserves physical interpretation
         '''
-        if not self.enable_normalization:
+        if not self.enable_normalization or self.normalize_modalities == 'none':
             return self.data
 
-        for key ,value  in self.data.items():
-            if key != 'labels':
+        for key, value in self.data.items():
+            if key == 'labels':
+                continue
+
+            # Selective normalization based on modality
+            should_normalize = False
+            if self.normalize_modalities == 'all':
+                should_normalize = True
+            elif self.normalize_modalities == 'gyro_only':
+                # Only normalize gyroscope-related modalities
+                should_normalize = key in ['gyroscope', 'gyro_magnitude', 'fused']
+            elif self.normalize_modalities == 'acc_only':
+                # Only normalize accelerometer
+                should_normalize = key == 'accelerometer'
+
+            if should_normalize:
                 num_samples, length = value.shape[:2]
                 norm_data = StandardScaler().fit_transform(value.reshape(num_samples*length, -1))
                 self.data[key] = norm_data.reshape(num_samples, length, -1)
+
         return self.data
 
     def get_validation_report(self) -> Dict[str, Dict]:
@@ -1284,6 +1389,8 @@ class DatasetBuilder:
             print(f"  - Sequence too short (< {self.max_length} samples): {self.skip_stats['skipped_too_short']}")
             print(f"  - Preprocessing errors: {self.skip_stats['skipped_preprocessing_error']}")
             print(f"  - DTW length mismatch (acc-gyro diff > 10): {self.skip_stats['skipped_dtw_length_mismatch']}")
+            if self.enable_simple_truncation:
+                print(f"  - Truncation diff too large (> {self.max_truncation_diff}): {self.skip_stats['skipped_truncation_too_large']}")
             if self.enable_timestamp_alignment:
                 print(f"  - Timestamp unsynchronized: {self.skip_stats['skipped_timestamp_unsync']}")
                 print(f"  - Insufficient overlap: {self.skip_stats['skipped_insufficient_overlap']}")
@@ -1295,6 +1402,13 @@ class DatasetBuilder:
                 print("\nPreprocessing error details:")
                 for error_msg, count in self.preprocessing_error_details.most_common():
                     print(f"  - '{error_msg}': Skipped {count} trials")
+
+        # Print simple truncation summary if enabled
+        if self.enable_simple_truncation:
+            truncated_count = self.skip_stats['simple_truncation_applied']
+            print(f"\nSimple truncation summary:")
+            print(f"  - Trials truncated to align acc/gyro: {truncated_count}")
+            print(f"  - Max allowed difference: {self.max_truncation_diff} samples")
 
         # Print timestamp alignment summary if enabled
         if self.enable_timestamp_alignment:

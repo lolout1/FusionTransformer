@@ -92,6 +92,18 @@ def get_args():
     parser.add_argument('--test_feeder_args',default=str, help= 'A dict for test data loader')
     parser.add_argument('--include-val', type = str2bool, default= True , help = 'If we will have the validation set or not')
 
+    # Dynamic test fold grouping for consistent fall:ADL ratios
+    parser.add_argument('--enable-test-grouping', type=str2bool, default=False,
+                        help='Enable dynamic test subject grouping for consistent fall:ADL ratios across folds')
+    parser.add_argument('--test-group-min-size', type=int, default=2,
+                        help='Minimum number of subjects per test group (default: 2)')
+    parser.add_argument('--test-group-max-size', type=int, default=3,
+                        help='Maximum number of subjects per test group (default: 3)')
+    parser.add_argument('--test-group-ratio-tolerance', type=float, default=0.10,
+                        help='Acceptable deviation from target fall:ADL ratio (default: 0.10)')
+    parser.add_argument('--test-group-extreme-threshold', type=float, default=0.05,
+                        help='Subjects with fall ratio < threshold or > (1-threshold) are moved to train_only (default: 0.05)')
+
     #initializaiton
     parser.add_argument('--seed', type =  int , default = 2 , help = 'random seed (default: 1)') 
 
@@ -343,20 +355,22 @@ class Trainer():
 
         train_subjects = len(self.train_subjects) if self.train_subjects else 0
         val_subjects = len(self.val_subject) if self.val_subject else 0
-        test_subject = self.test_subject[0] if self.test_subject else 'unknown'
+        # Handle both single and grouped test subjects
+        test_subject_str = '_'.join(map(str, sorted(self.test_subject))) if self.test_subject else 'unknown'
+        test_subjects_count = len(self.test_subject) if self.test_subject else 0
 
         # Log with class distribution
         self.print_log(
             f'[Fold {fold_id}] Dataset windows -> '
             f'train: {train_windows} ({train_subjects} subjects, fall={train_fall}, adl={train_adl}), '
             f'val: {val_windows} ({val_subjects} subjects, fall={val_fall}, adl={val_adl}), '
-            f'test: {test_windows} (subject {test_subject}, fall={test_fall}, adl={test_adl})'
+            f'test: {test_windows} ({test_subjects_count} subjects: {test_subject_str}, fall={test_fall}, adl={test_adl})'
         )
 
         # Store dataset statistics for later export to comprehensive CSV
         dataset_stats = {
             'fold': fold_id,
-            'test_subject': test_subject,
+            'test_subject': test_subject_str,
             'train_subjects': ','.join(map(str, self.train_subjects)) if self.train_subjects else '',
             'val_subject': ','.join(map(str, self.val_subject)) if self.val_subject else '',
             'train_windows': train_windows,
@@ -438,10 +452,11 @@ class Trainer():
     
     def load_weights(self):
         '''
-        Load weights to the load 
+        Load weights to the load
         '''
-
-        self.model.load_state_dict(torch.load(f'{self.model_path}_{self.test_subject[0]}.pth'))
+        # Handle both single and grouped test subjects
+        test_subject_str = '_'.join(map(str, sorted(self.test_subject))) if self.test_subject else 'unknown'
+        self.model.load_state_dict(torch.load(f'{self.model_path}_{test_subject_str}.pth'))
     
     def load_optimizer(self, parameters) -> None:
         '''
@@ -504,13 +519,16 @@ class Trainer():
             # Get SMV control flags from dataset_args (default: True for backward compatibility)
             include_smv = self.arg.dataset_args.get('include_smv', True)
             include_gyro_mag = self.arg.dataset_args.get('include_gyro_mag', True)
+            # Gyro magnitude only mode: collapse 3 noisy gyro channels to 1 magnitude
+            gyro_magnitude_only = self.arg.dataset_args.get('gyro_magnitude_only', False)
 
             #validation dataset
             self.data_loader['train'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.train_feeder_args,
                                dataset=self.norm_train,
                                include_smv=include_smv,
-                               include_gyro_mag=include_gyro_mag),
+                               include_gyro_mag=include_gyro_mag,
+                               gyro_magnitude_only=gyro_magnitude_only),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
@@ -523,24 +541,28 @@ class Trainer():
                 dataset=Feeder(**self.arg.val_feeder_args,
                                dataset=self.norm_val,
                                include_smv=include_smv,
-                               include_gyro_mag=include_gyro_mag),
+                               include_gyro_mag=include_gyro_mag,
+                               gyro_magnitude_only=gyro_magnitude_only),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
             #self.distribution_viz(self.norm_val['labels'], self.arg.work_dir, 'val')
             self.norm_test = split_by_subjects(self.builder , self.test_subject, self.fuse, print_validation=False)
-            test_split_name = f'test subject {self.test_subject[0]}' if self.test_subject else 'test'
+            # Handle both single and grouped test subjects
+            test_subject_str = '_'.join(map(str, sorted(self.test_subject))) if self.test_subject else 'unknown'
+            test_split_name = f'test subjects {test_subject_str}' if self.test_subject else 'test'
             if not self.validate_split(self.norm_test, test_split_name):
                     return  False
             self.data_loader['test'] = torch.utils.data.DataLoader(
                 dataset=Feeder(**self.arg.test_feeder_args,
                                dataset=self.norm_test,
                                include_smv=include_smv,
-                               include_gyro_mag=include_gyro_mag),
+                               include_gyro_mag=include_gyro_mag,
+                               gyro_magnitude_only=gyro_magnitude_only),
                 batch_size=self.arg.test_batch_size,
                 shuffle=True,
                 num_workers=self.arg.num_worker)
-            self.distribution_viz(self.norm_test['labels'], self.arg.work_dir, f'test_{self.test_subject[0]}')
+            self.distribution_viz(self.norm_test['labels'], self.arg.work_dir, f'test_{test_subject_str}')
 
             # Print comprehensive validation and skip summaries after all splits are loaded
             self.builder.print_validation_summary()
@@ -788,14 +810,16 @@ class Trainer():
         '''
         Visualizes the val and train loss curve togethers
         '''
+        # Handle both single and grouped test subjects
+        test_subject_str = '_'.join(map(str, sorted(self.test_subject))) if self.test_subject else 'unknown'
         epochs = range(len(train_loss))
         plt.plot(epochs, train_loss,'b', label = "Training Loss")
         plt.plot(epochs, val_loss, 'r', label = "Validation Loss")
-        plt.title(f'Train Vs Val Loss for {self.test_subject[0]}')
+        plt.title(f'Train Vs Val Loss for {test_subject_str}')
         plt.legend()
         plt.xlabel('Epochs')
         plt.ylabel('Loss')
-        plt.savefig(self.arg.work_dir+'/'+f'trainvsval_{self.test_subject[0]}.png')
+        plt.savefig(self.arg.work_dir+'/'+f'trainvsval_{test_subject_str}.png')
         plt.close()
     
     def cm_viz(self, y_pred : List[int], y_true : List[int]): 
@@ -982,7 +1006,9 @@ class Trainer():
             if avg_loss < self.best_loss :
                     self.best_loss = avg_loss
                     self.best_val_metrics = metrics
-                    torch.save(deepcopy(self.model.state_dict()), f'{self.model_path}_{self.test_subject[0]}.pth')
+                    # Handle both single and grouped test subjects
+                    test_subject_str = '_'.join(map(str, sorted(self.test_subject))) if self.test_subject else 'unknown'
+                    torch.save(deepcopy(self.model.state_dict()), f'{self.model_path}_{test_subject_str}.pth')
                     self.print_log('Weights Saved')
         elif loader_name == 'test':
             self.current_fold_metrics['test'] = metrics
@@ -1061,25 +1087,80 @@ class Trainer():
                 if train_only_subjects:
                     self.print_log(f'Train-only subjects (never tested): {train_only_subjects}')
                 self.print_log(f'Test candidates for LOSO: {test_candidates}')
-                self.print_log(f'Number of LOSO iterations: {len(test_candidates)}\n')
 
-                for i in range(len(test_candidates)):
+                # Dynamic test fold grouping for consistent fall:ADL ratios
+                enable_grouping = getattr(self.arg, 'enable_test_grouping', False)
+
+                if enable_grouping and len(test_candidates) >= 4:
+                    self.print_log(f'\n{"="*60}')
+                    self.print_log('DYNAMIC TEST FOLD GROUPING ENABLED')
+                    self.print_log(f'{"="*60}')
+
+                    # Import grouper module
+                    from utils.test_fold_grouper import create_test_fold_groups
+
+                    # Step 1: Build dataset ONCE to collect statistics
+                    # Uses EXACT same preprocessing as training for accurate ratios
+                    self.print_log('Building statistics dataset for all test candidates...')
+                    stats_builder = prepare_smartfallmm(self.arg)
+                    stats_subjects = test_candidates + self.arg.validation_subjects
+                    stats_builder.make_dataset(stats_subjects, fuse=self.fuse)
+
+                    # Step 2: Create optimal groupings
+                    grouping_result = create_test_fold_groups(
+                        arg=self.arg,
+                        builder=stats_builder,
+                        test_candidates=test_candidates,
+                        validation_subjects=self.arg.validation_subjects,
+                        min_group_size=getattr(self.arg, 'test_group_min_size', 2),
+                        max_group_size=getattr(self.arg, 'test_group_max_size', 3),
+                        ratio_tolerance=getattr(self.arg, 'test_group_ratio_tolerance', 0.10),
+                        extreme_ratio_threshold=getattr(self.arg, 'test_group_extreme_threshold', 0.05)
+                    )
+
+                    test_folds = grouping_result.test_folds
+
+                    # Step 3: Move extreme subjects to train_only (never tested)
+                    if grouping_result.extreme_subjects:
+                        self.print_log(f'Moving extreme subjects to train_only: {grouping_result.extreme_subjects}')
+                        train_only_subjects = train_only_subjects + grouping_result.extreme_subjects
+                        # Also remove from test_candidates to avoid confusion
+                        test_candidates = [s for s in test_candidates
+                                          if s not in grouping_result.extreme_subjects]
+
+                    self.print_log(f'\nGrouping Summary:')
+                    self.print_log(f'  Target fall ratio: {grouping_result.target_fall_ratio:.3f}')
+                    self.print_log(f'  Test folds created: {len(test_folds)}')
+                    self.print_log(f'  Mean deviation: {grouping_result.mean_deviation:.3f}')
+                    self.print_log(f'  Max deviation: {grouping_result.max_deviation:.3f}')
+                    if grouping_result.extreme_subjects:
+                        self.print_log(f'  Extreme subjects (→ train_only): {grouping_result.extreme_subjects}')
+                    self.print_log(f'{"="*60}\n')
+                else:
+                    # Backward compatible: single-subject LOSO
+                    test_folds = [[s] for s in test_candidates]
+
+                self.print_log(f'Number of test folds: {len(test_folds)}\n')
+
+                # LOSO loop: iterate over grouped test folds
+                for fold_idx, test_subjects in enumerate(test_folds):
                     self.train_loss_summary = []
                     self.val_loss_summary = []
                     self.best_loss = float('inf')
-                    test_subject = test_candidates[i]
-                    self._init_fold_tracking(i, test_subject)
 
-                    # Training includes: all test candidates except current test subject + train-only subjects
-                    # This ensures train-only subjects always contribute to training
-                    train_subjects = [s for s in test_candidates if s != test_subject] + train_only_subjects
+                    # For grouped folds, use first subject for tracking (but record all)
+                    fold_name = '_'.join(map(str, sorted(test_subjects)))
+                    self._init_fold_tracking(fold_idx, test_subjects[0])
+
+                    # Training includes: all test candidates except current test subjects + train-only subjects
+                    train_subjects = [s for s in test_candidates if s not in test_subjects] + train_only_subjects
                     self.val_subject = self.arg.validation_subjects
-                    self.test_subject = [test_subject]
+                    self.test_subject = test_subjects  # Now supports multiple subjects
                     self.train_subjects = train_subjects
 
                     self.print_log(f'\n{"="*60}')
-                    self.print_log(f'Iteration {i+1}/{len(test_candidates)}')
-                    self.print_log(f'Test subject: {test_subject}')
+                    self.print_log(f'Fold {fold_idx+1}/{len(test_folds)}')
+                    self.print_log(f'Test subjects: {test_subjects}')
                     self.print_log(f'Validation subjects: {self.val_subject}')
                     self.print_log(f'Training subjects ({len(train_subjects)}): {sorted(train_subjects)}')
                     self.print_log(f'{"="*60}\n')
@@ -1102,23 +1183,25 @@ class Trainer():
                     self.load_model(self.arg.model,self.arg.model_args)
                     self.load_weights()
                     self.model.eval()
-                    self.print_log(f' ------------ Test Subject {self.test_subject[0]} -------')
+                    # Handle both single and grouped test subjects
+                    test_subjects_str = '_'.join(map(str, sorted(self.test_subject)))
+                    self.print_log(f' ------------ Test Subjects {test_subjects_str} -------')
                     self.eval(epoch = 0 , loader_name='test')
                     self.print_log(f'Test accuracy for : {self.test_accuracy}')
                     self.print_log(f'Test F-Score: {self.test_f1}')
                     self.loss_viz(self.train_loss_summary, self.val_loss_summary)
                     test_metrics = deepcopy(self.current_fold_metrics['test'])
                     if not all([train_metrics, val_metrics, test_metrics]):
-                        self.print_log(f'Warning: Missing metrics for subject {self.test_subject[0]}, skipping summary row.')
+                        self.print_log(f'Warning: Missing metrics for subjects {test_subjects_str}, skipping summary row.')
                         continue
                     fold_record = {
-                        'test_subject': str(self.test_subject[0]),
+                        'test_subject': test_subjects_str,
                         'train': train_metrics,
                         'val': val_metrics,
                         'test': test_metrics
                     }
                     self.fold_metrics.append(fold_record)
-                    row = {'test_subject': str(self.test_subject[0])}
+                    row = {'test_subject': test_subjects_str}
                     for split_name, metrics in [('train', train_metrics), ('val', val_metrics), ('test', test_metrics)]:
                         rounded_metrics = self._round_metrics(metrics)
                         for metric_name, metric_value in rounded_metrics.items():

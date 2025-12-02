@@ -1,0 +1,84 @@
+# IMU Transformer with Full Normalization + Simple Truncation
+#
+# Key changes:
+# 1. enable_simple_truncation: True - Simple truncation for acc/gyro alignment
+# 2. normalize_modalities: 'all' - Normalize both acc and gyro (default behavior)
+#
+# Standard normalization baseline
+#
+# Architecture: IMUTransformer
+# Channels: 6 (ax, ay, az, gx, gy, gz)
+
+model: Models.imu_transformer.IMUTransformer
+dataset: smartfallmm
+
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [48, 57]
+train_only_subjects: [29, 30, 32, 35, 39, 59]
+
+model_args:
+  imu_frames: 128
+  imu_channels: 6
+  acc_frames: 128
+  acc_coords: 6
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 80
+  dropout: 0.5
+  activation: relu
+  norm_first: True
+  auto_tune: False
+
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  age_group: [young]
+  sensors: [watch]
+  stride: 32
+  use_skeleton: False
+
+  # SMV control
+  include_smv: False
+  include_gyro_mag: False
+
+  # Simple truncation
+  enable_simple_truncation: True
+  max_truncation_diff: 50
+
+  # Disable other alignment
+  enable_timestamp_alignment: False
+  enable_gyro_alignment: False
+
+  # FULL NORMALIZATION (both acc and gyro)
+  enable_normalization: True
+  normalize_modalities: 'all'
+
+  # Preprocessing
+  enable_filtering: False
+  convert_gyro_to_rad: True
+
+  # Class-aware stride
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 32
+
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.Make_Dataset.UTD_mm
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

@@ -1,0 +1,93 @@
+# Dual-Stream Model with Robust Gyroscope Normalization (Baseline - no SE)
+# 4 channels: [ax, ay, az, gyro_mag]
+# ACC stream: 3 channels (ax, ay, az) - UNNORMALIZED
+# GYRO stream: 1 channel (gyro_mag) - NORMALIZED
+# Hypothesis: Normalize only gyroscope to handle variable units/scales
+
+model: Models.dual_stream_robust.DualStreamRobust
+dataset: smartfallmm
+
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [48, 57]
+train_only_subjects: [29, 30, 32, 35, 39, 59]
+
+model_args:
+  imu_channels: 4
+  acc_coords: 4
+  acc_in_channels: 3   # [ax, ay, az]
+  gyro_in_channels: 1  # [gyro_mag]
+  imu_frames: 128
+  acc_frames: 128
+  mocap_frames: 128
+  num_joints: 32
+  acc_dim: 48
+  gyro_dim: 16
+  num_heads: 4
+  num_layers: 1
+  dropout: 0.5
+  acc_dropout: 0.3
+  gyro_dropout: 0.5
+  num_classes: 1
+  # Baseline - no SE or attention modules
+  use_se: False
+  use_temporal_attention: False
+  use_cross_modal_gate: False
+  activation: gelu
+  norm_first: True
+
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  age_group: [young]
+  sensors: [watch]
+  use_skeleton: False
+  stride: 32
+
+  # Gyro magnitude only mode
+  gyro_magnitude_only: True
+  include_smv: False
+  include_gyro_mag: False
+
+  # Timestamp-based alignment
+  enable_timestamp_alignment: True
+  alignment_target_rate: 30.0
+  alignment_method: linear
+  min_overlap_ratio: 0.8
+  max_time_gap_ms: 1000.0
+  min_output_samples: 64
+  length_threshold: 10
+
+  # Preprocessing - ROBUST GYRO NORMALIZATION
+  enable_filtering: False
+  enable_normalization: True
+  normalize_modalities: gyro_only  # Only normalize gyroscope, keep acc raw
+  convert_gyro_to_rad: True
+  enable_motion_filtering: False
+
+  # Class-aware stride for balanced training
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 32
+
+  # Disable legacy alignment
+  enable_gyro_alignment: False
+  discard_mismatched_modalities: False
+
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+optimizer: adamw
+base_lr: 1.0e-3
+weight_decay: 1.0e-3
+seed: 2
+
+feeder: Feeder.Make_Dataset.UTD_mm
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64

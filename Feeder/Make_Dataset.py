@@ -93,7 +93,8 @@ class Bmhad_mm(torch.utils.data.Dataset):
     
 
 class UTD_mm(torch.utils.data.Dataset):
-    def __init__(self, dataset, batch_size, include_smv=True, include_gyro_mag=True):
+    def __init__(self, dataset, batch_size, include_smv=True, include_gyro_mag=True,
+                 gyro_magnitude_only=False):
         """
         Initialize UTD_mm dataset.
 
@@ -107,9 +108,13 @@ class UTD_mm(torch.utils.data.Dataset):
                         - Acc only: 3ch [ax, ay, az]
                         - IMU: 6ch [ax, ay, az, gx, gy, gz]
             include_gyro_mag: If True and include_smv=True, add gyro magnitude for IMU data
+            gyro_magnitude_only: If True, use only gyro magnitude instead of raw gyro channels
+                        - 4ch: [ax, ay, az, gyro_mag] - collapses 3 noisy gyro channels to 1
+                        - Overrides include_smv when True for IMU data
         """
         self.include_smv = include_smv
         self.include_gyro_mag = include_gyro_mag
+        self.gyro_magnitude_only = gyro_magnitude_only
 
         # Support both single modality (acc OR gyro) and multi-modal (acc AND gyro)
         self.has_accelerometer = 'accelerometer' in dataset
@@ -259,7 +264,13 @@ class UTD_mm(torch.utils.data.Dataset):
         if self.inertial_modality == 'imu' and self.gyro_data is not None:
             gyro_data = torch.tensor(self.gyro_data[index, :, :])
 
-            if self.include_smv:
+            if self.gyro_magnitude_only:
+                # 4 channels: [ax, ay, az, gyro_mag]
+                # Collapses 3 noisy gyro channels into 1 magnitude value
+                # This reduces noise while preserving rotational intensity information
+                gyro_mag = self.cal_smv(gyro_data)  # (T, 1)
+                imu_data = torch.cat((acc_data, gyro_mag), dim=-1)  # 4 ch
+            elif self.include_smv:
                 # 8 channels: [smv, ax, ay, az, gyro_mag, gx, gy, gz]
                 acc_smv = self.cal_smv(acc_data)
                 if self.include_gyro_mag:

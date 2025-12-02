@@ -1,0 +1,99 @@
+# Dual-Stream Simple Model - BALANCED STRIDE Configuration
+# Changes from dual_stream_simple_6ch.yaml:
+#   - adl_stride: 32 -> 64 (doubles ADL stride to reduce ADL over-representation)
+#   - validation_subjects: Will be dynamically updated by find_val_subjects_balanced.py
+#
+# Purpose: Fix class imbalance caused by alignment failures disproportionately
+#          discarding fall trials in acc+gyro configurations.
+#
+# Architecture: Simple dual-stream (~8K params)
+# No SE, no attention, no gating - just separate Conv1d projections
+# Global average pooling -> concat -> classifier
+#
+# Channels: 6 (ax, ay, az, gx, gy, gz) - NO SMV
+#
+# Expected impact:
+#   - ADL windows reduced by ~50%
+#   - Fall:ADL ratio improved from ~0.58:1 to ~1.15:1
+
+model: Models.dual_stream_robust.DualStreamSimple
+dataset: smartfallmm
+
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [56, 57]  # PLACEHOLDER - will be updated by find_val_subjects_balanced.py
+# Subjects with poor gyroscope data - permanently in training, never tested
+train_only_subjects: [29, 30, 32, 35, 39, 59]  # Subjects with poor gyro data or imbalanced class distribution
+
+model_args:
+  imu_channels: 6
+  acc_coords: 6
+  imu_frames: 128
+  acc_frames: 128
+  mocap_frames: 128
+  num_joints: 32
+  acc_dim: 32
+  gyro_dim: 16
+  num_classes: 1
+  dropout: 0.5
+
+dataset_args:
+  mode: 'sliding_window'
+  max_length: 128
+  task: 'fd'
+  modalities: ['accelerometer', 'gyroscope']
+  age_group: ['young']
+  sensors: ['phone']
+  use_skeleton: False
+  stride: 32
+
+  # SMV control - NO SMV (raw 6 channels)
+  include_smv: False
+  include_gyro_mag: False
+
+  # Timestamp-based alignment
+  enable_timestamp_alignment: True
+  alignment_target_rate: 30.0
+  alignment_method: linear
+  min_overlap_ratio: 0.8
+  max_time_gap_ms: 1000.0
+  min_output_samples: 64
+  length_threshold: 10
+
+  # Preprocessing
+  enable_filtering: False
+  enable_normalization: False
+  convert_gyro_to_rad: False  # Already in rad/s
+
+  # Motion filtering DISABLED - was filtering out fall samples
+  # Falls are brief impacts followed by stillness, motion filter removes them
+  enable_motion_filtering: False
+  motion_threshold: 10.0
+  motion_min_axes: 2
+
+  # BALANCED CLASS-AWARE STRIDE
+  # Key change: adl_stride doubled (32 -> 64) to reduce ADL over-representation
+  enable_class_aware_stride: True
+  fall_stride: 16       # Keep same - preserve fall window count
+  adl_stride: 64        # DOUBLED from 32 - reduces ADL windows by ~50%
+
+  # Disable legacy alignment
+  enable_gyro_alignment: False
+  discard_mismatched_modalities: False
+  length_sensitive_modalities: ['accelerometer', 'gyroscope']
+
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+optimizer: adamw
+base_lr: 1.0e-3
+weight_decay: 1.0e-3
+seed: 2
+
+feeder: Feeder.Make_Dataset.UTD_mm
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64

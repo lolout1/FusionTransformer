@@ -301,6 +301,8 @@ class DualStreamRobust(nn.Module):
                  use_cross_modal_gate: bool = True,
                  activation: str = 'gelu',
                  norm_first: bool = True,
+                 acc_in_channels: int = None,
+                 gyro_in_channels: int = None,
                  **kwargs):
         super().__init__()
 
@@ -308,15 +310,24 @@ class DualStreamRobust(nn.Module):
         self.imu_frames = imu_frames if imu_frames else acc_frames
         self.imu_channels = imu_channels if imu_channels else acc_coords
 
-        # Determine input channel split based on total channels
-        # 8 channels: [smv, ax, ay, az, gyro_mag, gx, gy, gz] -> 4 acc, 4 gyro
-        # 6 channels: [ax, ay, az, gx, gy, gz] -> 3 acc, 3 gyro
-        if self.imu_channels == 8:
+        # Determine input channel split
+        # Priority: explicit params > infer from imu_channels
+        if acc_in_channels is not None and gyro_in_channels is not None:
+            # Explicit channel split (e.g., for gyro_magnitude_only: acc=3, gyro=1)
+            self.acc_in_channels = acc_in_channels
+            self.gyro_in_channels = gyro_in_channels
+        elif self.imu_channels == 8:
+            # 8 channels: [smv, ax, ay, az, gyro_mag, gx, gy, gz] -> 4 acc, 4 gyro
             self.acc_in_channels = 4
             self.gyro_in_channels = 4
         elif self.imu_channels == 6:
+            # 6 channels: [ax, ay, az, gx, gy, gz] -> 3 acc, 3 gyro
             self.acc_in_channels = 3
             self.gyro_in_channels = 3
+        elif self.imu_channels == 4:
+            # 4 channels: [ax, ay, az, gyro_mag] -> 3 acc, 1 gyro (gyro_magnitude_only)
+            self.acc_in_channels = 3
+            self.gyro_in_channels = 1
         else:
             # Flexible: split evenly
             self.acc_in_channels = self.imu_channels // 2
