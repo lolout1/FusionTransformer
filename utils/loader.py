@@ -32,6 +32,7 @@ from utils.alignment import (
     AlignmentConfig, AlignmentResult,
     create_alignment_config_from_kwargs, align_imu_modalities
 )
+from utils.kalman import kalman_fusion_for_loader, assemble_kalman_features
 
 
 
@@ -544,6 +545,25 @@ class DatasetBuilder:
         self.fusion_method = kwargs.get('fusion_method', 'madgwick')
         self.fusion_frequency = kwargs.get('fusion_frequency', 30.0)
         self.fusion_params = kwargs.get('fusion_params', {})
+
+        # Kalman filter fusion configuration
+        self.enable_kalman_fusion = kwargs.get('enable_kalman_fusion', False)
+        self.kalman_config = {
+            'kalman_filter_type': kwargs.get('kalman_filter_type', 'linear'),
+            'kalman_output_format': kwargs.get('kalman_output_format', 'euler'),
+            'kalman_include_smv': kwargs.get('kalman_include_smv', True),
+            'kalman_include_uncertainty': kwargs.get('kalman_include_uncertainty', False),
+            'kalman_include_innovation': kwargs.get('kalman_include_innovation', False),
+            'filter_fs': kwargs.get('filter_fs', 30.0),
+            # Linear KF parameters
+            'kalman_Q_orientation': kwargs.get('kalman_Q_orientation', 0.01),
+            'kalman_Q_rate': kwargs.get('kalman_Q_rate', 0.1),
+            'kalman_R_acc': kwargs.get('kalman_R_acc', 0.1),
+            'kalman_R_gyro': kwargs.get('kalman_R_gyro', 0.5),
+            # EKF parameters
+            'kalman_Q_quat': kwargs.get('kalman_Q_quat', 0.001),
+            'kalman_Q_bias': kwargs.get('kalman_Q_bias', 0.0001),
+        }
 
         # Global skip tracking
         self.skip_stats = {
@@ -1185,6 +1205,28 @@ class DatasetBuilder:
                         except Exception as err:
                             print(f"Warning: Sensor fusion failed for S{subject_id}A{action_id}T{trial_id}: {err}")
                             # Continue with raw gyro data if fusion fails
+
+                    # Kalman filter fusion (replaces gyroscope with orientation features)
+                    if self.enable_kalman_fusion and 'accelerometer' in trial_data and 'gyroscope' in trial_data:
+                        try:
+                            trial_data = kalman_fusion_for_loader(trial_data, self.kalman_config)
+                            # Assemble final features: [smv, ax, ay, az, roll, pitch, yaw, ...]
+                            kalman_features = assemble_kalman_features(
+                                trial_data,
+                                include_smv=self.kalman_config.get('kalman_include_smv', True)
+                            )
+                            # Replace accelerometer with full Kalman features
+                            trial_data['accelerometer'] = kalman_features
+                            # Remove orientation (already incorporated)
+                            if 'orientation' in trial_data:
+                                del trial_data['orientation']
+                            if 'uncertainty' in trial_data:
+                                del trial_data['uncertainty']
+                            if 'innovation' in trial_data:
+                                del trial_data['innovation']
+                        except Exception as err:
+                            print(f"Warning: Kalman fusion failed for S{subject_id}A{action_id}T{trial_id}: {err}")
+                            # Continue with raw acc+gyro if Kalman fusion fails
 
                     try:
                         self._synchronize_modalities(

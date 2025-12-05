@@ -1,0 +1,82 @@
+# Raw Accelerometer + Gyroscope Baseline - 8 Channel
+# Input: [smv, ax, ay, az, smv_gyro, gx, gy, gz] raw IMU data
+#
+# Baseline using raw gyroscope without sensor fusion.
+# Uses IMUTransformerSE with dual-stream architecture.
+#
+# This baseline shows performance without any fusion algorithm.
+# Expected to suffer from gyroscope drift over long sequences.
+
+model: Models.imu_transformer_se.IMUTransformerSE
+dataset: smartfallmm
+
+subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [48, 57]
+train_only_subjects: [29, 30, 32, 35, 39, 59]
+
+model_args:
+  imu_frames: 128
+  imu_channels: 8  # smv_acc, ax, ay, az, smv_gyro, gx, gy, gz
+  acc_frames: 128
+  acc_coords: 8
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: relu
+  norm_first: True
+  se_reduction: 4
+  acc_ratio: 0.75
+
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  age_group: [young]
+  sensors: [watch]
+  stride: 32
+  use_skeleton: False
+
+  # Normalization (ENABLED for both acc and gyro)
+  enable_normalization: True
+  normalize_modalities: all
+
+  # Filtering disabled
+  enable_filtering: False
+  enable_motion_filtering: False
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 32
+
+  # Gyro conversion enabled (deg/s -> rad/s)
+  convert_gyro_to_rad: True
+
+  # Simple truncation for acc/gyro alignment
+  enable_simple_truncation: True
+  max_truncation_diff: 50
+  discard_mismatched_modalities: False
+  length_sensitive_modalities: [accelerometer, gyroscope]
+
+  # No sensor fusion - raw gyro
+  enable_sensor_fusion: False
+  enable_kalman_fusion: False
+
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.Make_Dataset.UTD_mm
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001
