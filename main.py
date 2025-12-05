@@ -120,7 +120,11 @@ def get_args():
     parser.add_argument('--num-worker', type = int, default= 0)
     parser.add_argument('--result-file', type = str, help = 'Name of resutl file')
 
-    
+    # Single-fold execution for parallel SLURM jobs
+    parser.add_argument('--single-fold', type=int, default=None,
+                        help='Run only a single LOSO fold for specified test subject (for parallel job submission)')
+
+
     return parser
 
 def str2bool(v):
@@ -208,11 +212,17 @@ class Trainer():
         self.builder = None  # Will store DatasetBuilder reference to access statistics
         #self.intertial_modality = (lambda x: next((modality for modality in x if modality != 'skeleton'), None))(arg.dataset_args['modalities'])
         self.inertial_modality = [modality  for modality in arg.dataset_args['modalities'] if modality != 'skeleton']
-        self.fuse = len(self.inertial_modality) > 1 
+        self.fuse = len(self.inertial_modality) > 1
         self.use_skeleton = arg.dataset_args.get('use_skeleton', True)
+        # In single-fold mode, use exact work_dir without timestamp (parallel execution)
+        single_fold_mode = getattr(self.arg, 'single_fold', None) is not None
         if os.path.exists(self.arg.work_dir):
-            self.arg.work_dir = f"{self.arg.work_dir}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-        os.makedirs(self.arg.work_dir) 
+            if single_fold_mode:
+                # Don't add timestamp in single-fold mode - directory is pre-created
+                pass
+            else:
+                self.arg.work_dir = f"{self.arg.work_dir}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+        os.makedirs(self.arg.work_dir, exist_ok=True) 
         self.model_path = f'{self.arg.work_dir}/{self.arg.model_saved_name}'                    
         self.save_config(arg.config, arg.work_dir)
         if self.arg.phase == 'train':
@@ -1140,6 +1150,15 @@ class Trainer():
                     # Backward compatible: single-subject LOSO
                     test_folds = [[s] for s in test_candidates]
 
+                # Single-fold mode: filter to only the specified test subject
+                single_fold_subject = getattr(self.arg, 'single_fold', None)
+                if single_fold_subject is not None:
+                    test_folds = [[s] for s in test_candidates if s == single_fold_subject]
+                    if not test_folds:
+                        self.print_log(f'ERROR: Subject {single_fold_subject} not in test candidates: {test_candidates}')
+                        return
+                    self.print_log(f'SINGLE-FOLD MODE: Testing only subject {single_fold_subject}')
+
                 self.print_log(f'Number of test folds: {len(test_folds)}\n')
 
                 # LOSO loop: iterate over grouped test folds
@@ -1210,7 +1229,13 @@ class Trainer():
                     results = pd.concat([results, subject_result], ignore_index=True)
                 if not results.empty:
                     results = self.add_avg_df(results)
-                    results.to_csv(f'{self.arg.work_dir}/scores.csv', index=False)
+                    # Use unique filename in single-fold mode to avoid race conditions
+                    single_fold_subject = getattr(self.arg, 'single_fold', None)
+                    if single_fold_subject is not None:
+                        scores_file = f'{self.arg.work_dir}/scores_s{single_fold_subject}.csv'
+                    else:
+                        scores_file = f'{self.arg.work_dir}/scores.csv'
+                    results.to_csv(scores_file, index=False)
 
                     # Enhanced reporting: Save detailed per-fold analysis
                     if self.fold_metrics:
