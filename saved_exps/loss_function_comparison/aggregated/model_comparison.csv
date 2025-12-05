@@ -1,0 +1,5 @@
+experiment,model,loss,n_folds,test_acc_mean,test_acc_std,test_f1_mean,test_f1_std
+se_bce,IMUTransformerSE,BCE,22,82.5359,9.9060,84.7509,10.0306
+se_focal,IMUTransformerSE,Focal,22,83.5477,9.0709,86.5673,8.2418
+ds_bce,DualStreamRobust,BCE,22,84.5595,9.3515,85.8136,9.9869
+ds_focal,DualStreamRobust,Focal,22,79.9809,9.4133,83.7186,8.5995
