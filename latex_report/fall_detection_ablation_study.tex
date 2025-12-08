@@ -35,7 +35,7 @@
 % Abstract
 % ------------------------------------------------------------------
 \begin{abstract}
-This paper validates and extends our prior work on multimodal transformer architectures for wearable fall detection. Our November 2025 investigation identified that raw gyroscope fusion hurts performance (85.30\% vs 87.35\% F1 for accelerometer-only) and proposed Squeeze-and-Excitation (SE) attention and dual-stream architectures as solutions. Through 12 controlled experiments on the SmartFallMM dataset (51 subjects: 30 young + 21 elderly), we validate these hypotheses with statistical rigor. Key findings: (i) \textbf{SE attention validated}---provides 10\% F1 improvement, 2.5$\times$ higher than the predicted 2-4\%, confirming effective noise suppression; (ii) \textbf{Kalman fusion discovered}---in-model Kalman sensor fusion enables effective gyroscope utilization (+3-4\% F1), solving the raw fusion deficit; (iii) \textbf{dual-stream validated}---when combined with Kalman fusion, dual-stream \textbf{consistently outperforms} single-stream across both populations (+0.78\% Young+Old, +1.67\% Young-only with $p=0.074$). Our best configuration, Kalman Dual-Stream Balanced, achieves \textbf{91.01\% F1-score}---a 3.66\% absolute improvement over prior work. All experiments use per-sample z-score normalization and 22-fold Leave-One-Subject-Out cross-validation with paired t-tests.
+This paper validates and extends our prior work on multimodal transformer architectures for wearable fall detection. Our November 2025 investigation identified that raw gyroscope fusion hurts performance (85.30\% vs 87.35\% F1 for accelerometer-only) and proposed Squeeze-and-Excitation (SE) channel attention, Temporal Attention Pooling (TAP), and dual-stream architectures as solutions. Through 12 controlled experiments on the SmartFallMM dataset (51 subjects: 30 young + 21 elderly), we validate these hypotheses with statistical rigor. Key findings: (i) \textbf{SE+TAP attention validated}---combined SE (channel weighting) and TAP (temporal focus) provide 10\% F1 improvement, 2.5$\times$ higher than the predicted 2-4\%; (ii) \textbf{Kalman fusion discovered}---in-model Kalman sensor fusion enables effective gyroscope utilization (+3-4\% F1), solving the raw fusion deficit; (iii) \textbf{dual-stream validated}---when combined with Kalman fusion, dual-stream \textbf{consistently outperforms} single-stream across both populations (+0.78\% Young+Old, +1.67\% Young-only with $p=0.074$). Our best configuration, Kalman Dual-Stream Balanced, achieves \textbf{91.01\% F1-score}---a 3.66\% absolute improvement over prior work. All experiments use per-sample z-score normalization and 22-fold Leave-One-Subject-Out cross-validation with paired t-tests.
 \end{abstract}
 
 % ------------------------------------------------------------------
@@ -90,7 +90,7 @@ This document presents comprehensive experimental results from 15+ ablation stud
 \begin{enumerate}
     \item \textbf{Kalman Fusion Architecture Paper:} Novel in-model Kalman sensor fusion for IMU-based fall detection (+3.78\% over baselines)
     \item \textbf{Age-Diverse Training Paper:} Using elderly ADL data to improve young adult fall detection (+2.7-4.4\% F1)
-    \item \textbf{Attention Design Paper:} Modality-dependent effectiveness of SE attention (helps complex inputs, hurts simple inputs)
+    \item \textbf{Attention Design Paper:} Modality-dependent effectiveness of SE+TAP attention (helps complex inputs, hurts simple inputs)
     \item \textbf{Comprehensive Methods Paper:} Full ablation study combining all findings
 \end{enumerate}
 
@@ -140,7 +140,7 @@ This paper provides rigorous experimental validation of these proposals through 
 Our experiments \textbf{validate and extend} the original hypotheses:
 
 \begin{enumerate}
-    \item \textbf{H1 Validated:} SE attention provides \textbf{10\% F1 improvement}---2.5$\times$ higher than the predicted 2-4\%, confirming that learned channel weighting effectively suppresses gyroscope noise.
+    \item \textbf{H1 Validated:} SE+TAP attention mechanisms provide \textbf{10\% F1 improvement}---2.5$\times$ higher than the predicted 2-4\%. SE learns channel weighting while TAP focuses on transient fall events.
 
     \item \textbf{H2 Validated:} TAP outperforms global average pooling by focusing on discriminative timesteps.
 
@@ -487,10 +487,11 @@ This section provides statistically-grounded conclusions for the two primary res
 
 \textbf{Experimental Setup:} All modality comparisons use identical configurations except for input channels:
 \begin{itemize}
-    \item \textbf{Architecture:} Single-stream TransformerSE (1 encoder with SE attention)
+    \item \textbf{Architecture:} Single-stream TransformerSE (1 encoder with SE + TAP)
+    \item \textbf{Attention:} SE (channel attention) + TAP (temporal attention pooling) - same for all conditions
     \item \textbf{Normalization:} Z-score per sample (enabled)
     \item \textbf{Preprocessing:} No Kalman, no filtering (raw sensor data)
-    \item \textbf{Hyperparameters:} embed\_dim=64, heads=4, layers=2, dropout=0.5
+    \item \textbf{Hyperparameters:} embed\_dim=64, heads=4, layers=2, dropout=0.5, se\_reduction=4
     \item \textbf{Loss:} Focal loss ($\alpha$=0.75, $\gamma$=2.0)
     \item \textbf{Source:} \texttt{saved\_exps/modality\_comparison/} (4-7 folds, preliminary)
 \end{itemize}
@@ -557,36 +558,43 @@ Adding more channels progressively degrades performance: 3ch (85.4\%) $>$ 4ch (8
 % ==================================================================
 \section{Results: Attention Mechanism Ablations}
 
-\subsection{Squeeze-and-Excitation (SE) Module}
+\subsection{SE + TAP Attention Mechanisms}
 
-\textbf{Experimental Setup:} All SE ablation comparisons use identical configurations except for the SE block:
+\textbf{Experimental Setup:} The comparison is between two model variants:
 \begin{itemize}
-    \item \textbf{Architecture:} Single-stream Transformer (1 encoder)
+    \item \textbf{TransformerSE:} SE (Squeeze-and-Excitation) channel attention + TAP (Temporal Attention Pooling)
+    \item \textbf{Transformer baseline:} No SE block + Mean Pooling (no TAP)
     \item \textbf{Input:} Accelerometer-only, 3 channels (ax, ay, az), NO gyroscope
     \item \textbf{Normalization:} None (raw accelerometer data)
     \item \textbf{Hyperparameters:} embed\_dim=64, heads=4, layers=2, dropout=0.5
     \item \textbf{Source:} \texttt{saved\_exps/se\_smv\_comparison/} (22-fold LOSO-CV)
 \end{itemize}
 
+\textbf{What SE and TAP Do:}
+\begin{itemize}
+    \item \textbf{SE (Squeeze-and-Excitation):} Learns channel-wise attention weights through global pooling and excitation (FC layers with sigmoid). Adaptively emphasizes informative channels while suppressing noisy ones.
+    \item \textbf{TAP (Temporal Attention Pooling):} Learnable temporal aggregation that focuses on transient fall events rather than averaging all timesteps equally. Critical for detecting short-duration falls within longer windows.
+\end{itemize}
+
 \begin{table}[htbp]
     \centering
-    \caption{Effect of SE attention on performance (accelerometer-only, single-stream architecture).}
+    \caption{Effect of SE+TAP attention mechanisms (accelerometer-only, single-stream architecture).}
     \label{tab:se_ablation}
-    \begin{tabular}{lccccc}
+    \begin{tabular}{lcccccc}
         \toprule
-        \textbf{Model} & \textbf{Input} & \textbf{SE Block} & \textbf{Test F1 [\%]} & \textbf{$\Delta$ F1} \\
+        \textbf{Model} & \textbf{Input} & \textbf{SE} & \textbf{TAP} & \textbf{Test F1 [\%]} & \textbf{$\Delta$ F1} \\
         \midrule
-        Transformer & 3ch acc & No & 76.29 $\pm$ 13.60 & -- \\
-        Transformer + SMV & 4ch acc+smv & No & 81.28 $\pm$ 13.21 & +4.99\% \\
-        \textbf{TransformerSE} & \textbf{3ch acc} & \textbf{Yes} & \textbf{86.37 $\pm$ 10.55} & \textbf{+10.08\%} \\
-        TransformerSE + SMV & 4ch acc+smv & Yes & 85.54 $\pm$ 11.48 & +9.25\% \\
+        Transformer (baseline) & 3ch acc & No & No & 76.29 $\pm$ 13.60 & -- \\
+        Transformer + SMV & 4ch acc+smv & No & No & 81.28 $\pm$ 13.21 & +4.99\% \\
+        \textbf{TransformerSE} & \textbf{3ch acc} & \textbf{Yes} & \textbf{Yes} & \textbf{86.37 $\pm$ 10.55} & \textbf{+10.08\%} \\
+        TransformerSE + SMV & 4ch acc+smv & Yes & Yes & 85.54 $\pm$ 11.48 & +9.25\% \\
         \bottomrule
     \end{tabular}
 \end{table}
 
 \textbf{Key Findings:}
 \begin{enumerate}
-    \item SE blocks provide \textbf{+10.08\% F1 improvement} (76.29\% $\rightarrow$ 86.37\%) on accelerometer-only input
+    \item SE+TAP combined provide \textbf{+10.08\% F1 improvement} (76.29\% $\rightarrow$ 86.37\%) on accelerometer-only input
     \item This \textbf{exceeds our hypothesis of 2-4\%} by 2.5$\times$
     \item SMV (Signal Magnitude Vector) is \textbf{redundant when SE is present} ($-$0.83\%)
     \item SE reduces variance: std drops from $\pm$13.60\% to $\pm$10.55\%
@@ -1235,7 +1243,7 @@ Based on our comprehensive ablation study:
 \begin{enumerate}
     \item \textbf{Use Kalman fusion} to extract orientation from gyroscope (not raw gyroscope)
     \item \textbf{Single-stream is sufficient} unless modality interpretability is needed
-    \item \textbf{Enable SE attention} for $\sim$10\% F1 improvement
+    \item \textbf{Enable SE+TAP attention} for $\sim$10\% F1 improvement (SE for channel weighting, TAP for temporal focus)
     \item \textbf{Disable positional encoding} (hurts by 2-3\%)
     \item \textbf{Use balanced (50/50) capacity} for cross-population generalization
     \item \textbf{Apply z-score normalization} for single-stream architectures
@@ -1266,7 +1274,7 @@ We presented a comprehensive ablation study addressing two fundamental questions
 
 Additional findings include:
 \begin{itemize}
-    \item SE attention provides 10\% F1 improvement (2.5$\times$ higher than hypothesized)
+    \item SE+TAP attention provides 10\% F1 improvement (2.5$\times$ higher than hypothesized)
     \item Positional encoding hurts performance by 2-3\%
     \item Best configuration: Kalman Dual-Stream Balanced at \textbf{91.01\% F1}
 \end{itemize}
@@ -1312,7 +1320,7 @@ Based on the verified experimental results, we identify four potential paper dir
 
 \subsection{Direction 3: Modality-Dependent Attention Design}
 
-\textbf{Core Contribution:} SE attention effectiveness depends on input dimensionality---helps complex inputs but hurts simple inputs.
+\textbf{Core Contribution:} SE+TAP attention effectiveness depends on input dimensionality---helps complex inputs but hurts simple inputs.
 
 \textbf{Key Results:}
 \begin{itemize}
@@ -1321,7 +1329,7 @@ Based on the verified experimental results, we identify four potential paper dir
     \item Practical guideline: Use SE only when input dimensionality warrants it
 \end{itemize}
 
-\textbf{Novelty:} First systematic study showing SE attention has opposite effects depending on input complexity. Provides design guidelines for when attention mechanisms are beneficial.
+\textbf{Novelty:} First systematic study showing SE+TAP attention has opposite effects depending on input complexity. Provides design guidelines for when attention mechanisms are beneficial.
 
 \textbf{Target Venues:} NeurIPS Workshop, ICLR Tiny Papers, Sensors
 
