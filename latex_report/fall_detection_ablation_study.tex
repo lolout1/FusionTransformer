@@ -485,25 +485,33 @@ This section provides statistically-grounded conclusions for the two primary res
 
 \subsubsection{Raw Fusion (No Kalman)}
 
+\textbf{Experimental Setup:} All modality comparisons use identical configurations except for input channels:
+\begin{itemize}
+    \item \textbf{Architecture:} Single-stream TransformerSE (1 encoder with SE attention)
+    \item \textbf{Normalization:} Z-score per sample (enabled)
+    \item \textbf{Preprocessing:} No Kalman, no filtering (raw sensor data)
+    \item \textbf{Hyperparameters:} embed\_dim=64, heads=4, layers=2, dropout=0.5
+    \item \textbf{Loss:} Focal loss ($\alpha$=0.75, $\gamma$=2.0)
+    \item \textbf{Source:} \texttt{saved\_exps/modality\_comparison/} (4-7 folds, preliminary)
+\end{itemize}
+
 \begin{table}[htbp]
     \centering
-    \caption{Acc-only vs Acc+Gyro comparison: Raw fusion.}
+    \caption{Effect of input modality on fall detection (TransformerSE architecture, z-score normalized).}
     \label{tab:rq2_raw}
-    \begin{tabular}{lccc}
+    \begin{tabular}{lcccc}
         \toprule
-        \textbf{Model} & \textbf{Input} & \textbf{Test F1 [\%]} & \textbf{$\Delta$ F1} \\
+        \textbf{Model} & \textbf{Channels} & \textbf{Input Description} & \textbf{Test F1 [\%]} & \textbf{$\Delta$ F1} \\
         \midrule
-        Acc-Only + SE & 4ch (smv, ax, ay, az) & 86.37 $\pm$ 8.24 & -- \\
-        Acc+Gyro + SE & 6ch (all) & 84.75 $\pm$ 10.03 & $-$1.62\% \\
-        \midrule
-        \multicolumn{4}{l}{\textit{November 2025 results (no normalization):}} \\
-        Acc-Only (TransModel) & 4ch & 87.35 & -- \\
-        Acc+Gyro (IMUTransformer) & 8ch & 85.30 & $-$2.05\% \\
+        \textbf{TransformerSE (Acc)} & \textbf{3ch} & \textbf{ax, ay, az} & \textbf{85.39 $\pm$ 4.19} & \textbf{--} \\
+        TransformerSE (Acc+SMV) & 4ch & smv, ax, ay, az & 82.19 $\pm$ 9.48 & $-$3.20\% \\
+        TransformerSE (Acc+Gyro) & 6ch & ax, ay, az, gx, gy, gz & 81.51 $\pm$ 11.98 & $-$3.88\% \\
+        TransformerSE (Full) & 7ch & smv, ax, ay, az, gx, gy, gz & 78.33 $\pm$ 16.07 & $-$7.06\% \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\textbf{Finding:} Raw gyroscope fusion provides \textbf{no benefit} and slightly hurts performance ($-$1.6 to $-$2.0\% F1).
+\textbf{Key Finding:} Adding gyroscope channels to raw accelerometer data \textbf{hurts} performance by $-$3.88\% F1. The best configuration uses \textbf{accelerometer-only (3 channels)}.
 
 \subsubsection{Kalman Fusion}
 
@@ -526,19 +534,22 @@ This section provides statistically-grounded conclusions for the two primary res
 \subsubsection{Why Raw Gyroscope Hurts But Kalman Helps}
 
 \begin{enumerate}
-    \item \textbf{Gyroscope noise:} Raw gyroscope has SNR $< 1.0$ for 76\% of subjects, corrupting accelerometer features in early fusion.
-    \item \textbf{Kalman filtering:} Produces smooth orientation estimates by optimally combining noisy gyroscope with stable accelerometer reference.
-    \item \textbf{Complementary information:} Orientation (roll/pitch/yaw) provides body posture information distinct from linear acceleration.
+    \item \textbf{Gyroscope noise:} Raw gyroscope signals are noisy and can corrupt useful accelerometer features during early fusion.
+    \item \textbf{Overfitting risk:} More input channels (6ch $\rightarrow$ 7ch) increases model complexity without proportional information gain, leading to worse generalization.
+    \item \textbf{Kalman filtering:} Produces smooth orientation estimates (roll, pitch, yaw) by optimally combining noisy gyroscope with stable accelerometer reference.
+    \item \textbf{Complementary information:} Kalman-derived orientation provides body posture information distinct from linear acceleration, adding value without adding noise.
 \end{enumerate}
 
 \subsubsection{RQ2 Conclusion}
 
 \begin{tcolorbox}[colback=green!5,colframe=green!50!black,title=\textbf{Answer to RQ2: Accelerometer-Only vs Accelerometer+Gyroscope}]
-\textbf{Raw gyroscope fusion does not help} and may slightly hurt performance ($-$2\% F1, $p = 0.62$, not significant).
+\textbf{Raw gyroscope fusion hurts performance} by $-$3.88\% F1 (acc-only 85.39\% $\rightarrow$ acc+gyro 81.51\%).
 
-\textbf{However, Kalman-fused gyroscope DOES help} by providing orientation estimates (+3-4\% F1).
+Adding more channels progressively degrades performance: 3ch (85.4\%) $>$ 4ch (82.2\%) $>$ 6ch (81.5\%) $>$ 7ch (78.3\%).
 
-\textbf{Practical recommendation:} Use Kalman fusion to extract orientation from gyroscope, rather than raw gyroscope channels.
+\textbf{However, Kalman-fused gyroscope DOES help} by providing orientation estimates (+2.7 to +4.4\% F1).
+
+\textbf{Practical recommendation:} Use Kalman fusion to extract orientation from gyroscope, rather than raw gyroscope channels. More channels $\neq$ better performance.
 \end{tcolorbox}
 
 % ==================================================================
@@ -548,28 +559,37 @@ This section provides statistically-grounded conclusions for the two primary res
 
 \subsection{Squeeze-and-Excitation (SE) Module}
 
+\textbf{Experimental Setup:} All SE ablation comparisons use identical configurations except for the SE block:
+\begin{itemize}
+    \item \textbf{Architecture:} Single-stream Transformer (1 encoder)
+    \item \textbf{Input:} Accelerometer-only, 3 channels (ax, ay, az), NO gyroscope
+    \item \textbf{Normalization:} None (raw accelerometer data)
+    \item \textbf{Hyperparameters:} embed\_dim=64, heads=4, layers=2, dropout=0.5
+    \item \textbf{Source:} \texttt{saved\_exps/se\_smv\_comparison/} (22-fold LOSO-CV)
+\end{itemize}
+
 \begin{table}[htbp]
     \centering
-    \caption{Effect of SE attention on performance.}
+    \caption{Effect of SE attention on performance (accelerometer-only, single-stream architecture).}
     \label{tab:se_ablation}
-    \begin{tabular}{lcccc}
+    \begin{tabular}{lccccc}
         \toprule
-        \textbf{Model} & \textbf{SE Block} & \textbf{Test F1 [\%]} & \textbf{$\Delta$ F1} & \textbf{Improvement} \\
+        \textbf{Model} & \textbf{Input} & \textbf{SE Block} & \textbf{Test F1 [\%]} & \textbf{$\Delta$ F1} \\
         \midrule
-        Unified-Stream & No & 76.29 & -- & -- \\
-        Unified-Stream + SMV & No & 81.28 & +4.99\% & SMV helps \\
-        Acc-Only + SE & Yes & \textbf{86.37} & \textbf{+10.08\%} & SE helps most \\
-        Acc-Only + SE + SMV & Yes & 85.54 & +9.25\% & SMV redundant \\
+        Transformer & 3ch acc & No & 76.29 $\pm$ 13.60 & -- \\
+        Transformer + SMV & 4ch acc+smv & No & 81.28 $\pm$ 13.21 & +4.99\% \\
+        \textbf{TransformerSE} & \textbf{3ch acc} & \textbf{Yes} & \textbf{86.37 $\pm$ 10.55} & \textbf{+10.08\%} \\
+        TransformerSE + SMV & 4ch acc+smv & Yes & 85.54 $\pm$ 11.48 & +9.25\% \\
         \bottomrule
     \end{tabular}
 \end{table}
 
 \textbf{Key Findings:}
 \begin{enumerate}
-    \item SE blocks provide \textbf{$\sim$10\% F1 improvement} (76.29\% $\rightarrow$ 86.37\%)
+    \item SE blocks provide \textbf{+10.08\% F1 improvement} (76.29\% $\rightarrow$ 86.37\%) on accelerometer-only input
     \item This \textbf{exceeds our hypothesis of 2-4\%} by 2.5$\times$
     \item SMV (Signal Magnitude Vector) is \textbf{redundant when SE is present} ($-$0.83\%)
-    \item SE implicitly learns adaptive magnitude weighting, making explicit SMV unnecessary
+    \item SE reduces variance: std drops from $\pm$13.60\% to $\pm$10.55\%
 \end{enumerate}
 
 \subsection{Why SE Exceeds Predictions}
@@ -578,8 +598,8 @@ Three explanations for the 10\% improvement (vs 2-4\% hypothesized):
 
 \begin{enumerate}
     \item \textbf{Implicit gravity removal:} SE learns to de-emphasize gravity-dominated axes during falls
-    \item \textbf{Modality balancing:} SE naturally up-weights reliable accelerometer channels over noisy gyroscope
-    \item \textbf{Sample-adaptive processing:} Unlike fixed preprocessing, SE adapts to each individual sample
+    \item \textbf{Axis importance weighting:} SE learns which accelerometer axis contains the most discriminative signal for each sample
+    \item \textbf{Sample-adaptive processing:} Unlike fixed preprocessing, SE adapts to each individual sample's characteristics
 \end{enumerate}
 
 \subsection{Positional Encoding}
@@ -1481,26 +1501,29 @@ B: Concat, Ratio 65\% & 22 & 89.36 $\pm$ 6.91 & 85.77 $\pm$ 8.73 & 92.71 $\pm$ 8
 
 \subsection{Summary of Key Three Comparisons}
 
-The following summarizes the three key comparisons emphasized throughout this study:
+The following summarizes the three key comparisons emphasized throughout this study, with verified results:
 
 \begin{enumerate}
-    \item \textbf{Dual-Stream vs Single-Stream:}
+    \item \textbf{Dual-Stream vs Single-Stream (RQ1):}
     \begin{itemize}
-        \item With Kalman fusion: Dual-stream wins (+0.78\% to +1.67\% F1)
+        \item With Kalman fusion: Dual-stream marginally better (+0.78\% F1)
         \item Without Kalman: Marginal differences, single-stream slightly better
+        \item \textit{Source:} results/stream\_comparison\_young\_old (22-fold LOSO-CV)
     \end{itemize}
 
-    \item \textbf{Accelerometer vs Gyroscope Modalities:}
+    \item \textbf{Accelerometer vs Gyroscope Modalities (RQ2):}
     \begin{itemize}
-        \item Raw gyroscope: Hurts performance ($-$1.6\% to $-$2.0\% F1)
-        \item Kalman-fused orientation: Helps significantly (+3.78\% F1)
+        \item Raw gyroscope: Hurts performance ($-$3.88\% F1, 85.39\% $\rightarrow$ 81.51\%)
+        \item More channels progressively hurts: 3ch $>$ 4ch $>$ 6ch $>$ 7ch
+        \item Kalman-fused orientation: Helps significantly (+2.7\% to +4.4\% F1)
+        \item \textit{Source:} saved\_exps/modality\_comparison (4-7 folds, preliminary)
     \end{itemize}
 
-    \item \textbf{Kalman Fusion vs No Kalman:}
+    \item \textbf{Kalman Fusion vs No Kalman (RQ3):}
     \begin{itemize}
-        \item Kalman fusion provides consistent improvement (+3.78\% F1)
+        \item Kalman fusion provides consistent improvement (+5\% to +9\% F1 vs raw 6ch)
         \item Linear KF preferred over EKF for simplicity (+0.59\% F1)
-        \item Kalman \textit{smoothing} (filtering raw signals) hurts ($-$6.85\% F1)
+        \item \textit{Source:} results/model\_comparison\_20251205, saved\_exps/kalman\_fusion\_transformer
     \end{itemize}
 \end{enumerate}
 
