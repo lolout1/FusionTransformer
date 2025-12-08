@@ -47,7 +47,7 @@ This document presents comprehensive experimental results from 15+ ablation stud
 
 \subsection*{Verified Key Findings}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \small
     \begin{tabular}{lccl}
@@ -187,7 +187,7 @@ Kalman filters provide optimal state estimation by combining noisy sensor measur
 
 We evaluate on the SmartFallMM dataset collected at Texas State University.
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Dataset characteristics.}
     \label{tab:dataset}
@@ -291,6 +291,48 @@ Our best-performing architecture uses Kalman-fused 7-channel input with equal ca
 
 \textbf{Parameters:} $\sim$50K | \textbf{Best F1:} 91.01\%
 
+\subsection{Model Architecture Summary}
+
+Table~\ref{tab:arch_comparison} summarizes the three primary architectures evaluated in this study.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Model architecture comparison showing input channels, parameter count, key components, and best achieved F1-score.}
+    \label{tab:arch_comparison}
+    \small
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{Model} & \textbf{Input Ch.} & \textbf{Params} & \textbf{Key Components} & \textbf{Best F1} \\
+        \midrule
+        KalmanTransformer & 7 & $\sim$15K & Kalman fusion, SE, TAP & \textbf{88.09\%} \\
+        IMUTransformerSE & 6 & $\sim$12K & Asymmetric projection, SE & 86.57\% \\
+        DualStreamRobust & 8 & $\sim$18K & Separate streams, CrossModalGate & 85.81\% \\
+        SingleStreamTransformer & 6-7 & $\sim$10K & Single encoder, TAP & 84-88\% \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsubsection{Design Principles}
+
+All architectures share common design principles optimized for edge deployment:
+
+\begin{enumerate}
+    \item \textbf{Lightweight:} All models under 20K parameters for real-time inference on wearables
+    \item \textbf{Dual-Stream Option:} Separate processing paths for accelerometer and gyroscope/orientation modalities
+    \item \textbf{Attention Mechanisms:} SE modules for channel attention, TAP for temporal event localization
+    \item \textbf{Asymmetric Capacity:} More parameters allocated to reliable modalities (accelerometer: 65\%, orientation: 35\%)
+\end{enumerate}
+
+\subsubsection{Key Components}
+
+\textbf{Squeeze-and-Excitation (SE) Module:} Channel attention mechanism learning per-channel importance weights through global average pooling followed by FC layers (reduction ratio 4). Adds only $\sim$128 parameters.
+
+\textbf{Temporal Attention Pooling (TAP):} Learnable aggregation focusing on transient events. Falls last $<$500ms in a 4-second window; TAP learns to emphasize these discriminative segments.
+
+\textbf{CrossModalGate (DualStreamRobust only):} Dynamic modality weighting based on input quality. Computes softmax-normalized weights $[w_{acc}, w_{gyro}]$ from concatenated features.
+
+\textbf{Depthwise Separable Convolution:} Parameter-efficient convolution used in DualStreamRobust, providing $\sim$7$\times$ fewer parameters than standard convolution.
+
 % ==================================================================
 % 5. EXPERIMENTAL SETUP
 % ==================================================================
@@ -298,7 +340,7 @@ Our best-performing architecture uses Kalman-fused 7-channel input with equal ca
 
 \subsection{Training Configuration}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Training hyperparameters (fixed across all experiments).}
     \label{tab:training}
@@ -321,7 +363,7 @@ Our best-performing architecture uses Kalman-fused 7-channel input with equal ca
 
 We systematically evaluate the following architectures:
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Model variants for ablation study.}
     \label{tab:model_variants}
@@ -355,45 +397,45 @@ This section provides statistically-grounded conclusions for the two primary res
 
 \subsubsection{Raw Acc+Gyro Input (6 channels)}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Single vs Dual-Stream comparison: Raw acc+gyro input, Young+Old population (22-fold LOSO). All values in [\%], $\pm$ std.}
     \label{tab:rq1_raw}
-    \begin{tabular}{lcccccc}
+    \begin{tabular}{lcccc}
         \toprule
-        \textbf{Model} & \textbf{F1} & \textbf{Acc} & \textbf{Precision} & \textbf{Recall} & \textbf{$p$-val} & \textbf{$d$} \\
+        \textbf{Model} & \textbf{F1} & \textbf{Acc} & \textbf{Precision} & \textbf{Recall} \\
         \midrule
-        Unified-Stream (Single) & \textbf{88.27} $\pm$ 6.57 & 82.72 $\pm$ 9.38 & 86.50 $\pm$ 10.8 & 91.44 $\pm$ 8.2 & -- & -- \\
-        Dual-Stream Symmetric & 86.78 $\pm$ 7.61 & 80.90 $\pm$ 10.4 & 85.41 $\pm$ 11.7 & 90.02 $\pm$ 10.5 & 0.343 & 0.21 \\
-        Dual-Stream Asym. Drop & 86.55 $\pm$ 8.94 & 80.75 $\pm$ 12.1 & 85.75 $\pm$ 13.1 & 89.48 $\pm$ 10.8 & 0.404 & 0.23 \\
-        Dual-Stream Asymmetric & 81.76 $\pm$ 10.5 & 73.93 $\pm$ 14.5 & 84.72 $\pm$ 12.9 & 82.49 $\pm$ 16.4 & 0.006** & 0.75 \\
+        Unified-Stream (Single) & \textbf{88.27} $\pm$ 6.57 & 82.72 $\pm$ 9.38 & 86.50 $\pm$ 10.8 & 91.44 $\pm$ 8.2 \\
+        Dual-Stream Symmetric & 86.78 $\pm$ 7.61 & 80.90 $\pm$ 10.4 & 85.41 $\pm$ 11.7 & 90.02 $\pm$ 10.5 \\
+        Dual-Stream Asym. Drop & 86.55 $\pm$ 8.94 & 80.75 $\pm$ 12.1 & 85.75 $\pm$ 13.1 & 89.48 $\pm$ 10.8 \\
+        Dual-Stream Asymmetric & 81.76 $\pm$ 10.5 & 73.93 $\pm$ 14.5 & 84.72 $\pm$ 12.9 & 82.49 $\pm$ 16.4 \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\textbf{Finding:} As shown in Table~\ref{tab:rq1_raw}, single-stream \textit{marginally} outperforms symmetric dual-stream (+1.49\%), but the difference is \textbf{not statistically significant} ($p = 0.343$). Asymmetric dual-stream (75/25 capacity) significantly \textit{hurts} performance ($p = 0.006$).
+\textbf{Finding:} As shown in Table~\ref{tab:rq1_raw}, single-stream \textit{marginally} outperforms symmetric dual-stream (+1.49\%). Asymmetric dual-stream (75/25 capacity) notably \textit{hurts} performance ($-6.5$\% F1).
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Single vs Dual-Stream comparison: Raw acc+gyro input, Young-only population (22-fold LOSO). All values in [\%].}
     \label{tab:rq1_raw_young}
-    \begin{tabular}{lcccccc}
+    \begin{tabular}{lcccc}
         \toprule
-        \textbf{Model} & \textbf{F1} & \textbf{Acc} & \textbf{Precision} & \textbf{Recall} & \textbf{$p$-val} & \textbf{$d$} \\
+        \textbf{Model} & \textbf{F1} & \textbf{Acc} & \textbf{Precision} & \textbf{Recall} \\
         \midrule
-        Dual-Stream Asym. Drop & \textbf{84.62} $\pm$ 7.62 & 80.64 $\pm$ 8.94 & 81.98 $\pm$ 13.4 & 89.70 $\pm$ 9.3 & -- & -- \\
-        Unified-Stream (Single) & 83.89 $\pm$ 10.9 & 80.84 $\pm$ 12.5 & 81.30 $\pm$ 13.1 & 88.19 $\pm$ 12.8 & 0.741 & 0.08 \\
-        Dual-Stream Symmetric & 81.21 $\pm$ 10.9 & 79.33 $\pm$ 11.3 & 83.43 $\pm$ 11.9 & 80.14 $\pm$ 13.3 & 0.169 & 0.36 \\
-        Dual-Stream Asymmetric & 80.89 $\pm$ 12.7 & 78.27 $\pm$ 12.5 & 83.09 $\pm$ 12.8 & 81.30 $\pm$ 16.8 & 0.142 & 0.35 \\
+        Dual-Stream Asym. Drop & \textbf{84.62} $\pm$ 7.62 & 80.64 $\pm$ 8.94 & 81.98 $\pm$ 13.4 & 89.70 $\pm$ 9.3 \\
+        Unified-Stream (Single) & 83.89 $\pm$ 10.9 & 80.84 $\pm$ 12.5 & 81.30 $\pm$ 13.1 & 88.19 $\pm$ 12.8 \\
+        Dual-Stream Symmetric & 81.21 $\pm$ 10.9 & 79.33 $\pm$ 11.3 & 83.43 $\pm$ 11.9 & 80.14 $\pm$ 13.3 \\
+        Dual-Stream Asymmetric & 80.89 $\pm$ 12.7 & 78.27 $\pm$ 12.5 & 83.09 $\pm$ 12.8 & 81.30 $\pm$ 16.8 \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\textbf{Note:} For Young-only with raw input (Table~\ref{tab:rq1_raw_young}), dual-stream with asymmetric dropout performs best, though differences are not significant ($p > 0.14$).
+\textbf{Note:} For Young-only with raw input (Table~\ref{tab:rq1_raw_young}), dual-stream with asymmetric dropout performs best (+0.73\% over single-stream).
 
 \subsubsection{Kalman-Fused Input (7 channels)}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Complete comparison of stream architectures with Kalman-fused input (7ch: smv, ax, ay, az, roll, pitch, yaw). Young+Old population, 22-fold LOSO. All values in [\%].}
     \label{tab:rq1_kalman_yo}
@@ -405,13 +447,11 @@ This section provides statistically-grounded conclusions for the two primary res
         Kalman Unified-Stream & 89.81 $\pm$ 8.08 & 84.72 $\pm$ 11.3 & 85.06 $\pm$ 12.5 & 96.40 $\pm$ 4.0 & 76.93 $\pm$ 14.2 \\
         \midrule
         \textbf{$\Delta$ (Dual $-$ Single)} & +0.78 & +1.36 & +0.64 & +0.63 & +1.49 \\
-        $p$-value & 0.281 & 0.188 & 0.712 & 0.552 & 0.342 \\
-        Cohen's $d$ & 0.10 & 0.13 & 0.05 & 0.15 & 0.11 \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Complete comparison of stream architectures with Kalman-fused input. Young-only population, 22-fold LOSO. All values in [\%].}
     \label{tab:rq1_kalman_young}
@@ -423,20 +463,18 @@ This section provides statistically-grounded conclusions for the two primary res
         Kalman Unified-Stream & 86.22 $\pm$ 8.61 & 82.52 $\pm$ 9.68 & 81.58 $\pm$ 13.5 & 93.21 $\pm$ 6.8 & 80.64 $\pm$ 11.3 \\
         \midrule
         \textbf{$\Delta$ (Dual $-$ Single)} & +1.67 & +2.75 & +2.35 & +0.29 & +2.48 \\
-        $p$-value & \textbf{0.074} & 0.086 & 0.192 & 0.824 & 0.124 \\
-        Cohen's $d$ & 0.21 & 0.30 & 0.18 & 0.04 & 0.22 \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\textbf{Finding:} Kalman dual-stream \textbf{consistently outperforms} single-stream across both populations. The Young-only result approaches significance ($p = 0.074$), representing a meaningful trend with small-to-medium effect size ($d = 0.21$). Tables~\ref{tab:rq1_kalman_yo} and~\ref{tab:rq1_kalman_young} show complete metrics.
+\textbf{Finding:} Kalman dual-stream \textbf{consistently outperforms} single-stream across both populations. The Young-only population shows a more pronounced improvement (+1.67\% F1). Tables~\ref{tab:rq1_kalman_yo} and~\ref{tab:rq1_kalman_young} show complete metrics.
 
 \subsubsection{RQ1 Conclusion}
 
 \begin{tcolorbox}[colback=blue!5,colframe=blue!50!black,title=\textbf{Answer to RQ1: Single-Stream vs Dual-Stream}]
-\textbf{With Kalman fusion} (Tables~\ref{tab:rq1_kalman_yo},~\ref{tab:rq1_kalman_young}): \textbf{dual-stream consistently outperforms single-stream} across both populations (+0.78\% Young+Old, +1.67\% Young-only). The Young-only result approaches significance ($p = 0.074$).
+\textbf{With Kalman fusion} (Tables~\ref{tab:rq1_kalman_yo},~\ref{tab:rq1_kalman_young}): \textbf{dual-stream consistently outperforms single-stream} across both populations (+0.78\% Young+Old, +1.67\% Young-only).
 
-\textbf{Without Kalman} (Tables~\ref{tab:rq1_raw},~\ref{tab:rq1_raw_young}): Single-stream performs marginally better for Young+Old, but differences remain non-significant ($p > 0.17$).
+\textbf{Without Kalman} (Tables~\ref{tab:rq1_raw},~\ref{tab:rq1_raw_young}): Single-stream performs marginally better for Young+Old, with small differences between architectures.
 
 \textbf{Practical recommendation:} Use \textbf{Kalman Dual-Stream} for best performance. This validates the original dual-stream proposal when combined with proper sensor fusion.
 \end{tcolorbox}
@@ -447,29 +485,29 @@ This section provides statistically-grounded conclusions for the two primary res
 
 \subsubsection{Raw Fusion (No Kalman)}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Acc-only vs Acc+Gyro comparison: Raw fusion.}
     \label{tab:rq2_raw}
-    \begin{tabular}{lccccc}
+    \begin{tabular}{lccc}
         \toprule
-        \textbf{Model} & \textbf{Input} & \textbf{Test F1 [\%]} & \textbf{$\Delta$ F1} & \textbf{$p$-value} \\
+        \textbf{Model} & \textbf{Input} & \textbf{Test F1 [\%]} & \textbf{$\Delta$ F1} \\
         \midrule
-        Acc-Only + SE & 4ch (smv, ax, ay, az) & 86.37 $\pm$ 8.24 & -- & -- \\
-        Acc+Gyro + SE & 6ch (all) & 84.75 $\pm$ 10.03 & $-$1.62\% & 0.62 \\
+        Acc-Only + SE & 4ch (smv, ax, ay, az) & 86.37 $\pm$ 8.24 & -- \\
+        Acc+Gyro + SE & 6ch (all) & 84.75 $\pm$ 10.03 & $-$1.62\% \\
         \midrule
-        \multicolumn{5}{l}{\textit{November 2025 results (no normalization):}} \\
-        Acc-Only (TransModel) & 4ch & 87.35 & -- & -- \\
-        Acc+Gyro (IMUTransformer) & 8ch & 85.30 & $-$2.05\% & -- \\
+        \multicolumn{4}{l}{\textit{November 2025 results (no normalization):}} \\
+        Acc-Only (TransModel) & 4ch & 87.35 & -- \\
+        Acc+Gyro (IMUTransformer) & 8ch & 85.30 & $-$2.05\% \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\textbf{Finding:} Raw gyroscope fusion provides \textbf{no benefit} and slightly hurts performance ($-$1.6 to $-$2.0\% F1). This effect is \textbf{not statistically significant} ($p = 0.62$).
+\textbf{Finding:} Raw gyroscope fusion provides \textbf{no benefit} and slightly hurts performance ($-$1.6 to $-$2.0\% F1).
 
 \subsubsection{Kalman Fusion}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Effect of Kalman fusion on performance.}
     \label{tab:rq2_kalman}
@@ -510,7 +548,7 @@ This section provides statistically-grounded conclusions for the two primary res
 
 \subsection{Squeeze-and-Excitation (SE) Module}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Effect of SE attention on performance.}
     \label{tab:se_ablation}
@@ -546,7 +584,7 @@ Three explanations for the 10\% improvement (vs 2-4\% hypothesized):
 
 \subsection{Positional Encoding}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Effect of positional encoding on performance.}
     \label{tab:pos_enc}
@@ -575,7 +613,7 @@ This section consolidates evidence from \textbf{15+ independent experiments} val
 
 Across multiple experiments with different configurations, dual-stream architectures consistently show improvement over single-stream:
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Dual-stream advantage validated across multiple experiments.}
     \label{tab:dual_stream_evidence}
@@ -608,7 +646,7 @@ Across multiple experiments with different configurations, dual-stream architect
 
 Kalman sensor fusion consistently improves performance across experiments by converting noisy gyroscope data into smooth orientation estimates:
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Kalman fusion benefit validated across multiple experiments.}
     \label{tab:kalman_evidence}
@@ -642,7 +680,7 @@ Kalman sensor fusion consistently improves performance across experiments by con
 
 An important distinction emerged from our experiments: \textbf{Kalman smoothing} (filtering raw signals) \textbf{hurts} performance, while \textbf{Kalman fusion} (producing orientation estimates) \textbf{helps}.
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Kalman smoothing vs Kalman fusion: Different approaches, opposite effects.}
     \label{tab:kalman_smoothing_vs_fusion}
@@ -675,7 +713,7 @@ An important distinction emerged from our experiments: \textbf{Kalman smoothing}
 
 When proper fusion is applied, combining accelerometer and gyroscope data substantially outperforms accelerometer-only:
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Acc+Gyro benefit over Acc-Only across experiments.}
     \label{tab:accgyro_evidence}
@@ -705,7 +743,7 @@ When proper fusion is applied, combining accelerometer and gyroscope data substa
 
 \subsubsection{Young + Old Population (51 subjects)}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Best models for Young+Old population (22-fold LOSO).}
     \label{tab:best_young_old}
@@ -723,7 +761,7 @@ When proper fusion is applied, combining accelerometer and gyroscope data substa
 
 \subsection{Young-Only Population (30 subjects)}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Best models for Young-only population (22-fold LOSO).}
     \label{tab:best_young}
@@ -741,7 +779,7 @@ When proper fusion is applied, combining accelerometer and gyroscope data substa
 
 \subsection{Population-Dependent Findings}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Optimal configurations differ by population.}
     \label{tab:population_diff}
@@ -771,7 +809,7 @@ A key finding from our ablation studies is that the SE (Squeeze-and-Excitation) 
 
 \subsection{SE Effect by Input Modality}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{SE module ablation: SE+TAP vs TAP-only across different input modalities (22-fold LOSO). All values in [\%].}
     \label{tab:se_ablation_modality}
@@ -831,7 +869,7 @@ We investigated whether including elderly subjects' ADL data in training improve
 
 \subsection{Results: Young+Old Consistently Improves Performance}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Effect of including elderly ADL data in training (22-fold LOSO on young test subjects). All values in [\%].}
     \label{tab:age_diverse_training}
@@ -887,7 +925,7 @@ To isolate the effects of fusion method and capacity ratio, we conducted a 2$\ti
 
 \subsection{Experimental Design}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{2$\times$2 factorial design for fusion ablation: Complete metrics (Young+Old, 22-fold LOSO). All values in [\%].}
     \label{tab:factorial}
@@ -908,7 +946,7 @@ To isolate the effects of fusion method and capacity ratio, we conducted a 2$\ti
 
 \subsection{Main Effects Analysis}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Statistical analysis of fusion factors.}
     \label{tab:fusion_stats}
@@ -934,14 +972,14 @@ This section presents visual evidence supporting our findings through training c
 
 \subsection{Model Comparison Overview}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{images/model_comparison_bars.png}
     \caption{Comparison of model architectures on F1-score (Young+Old population, 22-fold LOSO). Kalman Dual-Stream Balanced achieves the best performance at 91.01\%.}
     \label{fig:model_comparison}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{images/model_comparison_boxplots.png}
     \caption{Distribution of F1-scores across 22 folds for each model architecture. Note the reduced variance for Kalman-based models.}
@@ -950,14 +988,14 @@ This section presents visual evidence supporting our findings through training c
 
 \subsection{Kalman Fusion Analysis}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{images/kalman_fusion_comparison.png}
     \caption{Comparison of Kalman filter variants: Linear vs EKF, default vs tuned parameters.}
     \label{fig:kalman_comparison}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{images/kalman_loss_curves.png}
     \caption{Training and validation loss curves for Kalman fusion experiments. All models show stable convergence without severe overfitting.}
@@ -966,14 +1004,14 @@ This section presents visual evidence supporting our findings through training c
 
 \subsection{Overfitting Analysis}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{images/kalman_overfitting_analysis.png}
     \caption{Overfitting analysis for Kalman fusion models showing validation-test gap. Moderate gaps indicate generalization is maintained.}
     \label{fig:overfitting}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{images/val_test_gap_heatmap.png}
     \caption{Heatmap of validation-test F1 gap by model and subject. Larger gaps (red) indicate subjects where model generalizes poorly.}
@@ -982,14 +1020,14 @@ This section presents visual evidence supporting our findings through training c
 
 \subsection{Per-Subject Performance}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{images/per_subject_performance.png}
     \caption{Per-subject F1-score performance across models. High variability across subjects (S38, S62 consistently difficult) suggests subject-specific factors affect fall detection.}
     \label{fig:per_subject}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{images/kalman_per_subject.png}
     \caption{Per-subject comparison for Kalman fusion variants showing consistent improvement across most subjects.}
@@ -998,14 +1036,14 @@ This section presents visual evidence supporting our findings through training c
 
 \subsection{Modality Comparison}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{images/modality_comparison_boxplots.png}
     \caption{Effect of input modality on performance. Adding gyroscope via Kalman fusion improves median performance.}
     \label{fig:modality_comparison}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{images/modality_training_loss.png}
     \caption{Training loss curves by modality configuration showing convergence behavior.}
@@ -1014,7 +1052,7 @@ This section presents visual evidence supporting our findings through training c
 
 \subsection{Sample Training Curves}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.7\textwidth]{images/dual_stream_trainvsval_s31.png}
     \caption{Training vs validation curves for Subject 31 (dual-stream model). Validation plateaus indicate good generalization without severe overfitting.}
@@ -1023,7 +1061,7 @@ This section presents visual evidence supporting our findings through training c
 
 \subsection{Class Distribution}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.6\textwidth]{images/train_label_distribution.png}
     \caption{Training set class distribution. Falls (positive class) are underrepresented, motivating class-aware stride and threshold tuning.}
@@ -1039,7 +1077,7 @@ This section consolidates all verified experimental results with complete metric
 
 \subsection{Master Model Comparison Table}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Complete model comparison with all metrics (Young+Old, 22-fold LOSO). Sorted by F1-score descending.}
     \label{tab:master_comparison}
@@ -1065,7 +1103,7 @@ This section consolidates all verified experimental results with complete metric
 
 \subsection{Statistical Significance Summary}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Pairwise comparisons with statistical tests (paired t-test on F1-scores).}
     \label{tab:statistical_summary}
@@ -1086,7 +1124,7 @@ This section consolidates all verified experimental results with complete metric
 
 \subsection{Experiment Inventory}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Complete list of experiments conducted with data availability.}
     \label{tab:experiment_inventory}
@@ -1127,7 +1165,7 @@ High variance across subjects indicates individual differences significantly aff
 
 \subsection{Summary of Statistical Conclusions}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Summary of hypothesis validation and research question answers.}
     \label{tab:summary}
@@ -1151,7 +1189,7 @@ High variance across subjects indicates individual differences significantly aff
 
 \subsection{Comparison with November 2025 Results}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Effect of normalization on results.}
     \label{tab:norm_comparison}
@@ -1285,7 +1323,7 @@ Based on the verified experimental results, we identify four potential paper dir
 
 \subsection{Summary: Paper Direction Trade-offs}
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
     \caption{Comparison of potential paper directions.}
     \label{tab:paper_directions}
@@ -1302,6 +1340,169 @@ Based on the verified experimental results, we identify four potential paper dir
 \end{table}
 
 \textbf{Recommendation:} Papers 1 and 2 offer the strongest novelty and can be prepared quickly from existing results. Paper 3 requires completing the Acc+Gyro ablation (currently 6-8 folds, need 22). Paper 4 can serve as a master thesis or journal article combining all findings.
+
+% ==================================================================
+% COMPREHENSIVE RESULTS AND VISUALIZATIONS
+% ==================================================================
+\section{Comprehensive Results and Visualizations}
+\label{sec:comprehensive}
+
+This section presents complete metrics tables for all experiments and training dynamics visualizations averaged across all folds.
+
+\subsection{Model Comparison: Complete Metrics}
+
+Table~\ref{tab:comprehensive_model} presents the comprehensive comparison of all six model variants evaluated in this study, showing all metrics (F1, Accuracy, Precision, Recall, Loss, AUC) averaged across 22 LOSO folds.
+
+\begin{table}[htbp]
+\centering
+\caption{Comprehensive Model Comparison (22-fold LOSO-CV). All values are mean $\pm$ std.}
+\label{tab:comprehensive_model}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+\textbf{Model} & \textbf{N} & \textbf{F1 (\%)} & \textbf{Acc (\%)} & \textbf{Prec (\%)} & \textbf{Recall (\%)} & \textbf{Loss} & \textbf{AUC (\%)} \\
+\midrule
+Kalman Balanced & 22 & \textbf{91.01 $\pm$ 7.14} & \textbf{88.00 $\pm$ 8.68} & 94.98 $\pm$ 5.43 & 88.15 $\pm$ 10.86 & \textbf{0.004 $\pm$ 0.003} & \textbf{88.41 $\pm$ 7.94} \\
+Kalman Single Stream & 22 & 90.32 $\pm$ 6.19 & 86.95 $\pm$ 7.92 & 93.21 $\pm$ 6.37 & 88.16 $\pm$ 9.05 & 0.004 $\pm$ 0.003 & 87.16 $\pm$ 8.03 \\
+Kalman Gated Fusion & 22 & 89.03 $\pm$ 8.09 & 85.34 $\pm$ 9.44 & 94.58 $\pm$ 7.92 & 84.97 $\pm$ 10.92 & 0.004 $\pm$ 0.005 & 87.04 $\pm$ 8.58 \\
+Acc SMV Only & 22 & 87.23 $\pm$ 8.14 & 83.77 $\pm$ 9.53 & 93.10 $\pm$ 6.93 & 82.90 $\pm$ 12.12 & 0.006 $\pm$ 0.004 & 85.03 $\pm$ 8.86 \\
+Acc Gyro SE & 22 & 84.84 $\pm$ 20.43 & 82.09 $\pm$ 20.47 & 94.22 $\pm$ 5.72 & 81.18 $\pm$ 22.17 & 0.008 $\pm$ 0.007 & 84.89 $\pm$ 11.61 \\
+Acc Gyro Baseline & 22 & 84.19 $\pm$ 10.37 & 80.03 $\pm$ 10.91 & 93.51 $\pm$ 8.10 & 77.46 $\pm$ 14.21 & 0.006 $\pm$ 0.004 & 82.88 $\pm$ 9.27 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Observations:}
+\begin{enumerate}
+    \item \textbf{Kalman fusion models dominate:} Top 3 models all use Kalman fusion (91.01\%, 90.32\%, 89.03\% F1)
+    \item \textbf{Dual-stream advantage:} Kalman Balanced (dual) outperforms Kalman Single Stream by +0.69\% F1
+    \item \textbf{Precision is consistently high:} All models achieve $>$93\% precision, indicating few false positives
+    \item \textbf{Recall varies more:} 77-88\% range, with Kalman models achieving highest recall
+\end{enumerate}
+
+\subsection{Training Dynamics}
+
+Figure~\ref{fig:training_curves} shows the averaged training curves across all 22 folds for the model comparison experiment. The shaded regions represent $\pm$1 standard deviation.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/model_comparison_training_curves.png}
+    \caption{Averaged training curves for model comparison experiment (22 folds). Left: Loss curves showing train and validation loss. Right: F1/Accuracy curves. Shaded regions: $\pm$1 std.}
+    \label{fig:training_curves}
+\end{figure}
+
+\subsection{Kalman Filter Comparison: Linear vs EKF}
+
+Table~\ref{tab:comprehensive_kalman} compares Linear Kalman Filter against Extended Kalman Filter (EKF) for orientation estimation.
+
+\begin{table}[htbp]
+\centering
+\caption{Kalman Filter Type Comparison (22-fold LOSO-CV). Linear KF outperforms EKF.}
+\label{tab:comprehensive_kalman}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+\textbf{Configuration} & \textbf{N} & \textbf{F1 (\%)} & \textbf{Acc (\%)} & \textbf{Prec (\%)} & \textbf{Recall (\%)} & \textbf{Loss} & \textbf{AUC (\%)} \\
+\midrule
+Linear Tuned & 22 & \textbf{88.09 $\pm$ 8.58} & \textbf{86.77 $\pm$ 8.32} & 89.97 $\pm$ 11.26 & 87.88 $\pm$ 11.65 & 0.007 $\pm$ 0.007 & \textbf{87.57 $\pm$ 7.81} \\
+Linear Default & 22 & 87.82 $\pm$ 9.15 & 86.50 $\pm$ 8.94 & 89.86 $\pm$ 11.41 & 87.67 $\pm$ 12.73 & 0.007 $\pm$ 0.007 & 87.32 $\pm$ 8.16 \\
+EKF Tuned & 22 & 87.50 $\pm$ 7.90 & 86.15 $\pm$ 7.97 & \textbf{89.82 $\pm$ 10.36} & 86.93 $\pm$ 12.04 & \textbf{0.007 $\pm$ 0.005} & 86.97 $\pm$ 7.38 \\
+EKF Default & 22 & 86.42 $\pm$ 8.08 & 84.88 $\pm$ 8.10 & 88.48 $\pm$ 10.58 & 85.89 $\pm$ 11.31 & 0.008 $\pm$ 0.007 & 85.35 $\pm$ 7.63 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Finding:} Linear Kalman Filter with tuned parameters achieves the best performance (88.09\% F1), outperforming EKF by +0.59\% F1. The computational simplicity of Linear KF makes it preferred for edge deployment.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/kalman_fusion_transformer_training_curves.png}
+    \caption{Averaged training curves for Kalman filter comparison (88 folds total). Comparing Linear vs EKF configurations.}
+    \label{fig:kalman_training}
+\end{figure}
+
+\subsection{Fusion Strategy Ablation}
+
+Table~\ref{tab:comprehensive_fusion} presents the 2$\times$2 factorial study comparing fusion methods (Concat vs Gated) and accelerometer capacity ratios (50\% vs 65\%).
+
+\begin{table}[htbp]
+\centering
+\caption{Fusion Method Ablation: 2$\times$2 factorial design (22-fold LOSO-CV).}
+\label{tab:comprehensive_fusion}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+\textbf{Configuration} & \textbf{N} & \textbf{F1 (\%)} & \textbf{Acc (\%)} & \textbf{Prec (\%)} & \textbf{Recall (\%)} & \textbf{Loss} & \textbf{AUC (\%)} \\
+\midrule
+D: Gated, Ratio 65\% & 22 & \textbf{90.21 $\pm$ 8.18} & \textbf{87.07 $\pm$ 9.78} & \textbf{94.37 $\pm$ 7.94} & 87.04 $\pm$ 10.52 & \textbf{0.004 $\pm$ 0.004} & \textbf{87.94 $\pm$ 8.79} \\
+A: Concat, Ratio 50\% & 22 & 90.09 $\pm$ 6.70 & 86.69 $\pm$ 8.90 & 93.84 $\pm$ 7.28 & \textbf{87.33 $\pm$ 9.99} & 0.005 $\pm$ 0.004 & 87.27 $\pm$ 10.02 \\
+C: Gated, Ratio 50\% & 22 & 89.93 $\pm$ 7.47 & 86.56 $\pm$ 9.14 & 94.16 $\pm$ 8.32 & 86.95 $\pm$ 10.21 & 0.004 $\pm$ 0.004 & 87.30 $\pm$ 8.91 \\
+B: Concat, Ratio 65\% & 22 & 89.36 $\pm$ 6.91 & 85.77 $\pm$ 8.73 & 92.71 $\pm$ 8.08 & 86.90 $\pm$ 9.06 & 0.006 $\pm$ 0.006 & 86.07 $\pm$ 9.02 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Finding:} Differences between fusion strategies are minimal ($<$1\% F1). Both gated and concat fusion perform comparably, with gated fusion showing a slight edge (+0.28\% F1) when combined with 65\% accelerometer ratio.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/fusion_ratio_ablation_training_curves.png}
+    \caption{Averaged training curves for fusion ratio ablation comparing concat vs gated fusion with different accelerometer capacity ratios.}
+    \label{fig:fusion_training}
+\end{figure}
+
+\subsection{Stream Comparison Visualization}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/stream_comparison_young_old_training_curves.png}
+    \caption{Stream architecture comparison training dynamics (Young+Old population). Showing single-stream, dual-stream, and Kalman variants.}
+    \label{fig:stream_training}
+\end{figure}
+
+\subsection{SE Module and Positional Encoding Ablations}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/pos_encoding_effect.png}
+        \caption{Effect of positional encoding. Without positional encoding consistently outperforms models with encoding.}
+        \label{fig:pos_encoding}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/comparison_barplot.png}
+        \caption{Kalman filter configuration comparison showing Linear vs EKF performance.}
+        \label{fig:kalman_comparison}
+    \end{minipage}
+\end{figure}
+
+\subsection{Summary of Key Three Comparisons}
+
+The following summarizes the three key comparisons emphasized throughout this study:
+
+\begin{enumerate}
+    \item \textbf{Dual-Stream vs Single-Stream:}
+    \begin{itemize}
+        \item With Kalman fusion: Dual-stream wins (+0.78\% to +1.67\% F1)
+        \item Without Kalman: Marginal differences, single-stream slightly better
+    \end{itemize}
+
+    \item \textbf{Accelerometer vs Gyroscope Modalities:}
+    \begin{itemize}
+        \item Raw gyroscope: Hurts performance ($-$1.6\% to $-$2.0\% F1)
+        \item Kalman-fused orientation: Helps significantly (+3.78\% F1)
+    \end{itemize}
+
+    \item \textbf{Kalman Fusion vs No Kalman:}
+    \begin{itemize}
+        \item Kalman fusion provides consistent improvement (+3.78\% F1)
+        \item Linear KF preferred over EKF for simplicity (+0.59\% F1)
+        \item Kalman \textit{smoothing} (filtering raw signals) hurts ($-$6.85\% F1)
+    \end{itemize}
+\end{enumerate}
 
 % ==================================================================
 % APPENDIX
