@@ -1,7 +1,9 @@
-# EKF with CONSERVATIVE parameters (trust gyroscope more, slow response)
-# Use this to test if extreme parameters produce different results
+# Variant 5: KalmanUncertaintyAware
+# Includes Kalman filter uncertainty estimates (sigma values)
+# 10ch input: [smv, ax, ay, az, roll, pitch, yaw, sigma_r, sigma_p, sigma_y]
+# Model can learn to weight uncertain estimates less
 
-model: Models.imu_transformer_kalman.KalmanTransformer
+model: Models.kalman_transformer_variants.KalmanUncertaintyAware
 dataset: smartfallmm
 
 subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
@@ -10,9 +12,9 @@ train_only_subjects: [29, 30, 32, 35, 39, 59]
 
 model_args:
   imu_frames: 128
-  imu_channels: 7
+  imu_channels: 10    # With uncertainty
   acc_frames: 128
-  acc_coords: 7
+  acc_coords: 10
   num_classes: 1
   num_heads: 4
   num_layers: 2
@@ -21,7 +23,7 @@ model_args:
   activation: relu
   norm_first: True
   se_reduction: 4
-  acc_ratio: 0.65
+  acc_ratio: 0.6      # Slightly lower for ori+uncertainty
 
 dataset_args:
   mode: sliding_window
@@ -50,17 +52,17 @@ dataset_args:
   length_sensitive_modalities: [accelerometer, gyroscope]
 
   enable_kalman_fusion: True
-  kalman_filter_type: ekf
+  kalman_filter_type: linear
   kalman_output_format: euler
   kalman_include_smv: True
-  kalman_include_uncertainty: False  # Keep 7 channels for model compatibility
+  kalman_include_uncertainty: True   # Include sigma values
   kalman_include_innovation: False
   filter_fs: 30.0
 
-  # CONSERVATIVE: Trust gyroscope more, slow quaternion dynamics
-  kalman_Q_quat: 0.0001     # 10x lower than default (slow orientation changes)
-  kalman_Q_bias: 0.00001    # 10x lower (slow bias adaptation)
-  kalman_R_acc: 1.0         # 10x higher (trust accelerometer less)
+  kalman_Q_orientation: 0.005
+  kalman_Q_rate: 0.01
+  kalman_R_acc: 0.05
+  kalman_R_gyro: 0.1
 
 batch_size: 64
 test_batch_size: 64

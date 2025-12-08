@@ -1,7 +1,8 @@
-# EKF with CONSERVATIVE parameters (trust gyroscope more, slow response)
-# Use this to test if extreme parameters produce different results
+# Variant 4: KalmanDeepNarrow
+# Deeper (3 layers) but narrower (48 dim) architecture
+# Scientific rationale: Depth > width for sequential data
 
-model: Models.imu_transformer_kalman.KalmanTransformer
+model: Models.kalman_transformer_variants.KalmanDeepNarrow
 dataset: smartfallmm
 
 subjects: [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
@@ -14,9 +15,9 @@ model_args:
   acc_frames: 128
   acc_coords: 7
   num_classes: 1
-  num_heads: 4
-  num_layers: 2
-  embed_dim: 64
+  num_heads: 3      # Must divide embed_dim=48
+  num_layers: 3     # Deeper
+  embed_dim: 48     # Narrower
   dropout: 0.5
   activation: relu
   norm_first: True
@@ -50,17 +51,17 @@ dataset_args:
   length_sensitive_modalities: [accelerometer, gyroscope]
 
   enable_kalman_fusion: True
-  kalman_filter_type: ekf
+  kalman_filter_type: linear
   kalman_output_format: euler
   kalman_include_smv: True
-  kalman_include_uncertainty: False  # Keep 7 channels for model compatibility
+  kalman_include_uncertainty: False
   kalman_include_innovation: False
   filter_fs: 30.0
 
-  # CONSERVATIVE: Trust gyroscope more, slow quaternion dynamics
-  kalman_Q_quat: 0.0001     # 10x lower than default (slow orientation changes)
-  kalman_Q_bias: 0.00001    # 10x lower (slow bias adaptation)
-  kalman_R_acc: 1.0         # 10x higher (trust accelerometer less)
+  kalman_Q_orientation: 0.005
+  kalman_Q_rate: 0.01
+  kalman_R_acc: 0.05
+  kalman_R_gyro: 0.1
 
 batch_size: 64
 test_batch_size: 64
