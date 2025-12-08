@@ -33,6 +33,7 @@ from utils.alignment import (
     create_alignment_config_from_kwargs, align_imu_modalities
 )
 from utils.kalman import kalman_fusion_for_loader, assemble_kalman_features
+from utils.kalman_smoothing import kalman_smoothing_for_loader
 
 
 
@@ -563,6 +564,19 @@ class DatasetBuilder:
             # EKF parameters
             'kalman_Q_quat': kwargs.get('kalman_Q_quat', 0.001),
             'kalman_Q_bias': kwargs.get('kalman_Q_bias', 0.0001),
+        }
+
+        # Kalman SMOOTHING configuration (per-channel denoising, NOT fusion)
+        # This is different from kalman_fusion which combines acc+gyro → orientation
+        # Kalman smoothing applies 1D Kalman filter to each channel for noise reduction
+        self.enable_kalman_smoothing = kwargs.get('enable_kalman_smoothing', False)
+        self.kalman_smooth_config = {
+            'kalman_smooth_fs': kwargs.get('kalman_smooth_fs', 30.0),
+            'kalman_smooth_Q_acc': kwargs.get('kalman_smooth_Q_acc', 0.01),
+            'kalman_smooth_R_acc': kwargs.get('kalman_smooth_R_acc', 0.05),
+            'kalman_smooth_Q_gyro': kwargs.get('kalman_smooth_Q_gyro', 0.05),
+            'kalman_smooth_R_gyro': kwargs.get('kalman_smooth_R_gyro', 0.1),
+            'kalman_smooth_bidirectional': kwargs.get('kalman_smooth_bidirectional', False),
         }
 
         # Global skip tracking
@@ -1190,6 +1204,17 @@ class DatasetBuilder:
                                 del trial_data['gyroscope']
                                 self.skip_stats['skipped_poor_gyro_adaptive'] += 1
                                 self.subject_modality_stats[subject_id]['skipped_poor_gyro_adaptive'] += 1
+
+                    # Kalman SMOOTHING (per-channel denoising, NOT fusion)
+                    # Applied BEFORE normalization and BEFORE fusion operations
+                    # This is different from Kalman fusion which combines acc+gyro → orientation
+                    if self.enable_kalman_smoothing and 'accelerometer' in trial_data and 'gyroscope' in trial_data:
+                        try:
+                            trial_data = kalman_smoothing_for_loader(trial_data, self.kalman_smooth_config)
+                        except Exception as err:
+                            if self.debug:
+                                print(f"Warning: Kalman smoothing failed for S{subject_id}A{action_id}T{trial_id}: {err}")
+                            # Continue with raw signals if smoothing fails
 
                     # Sensor fusion (only if both acc+gyro present and quality passed)
                     if self.enable_sensor_fusion and 'accelerometer' in trial_data and 'gyroscope' in trial_data:
