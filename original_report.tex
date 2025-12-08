@@ -1,0 +1,669 @@
+ss{article}
+
+% ------------------------------------------------------------------
+% Packages
+% ------------------------------------------------------------------
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{enumitem}
+\usepackage[colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue]{hyperref}
+
+\sisetup{
+    round-mode=places,
+    round-precision=2,
+    detect-all
+}
+
+% ------------------------------------------------------------------
+% Title
+% ------------------------------------------------------------------
+\title{Multimodal Transformer for Personalized Fall Detection}
+\author{Abheek Pradhan}
+\date{November 2025}
+
+\begin{document}
+
+\maketitle
+
+% ------------------------------------------------------------------
+% Abstract
+% ------------------------------------------------------------------
+\begin{abstract}
+This report describes a multimodal Transformer-based architecture for personalized fall detection on wearable devices and motivates the use of a dual-stream design over a single-stream baseline. We focus on two aspects: (i) the advantages of dual-stream processing for accelerometer and gyroscope signals in the context of knowledge distillation, and (ii) the alignment of online and offline motion filtering pipelines, including their impact on dataset composition and evaluation metrics. We present offline results for both accelerometer+gyroscope (multimodal) and accelerometer-only configurations, discuss how motion filtering improves performance while changing the effective fall-to-ADL ratio, and outline upcoming ablation studies investigating attention mechanisms and cross-modal knowledge distillation from skeleton data.
+\end{abstract}
+
+% ------------------------------------------------------------------
+% Table of Contents
+% ------------------------------------------------------------------
+\tableofcontents
+\bigskip
+
+% ------------------------------------------------------------------
+% 1. Introduction
+% ------------------------------------------------------------------
+\section{Introduction}
+
+Wearable fall-detection systems must operate under strict resource and latency constraints while maintaining high sensitivity to fall events and robustness to diverse ADLs. In our setting, a smartwatch collects inertial data (accelerometer and gyroscope) and performs on-device inference using a lightweight LSTM or multimodal Transformer model. The edge model is further personalized via model updates delivered from the cloud.
+
+Two design choices are crucial in this pipeline:
+\begin{enumerate}[label=\arabic*.]
+    \item How to structure the neural architecture for multimodal input (dual-stream vs.\ single-stream).
+    \item How to align online pre-processing (on the watch) with offline pre-processing (during training and evaluation), especially when motion filtering is used to gate inference.
+\end{enumerate}
+
+The following sections outline why we adopt a dual-stream architecture and how we modify the offline motion filtering logic to match the behavior implemented in the Wear OS Java codebase.
+
+% ------------------------------------------------------------------
+% 2. Dual-Stream Architecture vs Single-Stream
+% ------------------------------------------------------------------
+\section{Dual-Stream Architecture vs Single-Stream}
+
+\subsection*{Reference Implementations}
+
+The following GitHub repositories contain the concrete PyTorch implementations used in this work:
+\begin{itemize}
+    \item \textbf{Dual-stream (separate encoders / optimal):}
+    \href{https://github.com/lolout1/FeatureKD/blob/main/Models/imu_dual_stream_optimal.py}{\texttt{imu\_dual\_stream\_optimal.py}}
+    \item \textbf{Dual-stream (shared encoder):}
+    \href{https://github.com/lolout1/FeatureKD/blob/main/Models/imu_dual_stream_shared.py}{\texttt{imu\_dual\_stream\_shared.py}}
+    \item \textbf{Single-stream baseline:}
+    \href{https://github.com/lolout1/FeatureKD/blob/main/Models/imu_transformer.py}{\texttt{imu\_transformer.py}}
+\end{itemize}
+
+\subsection{Handling Variable Sampling Rates}
+
+Dual-stream architectures process each modality (e.g., accelerometer and gyroscope) with its own temporal encoder or backbone before fusion. This has several advantages:
+\begin{itemize}
+    \item \textbf{Modality-specific encoders:} Each stream can adapt to the sampling characteristics and noise profile of its modality without being constrained by a single shared encoder.
+    \item \textbf{Flexible synchronization:} Variable sampling rates or occasional misalignment between sensors can be handled by resampling or interpolation at the stream level, rather than enforcing strict joint synchronization at the raw-input stage.
+    \item \textbf{Improved robustness:} When one modality is degraded (e.g., missing samples or sensor glitches), the other stream remains intact, supporting more robust fusion.
+    \item \textbf{Implementation:} The dual-stream optimal variant is implemented in
+    \href{https://github.com/lolout1/FeatureKD/blob/main/Models/imu_dual_stream_optimal.py}{\texttt{imu\_dual\_stream\_optimal.py}},
+    while the shared-encoder variant is implemented in
+    \href{https://github.com/lolout1/FeatureKD/blob/main/Models/imu_dual_stream_shared.py}{\texttt{imu\_dual\_stream\_shared.py}}.
+\end{itemize}
+
+\subsection{More Effective Knowledge Distillation}
+
+In a teacher--student setup, dual-stream student models retain explicit feature representations per modality, which simplifies knowledge distillation:
+\begin{itemize}
+    \item \textbf{Feature-level alignment:} The student can align its accelerometer stream to the teacher's accelerometer features and its gyroscope stream to the teacher's gyroscope features, preserving cross-modal structure that is lost in a single concatenated stream.
+    \item \textbf{Richer supervision:} Using per-modality intermediate losses (e.g., feature-matching or attention-map distillation) provides more detailed guidance than a single fused representation.
+    \item \textbf{Modularity:} If a new teacher is introduced (e.g., trained with additional modalities or higher sampling rates), the student architecture can be updated stream-wise without redesigning the entire network.
+\end{itemize}
+
+\subsection{Preserving Modality-Specific Fusion}
+
+Keeping separate streams enables more flexible and interpretable fusion strategies:
+\begin{itemize}
+    \item \textbf{Late fusion with dynamic weighting:} The model can learn to up-weight the accelerometer stream during high-impact events, or the gyroscope stream when rotational dynamics are more informative.
+    \item \textbf{Modality-specific regularization:} Different dropout rates, normalization schemes, or attention mechanisms can be applied per modality to reflect their distinct noise and signal characteristics.
+    \item \textbf{Robust fall detection:} In practice, this leads to more robust decision boundaries, especially in cases where one modality is noisy or partially missing, which is common in real-world wearable deployment.
+    \item \textbf{Single-stream comparison:} The single-stream baseline used for comparison is implemented in
+    \href{https://github.com/lolout1/FeatureKD/blob/main/Models/imu_transformer.py}{\texttt{imu\_transformer.py}}.
+\end{itemize}
+
+Overall, the dual-stream design better matches the physical sensing process and the needs of knowledge distillation between teacher and personalized edge models.
+
+% ------------------------------------------------------------------
+% 3. Motion Filtering and Pre-Processing Alignment
+% ------------------------------------------------------------------
+\section{Motion Filtering and Pre-Processing Alignment}
+
+\subsection{Online Motion Filtering in the Wear OS App}
+
+On the smartwatch, the class \texttt{PersonalizedPredictionLSTM} implements a lightweight motion filter to decide whether a given window of sensor data should be sent through the LSTM model. After reshaping the input into a 3D tensor \texttt{flattenedSamples[1][128][3]}, the code checks each time step:
+
+\begin{verbatim}
+if (flattenedSamples[0][i][j] > 10 || flattenedSamples[0][i][j] < -10) {
+    num++;
+}
+\end{verbatim}
+
+This is equivalent to:
+\[
+    \lvert \texttt{flattenedSamples[0][i][j]} \rvert > 10,
+\]
+i.e., a hard threshold on the magnitude of the accelerometer axes. For each time step $i$, the app counts how many of the three accelerometer axes exceed this threshold. If at least two axes do so for any $i$ in the window, the boolean flag \texttt{sendForPrediction} is set to true, and the model is executed. Otherwise, a small random output is returned instead of performing real inference.
+
+Intuitively, the threshold \texttt{10} represents a high-acceleration event (e.g., roughly on the order of \SI{1}{g}), and the requirement that at least two axes exceed this threshold helps filter out low-intensity or single-axis noise.
+
+\subsection{Aligning Offline Pre-Processing with Online Logic}
+
+Originally, the offline pre-processing pipeline did not replicate this exact motion filter, which led to a mismatch between:
+\begin{itemize}
+    \item the distribution of windows seen during offline training/evaluation, and
+    \item the distribution of windows that actually reach the edge model on the watch.
+\end{itemize}
+
+To reduce this train--deployment gap, the offline pipeline was updated to apply the same motion filtering condition:
+\[
+    \text{window is kept} \iff \exists i \text{ such that at least two accelerometer axes have } \lvert x \rvert > 10.
+\]
+
+This ensures that both the offline experiments and the deployed app agree on which windows are ``interesting enough'' to send through the model.
+
+\subsection{Effect on Fall vs ADL Class Balance}
+
+Applying motion filtering substantially changes the ratio of fall to ADL (Activities of Daily Living) windows:
+
+\begin{table}[h]
+    \centering
+    \caption{Approximate fall-to-ADL ratios with and without motion filtering.}
+    \label{tab:fall_adl_ratio}
+    \begin{tabular}{lcc}
+        \toprule
+        Setting & Approx.\ counts & Falls\,:\,ADL ratio \\
+        \midrule
+        With motion filtering & $\sim$800 fall windows, $\sim$400 ADL windows & $2:1$ \\
+        With regular / no filtering & (more ADL windows than falls) & $1:2$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+With motion filtering, the dataset becomes \emph{fall-heavy} from the model's perspective: most low-activity ADLs are discarded by the gate and never reach the edge model. This is actually realistic for the deployed system: in everyday use, many benign ADL windows will not trigger the motion filter, while candidate fall windows (with strong accelerations on multiple axes) are much more likely to be evaluated by the model.
+
+% ------------------------------------------------------------------
+% 4. Offline Evaluation Results
+% ------------------------------------------------------------------
+\section{Offline Evaluation Results}
+
+This section summarizes the offline performance of two configurations:
+\begin{enumerate}[label=\arabic*.]
+    \item Accelerometer + Gyroscope (multimodal).
+    \item Accelerometer-only.
+\end{enumerate}
+
+\subsection{Accelerometer + Gyroscope (Multimodal)}
+
+Table~\ref{tab:imu_multi} reports the average offline performance for the multimodal setting after integrating motion filtering into the offline pre-processing.
+
+\begin{table}[h]
+    \centering
+    \caption{Offline performance: accelerometer + gyroscope (multimodal).}
+    \label{tab:imu_multi}
+    \begin{tabular}{lcc}
+        \toprule
+        Metric & Mean [\%] & Std.\ Dev.\ [\%] \\
+        \midrule
+        Test F1          & 85.30 & 13.68 \\
+        Test Accuracy    & 85.50 & 10.89 \\
+        Validation F1    & 97.58 & --    \\
+        Validation Accuracy & 96.48 & -- \\
+        \midrule
+        Gap (Val--Test) F1   & 12.28 & -- \\
+        Gap (Val--Test) Accuracy & 10.98 & -- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Per-subject performance exhibits substantial variability, which is expected in fall-detection datasets with heterogeneous movement patterns:
+
+\begin{table}[h]
+    \centering
+    \caption{Per-subject test F1 scores for selected subjects (multimodal).}
+    \label{tab:subject_f1}
+    \begin{tabular}{lc}
+        \toprule
+        Subject ID & Test F1 [\%] \\
+        \midrule
+        63 & 98.99 \\
+        58 & 98.73 \\
+        62 & 98.11 \\
+        \midrule
+        29 & 40.00 \\
+        39 & 70.00 \\
+        35 & 70.59 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The relatively large gap between validation and test metrics (about \SI{12.28}{\percent} in F1 and \SI{10.98}{\percent} in accuracy) suggests some degree of overfitting or distribution shift between validation and test subjects. Nonetheless, the integration of motion filtering reduces the discrepancy between the offline and deployed data distributions, which is important for reliable real-world performance.
+
+\subsection{Accelerometer-Only Configuration}
+
+For the accelerometer-only model, we summarize the key test metrics in Table~\ref{tab:acc_only}. These results correspond to an evaluation where motion filtering is applied in a manner consistent with the online code.
+
+\begin{table}[h]
+    \centering
+    \caption{Offline performance: accelerometer-only configuration.}
+    \label{tab:acc_only}
+    \begin{tabular}{lc}
+        \toprule
+        Metric & Value [\%] \\
+        \midrule
+        Test Accuracy    & 86.60 \\
+        Test F1          & 87.35 \\
+        Test Precision   & 93.62 \\
+        Test Recall      & 83.64 \\
+        Test AUC         & 85.07 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Interestingly, the accelerometer-only configuration still achieves strong performance, especially in terms of F1 and precision, indicating that much of the discriminative signal is already present in linear accelerations. The gyroscope stream, however, remains valuable for capturing rotational patterns and improving robustness across subjects.
+
+% ------------------------------------------------------------------
+% 5. Discussion
+% ------------------------------------------------------------------
+\section{Discussion}
+
+The updated offline pipeline, which mirrors the online motion-filtering logic, produces evaluation results that are more representative of what the edge model experiences in deployment. Key observations include:
+\begin{itemize}
+    \item \textbf{Performance improvement with motion filtering:} Applying the motion gate before inference discards many low-information ADL windows, resulting in a higher effective prevalence of fall-like patterns and improved test metrics.
+    \item \textbf{Shift in class balance:} The fall-to-ADL ratio becomes closer to $2:1$ (from roughly $1:2$), which must be accounted for when interpreting performance and when comparing to baselines trained on more balanced data.
+    \item \textbf{Architectural robustness:} The dual-stream design naturally accommodates such gating, since each stream can be trained to respond to high-energy segments while ignoring noisy or low-movement intervals.
+\end{itemize}
+
+In practice, this means that even though the dataset used by the model is not balanced in terms of raw ADL and fall windows, it is \emph{aligned} with the operational regime of the wearable app, where only high-motion candidates are evaluated.
+
+% ------------------------------------------------------------------
+% 6. Upcoming Experiments: Architecture Ablation Study
+% ------------------------------------------------------------------
+\section{Upcoming Experiments: Architecture Ablation Study}
+
+Building on the baseline results presented above, we now outline a systematic ablation study to investigate whether architectural modifications can improve accelerometer+gyroscope fusion and close the performance gap with accelerometer-only models.
+
+\subsection{Motivation}
+
+Current results show accelerometer-only models achieving comparable or slightly better performance than accelerometer+gyroscope configurations (Test F1: 87.35\% vs.\ 85.30\%). This counterintuitive finding motivates investigation into three hypotheses:
+\begin{enumerate}[label=(\roman*)}
+    \item \textbf{Early feature corruption:} Single-stream architectures mix all input channels in the first convolutional layer, allowing noisy gyroscope signals (SNR $<$ 1.0 for 76\% of subjects) to corrupt accelerometer features before the transformer encoder.
+    \item \textbf{Suboptimal temporal pooling:} Global average pooling weights all timesteps equally, diluting the transient fall signature ($<$500ms impact phase) within a 4-second window.
+    \item \textbf{Uniform channel weighting:} Standard architectures treat all input channels identically, despite accelerometer channels being more reliable than gyroscope channels for fall detection.
+\end{enumerate}
+
+\subsection{Proposed Architectural Modifications}
+
+We introduce two attention-based modules to address these limitations:
+
+\subsubsection{Squeeze-and-Excitation (SE) Module}
+
+The SE module learns channel-wise importance weights, allowing the model to dynamically suppress noisy channels:
+\begin{equation}
+    \mathbf{s} = \sigma\left(\mathbf{W}_2 \cdot \text{ReLU}\left(\mathbf{W}_1 \cdot \frac{1}{T}\sum_{t=1}^{T} \mathbf{x}_t\right)\right), \quad \mathbf{y}_t = \mathbf{s} \odot \mathbf{x}_t
+\end{equation}
+where $\mathbf{W}_1 \in \mathbb{R}^{d/r \times d}$ and $\mathbf{W}_2 \in \mathbb{R}^{d \times d/r}$ with reduction ratio $r=4$. This adds only $\sim$128 parameters.
+
+\subsubsection{Temporal Attention Pooling}
+
+Rather than uniform averaging, temporal attention learns which timesteps are most discriminative:
+\begin{equation}
+    \alpha_t = \frac{\exp(\mathbf{w}^\top \tanh(\mathbf{W}_a \mathbf{x}_t))}{\sum_{t'} \exp(\mathbf{w}^\top \tanh(\mathbf{W}_a \mathbf{x}_{t'}))}, \quad \mathbf{c} = \sum_{t=1}^{T} \alpha_t \mathbf{x}_t
+\end{equation}
+This enables the model to focus on impact phases while ignoring pre-fall and post-fall segments.
+
+\subsubsection{Dual Input Projection}
+
+For accelerometer+gyroscope models, we replace the single input projection with modality-specific projections:
+\begin{align}
+    \mathbf{h}_{\text{acc}} &= \text{Conv1D}_{\text{acc}}(\mathbf{x}_{\text{acc}}) \in \mathbb{R}^{T \times d_{\text{acc}}} \\
+    \mathbf{h}_{\text{gyro}} &= \text{Conv1D}_{\text{gyro}}(\mathbf{x}_{\text{gyro}}) \in \mathbb{R}^{T \times d_{\text{gyro}}} \\
+    \mathbf{h} &= [\mathbf{h}_{\text{acc}}; \mathbf{h}_{\text{gyro}}] \in \mathbb{R}^{T \times d}
+\end{align}
+with asymmetric capacity allocation ($d_{\text{acc}} = 0.75d$, $d_{\text{gyro}} = 0.25d$) and higher dropout on the gyroscope branch.
+
+\subsection{Experimental Design}
+
+We conduct a controlled ablation comparing four model variants under identical preprocessing conditions (no filtering, no normalization, gyroscope converted from deg/s to rad/s):
+
+\begin{table}[h]
+    \centering
+    \caption{Model variants for architecture ablation study.}
+    \label{tab:ablation_models}
+    \begin{tabular}{llccc}
+        \toprule
+        Model & Input & Dual Proj. & SE & Temporal Attn \\
+        \midrule
+        TransModel & Acc (4ch) & -- & No & No \\
+        TransModelSE & Acc (4ch) & -- & Yes & Yes \\
+        IMUTransformer & Acc+Gyro (8ch) & No & No & No \\
+        IMUTransformerSE & Acc+Gyro (8ch) & Yes & Yes & Yes \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Hypotheses}
+
+\begin{enumerate}[label=\textbf{H\arabic*}:]
+    \item SE modules will improve F1 by 2--4\% through learned channel weighting that suppresses noisy gyroscope axes.
+    \item Temporal attention pooling will outperform global average pooling by focusing on the transient impact phase of falls.
+    \item Dual input projection will close the performance gap between acc+gyro and acc-only configurations by preventing early feature corruption.
+\end{enumerate}
+
+\subsection{Evaluation Protocol}
+
+All experiments use Leave-One-Subject-Out (LOSO) cross-validation across 30 young subjects. We report accuracy, F1, precision, and recall (mean $\pm$ std across folds). Training configuration is fixed: AdamW optimizer, learning rate $10^{-3}$, weight decay $10^{-3}$, 80 epochs, batch size 64, seed 2.
+
+% ------------------------------------------------------------------
+% 7. Future Work: Cross-Modal Knowledge Distillation
+% ------------------------------------------------------------------
+\section{Future Work: Cross-Modal Knowledge Distillation}
+
+Beyond architectural improvements, we plan to investigate whether skeleton-based pose estimation can serve as a teacher modality for IMU-based student models.
+
+\subsection{Dataset Characteristics}
+
+The SmartFallMM dataset includes synchronized skeleton data extracted from video at 30 FPS (32 joints $\times$ 3 coordinates = 96 features per frame). This provides rich spatial information about body pose that is unavailable to wrist-worn IMU sensors.
+
+\subsection{Distillation Strategy}
+
+We propose a cross-modal distillation framework:
+\begin{enumerate}[label=\arabic*.]
+    \item \textbf{Teacher:} Train a skeleton-only transformer (spatial-temporal attention over joint trajectories) to near-optimal performance ($>$95\% validation F1).
+    \item \textbf{Student:} Train the IMUTransformerSE model with a combined loss:
+    \begin{equation}
+        \mathcal{L} = \mathcal{L}_{\text{task}} + \alpha \mathcal{L}_{\text{feature}} + \beta \mathcal{L}_{\text{attention}}
+    \end{equation}
+    where $\mathcal{L}_{\text{feature}}$ aligns student features to teacher features (projected to common dimension) and $\mathcal{L}_{\text{attention}}$ aligns temporal attention distributions.
+    \item \textbf{Wrist focus:} To reduce the modality gap, teacher supervision is computed using only wrist-adjacent joints (shoulders, elbows, wrists) rather than the full skeleton.
+\end{enumerate}
+
+\subsection{Overfitting Mitigation}
+
+Given the limited dataset size ($\sim$1700 samples), we employ conservative distillation:
+\begin{itemize}
+    \item Low feature loss weight ($\alpha = 0.3$) to avoid forcing exact feature matching across different modalities.
+    \item High temperature ($T = 4.0$) for soft probability matching.
+    \item Curriculum learning: task loss only for first 10 epochs, then gradual introduction of distillation losses.
+    \item Early stopping based on validation loss with patience of 15 epochs.
+\end{itemize}
+
+% ------------------------------------------------------------------
+% 8. Conclusion
+% ------------------------------------------------------------------
+% ------------------------------------------------------------------
+% Section 8: IMU Data Alignment for Variable Sampling Rates
+% ------------------------------------------------------------------
+% ADD THIS SECTION TO YOUR EXISTING DOCUMENT AFTER SECTION 7
+% ------------------------------------------------------------------
+
+\section{IMU Data Alignment for Variable Sampling Rates}
+
+A critical preprocessing issue was discovered during analysis of the SmartFallMM dataset: the current data loading pipeline incorrectly discards valid trials due to a flawed length-matching heuristic. This section documents the problem, our analysis, the proposed solution, and validation results.
+
+\subsection{Problem Statement}
+
+The existing preprocessing pipeline uses a simple length-based criterion to determine whether accelerometer and gyroscope data can be fused:
+
+\begin{verbatim}
+if abs(len(acc_data) - len(gyro_data)) > 10:
+    discard_trial()
+\end{verbatim}
+
+This logic assumes that synchronized sensors should produce approximately equal numbers of samples. However, this assumption is \textbf{incorrect} for Android smartwatch data due to the following factors:
+
+\begin{enumerate}[label=(\roman*)]
+    \item \textbf{Variable sampling rates:} Android's \texttt{SensorManager.registerListener()} accepts a delay hint, but the actual delivery rate varies based on hardware, system load, and batching policies.
+    \item \textbf{Different sensor hardware:} Accelerometer and gyroscope may use different physical sensors with independent sampling clocks.
+    \item \textbf{Batched delivery:} Android batches sensor events for power efficiency, resulting in burst deliveries with duplicate timestamps.
+\end{enumerate}
+
+\subsection{Case Study: Subject 45}
+
+Subject 45 provides a critical example of this issue. This subject has only \textbf{one fall trial} (S45A10T11) in the entire dataset. Analysis of this trial reveals:
+
+\begin{table}[h]
+    \centering
+    \caption{S45A10T11 trial characteristics.}
+    \label{tab:s45_analysis}
+    \begin{tabular}{lcc}
+        \toprule
+        Metric & Accelerometer & Gyroscope \\
+        \midrule
+        Sample count & 789 & 469 \\
+        Effective rate & 86.6 Hz & 52.5 Hz \\
+        Recording duration & 110.8 s & 110.8 s \\
+        Start timestamp offset & \multicolumn{2}{c}{1 ms} \\
+        End timestamp offset & \multicolumn{2}{c}{2 ms} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Despite the 41\% difference in sample counts, the timestamps show \textbf{perfect synchronization}---both sensors recorded the same time period with millisecond-level alignment. The length-based criterion discards this trial, making Subject 45 unusable for Leave-One-Subject-Out (LOSO) evaluation.
+
+\subsection{Proposed Solution: Timestamp-Based Alignment}
+
+We propose replacing the length-based check with a timestamp-based alignment algorithm:
+
+\subsubsection{Algorithm Overview}
+
+\begin{enumerate}
+    \item \textbf{Parse timestamps:} Extract ISO-format timestamps from each CSV row and convert to milliseconds from epoch.
+    \item \textbf{Handle duplicates:} Add microscopic offsets (0.001 ms) to duplicate timestamps caused by Android batching.
+    \item \textbf{Check synchronization:} Verify that start and end timestamps differ by less than 1 second.
+    \item \textbf{Find overlap region:} Compute $[\max(t_{\text{acc,start}}, t_{\text{gyro,start}}), \min(t_{\text{acc,end}}, t_{\text{gyro,end}})]$.
+    \item \textbf{Create common grid:} Generate uniformly-spaced timestamps at the target rate (30 Hz for training, 32 Hz for inference).
+    \item \textbf{Interpolate:} Apply linear interpolation to project both modalities onto the common grid.
+\end{enumerate}
+
+\subsubsection{Linear Interpolation}
+
+For a target time $t$ between samples $t_i$ and $t_{i+1}$:
+\begin{equation}
+    x(t) = x_i + \frac{x_{i+1} - x_i}{t_{i+1} - t_i} \cdot (t - t_i)
+\end{equation}
+
+This is applied independently to each of the six IMU channels (3 accelerometer axes + 3 gyroscope axes).
+
+\subsubsection{Decision Logic}
+
+The new preprocessing logic follows this decision tree:
+\begin{enumerate}
+    \item If $|\Delta t_{\text{start}}| > 1000$ ms $\rightarrow$ \textbf{Discard} (different recordings)
+    \item If $|\Delta t_{\text{end}}| > 1000$ ms $\rightarrow$ \textbf{Discard} (different recordings)
+    \item If overlap ratio $< 0.8$ $\rightarrow$ \textbf{Discard} (insufficient overlap)
+    \item If $|\Delta n| \leq 10$ $\rightarrow$ \textbf{Use as-is} (truncate to shorter length)
+    \item Otherwise $\rightarrow$ \textbf{Align} (interpolate to common grid)
+\end{enumerate}
+
+\subsection{Alignment Accuracy Analysis}
+
+We validated the alignment method on the S45A10T11 trial using roundtrip interpolation error:
+
+\begin{table}[h]
+    \centering
+    \caption{Alignment quality metrics for S45A10T11.}
+    \label{tab:alignment_quality}
+    \begin{tabular}{lc}
+        \toprule
+        Metric & Value \\
+        \midrule
+        Input (acc) & 786 samples \\
+        Input (gyro) & 467 samples \\
+        Output (aligned) & 268 samples @ 30 Hz \\
+        \midrule
+        Mean Absolute Error (MAE) & 0.64 m/s² \\
+        Error / Fall threshold & 6.4\% \\
+        Cross-correlation lag & 10 ms \\
+        Correlation coefficient & 0.55 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The interpolation error (0.64 m/s²) is negligible compared to fall impact magnitudes (30--50 m/s²), and the cross-correlation lag (10 ms) confirms proper temporal alignment.
+
+\subsection{Limitations and Considerations}
+
+\subsubsection{What Alignment Does Not Do}
+
+\begin{itemize}
+    \item \textbf{Noise filtering:} The alignment preserves signals exactly, including sensor noise. Butterworth filtering should be applied separately.
+    \item \textbf{Drift correction:} We assume timestamps are accurate (same Android clock for both sensors). For recordings $>$2 minutes, drift correction via cross-correlation may be needed.
+    \item \textbf{SNR improvement:} Signal-to-noise ratio is unchanged; use SE modules or filtering for noise suppression.
+\end{itemize}
+
+\subsubsection{Real-Time Deployment Considerations}
+
+The Android watch app uses 128-sample windows with 32-sample stride at 32 Hz. To maintain consistency between offline training and online inference:
+
+\begin{itemize}
+    \item \textbf{Offline:} Align to 30 Hz during training (slight mismatch acceptable for augmentation).
+    \item \textbf{Online:} Implement real-time interpolation in the Wear OS app using a circular buffer that accumulates samples and interpolates to 32 Hz before windowing.
+\end{itemize}
+
+The alignment computation is lightweight (linear interpolation is $O(n)$) and adds negligible latency ($<$1 ms per window).
+
+\subsection{Expected Impact}
+
+Based on preliminary analysis of the S45A10T11 case and similar trials:
+
+\begin{itemize}
+    \item \textbf{Trials recovered:} Estimated 5--15\% of previously discarded trials.
+    \item \textbf{Critical falls preserved:} Subject 45's only fall trial is retained.
+    \item \textbf{LOSO coverage:} No subjects should have zero fall trials after alignment.
+    \item \textbf{Performance impact:} Expected neutral to positive effect on test F1 (more training data, no loss of signal quality).
+\end{itemize}
+
+\subsection{Implementation Status}
+
+\begin{table}[h]
+    \centering
+    \caption{Implementation checklist for IMU alignment.}
+    \label{tab:implementation_status}
+    \begin{tabular}{llc}
+        \toprule
+        Component & Description & Status \\
+        \midrule
+        \texttt{utils/alignment.py} & Core alignment module & Complete \\
+        \texttt{validate\_alignment.py} & Dataset-wide validation script & Complete \\
+        \texttt{loader.py} modifications & Integration with data loading & Pending \\
+        Config flags & YAML parameters for alignment & Pending \\
+        Android \texttt{IMUAligner.kt} & Real-time alignment for watch & Pending \\
+        Full dataset validation & Run on all subjects & Pending \\
+        LOSO comparison & With vs without alignment & Pending \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+% ------------------------------------------------------------------
+% Section 9: Summary of Experimental Progress
+% ------------------------------------------------------------------
+
+\section{Summary of Experimental Progress}
+
+This section provides a comprehensive summary of all experiments conducted, architectural decisions made, and issues discovered during the development of the multimodal fall detection system.
+
+\subsection{Completed Experiments}
+
+\subsubsection{Baseline Performance (LOSO, 30 Young Subjects)}
+
+\begin{table}[h]
+    \centering
+    \caption{Baseline model comparison.}
+    \label{tab:baseline_comparison}
+    \begin{tabular}{lcccc}
+        \toprule
+        Model & Input & Test F1 [\%] & Test Acc [\%] & Notes \\
+        \midrule
+        TransModel & Acc (4ch) & 87.35 & 86.60 & Strong baseline \\
+        IMUTransformer & Acc+Gyro (8ch) & 85.30 & 85.50 & Underperforms acc-only \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\textbf{Key Finding:} Adding gyroscope data \textit{decreases} performance by 2.05\% F1. This counterintuitive result motivated the architecture ablation study.
+
+\subsubsection{Motion Filtering Alignment}
+
+\begin{itemize}
+    \item Offline preprocessing now matches online motion gate: at least 2 accelerometer axes $>$ 10 m/s² at any timestep.
+    \item Effect: Fall-to-ADL ratio changes from 1:2 to 2:1, aligning with deployment distribution.
+    \item Validation-test gap reduced but still significant ($\sim$12\% F1).
+\end{itemize}
+
+\subsection{Architectural Investigations}
+
+\subsubsection{Root Cause Analysis: Why Gyroscope Hurts Performance}
+
+Three hypotheses were formulated:
+\begin{enumerate}
+    \item \textbf{Early feature corruption:} Single-stream architecture mixes all 8 channels in the first layer, allowing noisy gyroscope (SNR $<$ 1.0 for 76\% of subjects) to corrupt accelerometer features.
+    \item \textbf{Suboptimal temporal pooling:} Global average pooling dilutes transient fall signatures ($<$500 ms) over 4-second windows.
+    \item \textbf{Uniform channel weighting:} All channels treated equally despite different reliability.
+\end{enumerate}
+
+\subsubsection{Proposed Architectural Modifications}
+
+\begin{itemize}
+    \item \textbf{Squeeze-and-Excitation (SE) module:} Learns channel-wise importance weights to suppress noisy channels.
+    \item \textbf{Temporal attention pooling:} Replaces global average pooling with learned attention over timesteps.
+    \item \textbf{Dual input projection:} Separate Conv1D projections for accelerometer and gyroscope with asymmetric capacity (75\%/25\%).
+\end{itemize}
+
+\textbf{Expected outcome:} SE + dual projection should recover +5--7\% F1 for acc+gyro, surpassing acc-only baseline.
+
+\subsection{Data Quality Issues Discovered}
+
+\subsubsection{Variable Sampling Rate Problem}
+
+\begin{itemize}
+    \item Android IMU API delivers accelerometer and gyroscope at different, variable rates.
+    \item Current length-based discard logic incorrectly rejects synchronized trials.
+    \item Critical impact: Subject 45 loses its only fall trial.
+    \item Solution: Timestamp-based linear interpolation to common 30 Hz grid.
+\end{itemize}
+
+\subsubsection{Timestamp Characteristics}
+
+\begin{itemize}
+    \item Duplicate timestamps due to Android batching (8.1\% of acc samples, 6.4\% of gyro samples).
+    \item Large gaps ($>$1 second) in some recordings due to recording pauses.
+    \item Start/end offsets typically $<$50 ms (well-synchronized).
+\end{itemize}
+
+\subsection{Pending Experiments}
+
+\begin{enumerate}
+    \item \textbf{SE Module Ablation (4 models × 30 folds):}
+    \begin{itemize}
+        \item TransModel (acc-only, no SE) vs TransModelSE (acc-only, with SE)
+        \item IMUTransformer (acc+gyro, no SE) vs IMUTransformerSE (acc+gyro, with SE)
+    \end{itemize}
+    
+    \item \textbf{IMU Alignment Validation:}
+    \begin{itemize}
+        \item Run \texttt{validate\_alignment.py} on full dataset.
+        \item Quantify recovered trials and alignment quality.
+        \item Compare LOSO results with/without alignment.
+    \end{itemize}
+    
+    \item \textbf{Knowledge Distillation from Skeleton:}
+    \begin{itemize}
+        \item Train skeleton teacher (spatial-temporal transformer).
+        \item Distill to IMUTransformerSE with wrist-focused supervision.
+        \item Conservative hyperparameters to prevent overfitting.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Key Insights and Recommendations}
+
+\begin{enumerate}
+    \item \textbf{Data quality $>$ architecture:} Fixing alignment issues is expected to have larger impact than hyperparameter tuning.
+    \item \textbf{Modality-specific processing:} Dual-stream or dual-projection architectures are essential for effective acc+gyro fusion.
+    \item \textbf{Attention mechanisms:} SE modules and temporal attention are lightweight additions ($<$200 parameters) with potentially large impact.
+    \item \textbf{Train-deployment alignment:} Offline preprocessing must exactly match online behavior (motion filtering, sampling rate, windowing).
+\end{enumerate}
+
+\subsection{Repository and Code References}
+
+All implementations are available in the project repository:
+\begin{itemize}
+    \item \textbf{Alignment module:} \texttt{utils/alignment.py}
+    \item \textbf{Validation script:} \texttt{experiments/validate\_alignment.py}
+    \item \textbf{SE transformer:} \texttt{Models/imu\_transformer\_se.py}
+    \item \textbf{Parallel training:} \texttt{scripts/run\_se\_comparison\_parallel.sh}
+    \item \textbf{Claude Code prompt:} \texttt{docs/CLAUDE\_CODE\_PROMPT\_IMU\_ALIGNMENT.md}
+\end{itemize}
+\section{Conclusion}
+
+We have presented a concise overview of a multimodal Transformer-based fall-detection system that uses a dual-stream architecture for accelerometer and gyroscope data, along with a motion filter that gates which windows are sent to the edge model. By updating the offline pre-processing pipeline to replicate the online motion filter implemented in \texttt{PersonalizedPredictionLSTM.java}, we obtain offline results that better reflect real-world behavior on the watch.
+
+The dual-stream design provides clear advantages for handling variable sampling rates, performing modality-aware knowledge distillation, and preserving modality-specific fusion. At the same time, motion filtering improves performance while creating a realistic fall-to-ADL ratio that matches the system's deployment scenario. 
+
+Upcoming experiments will systematically evaluate SE modules and temporal attention pooling to determine whether these architectural modifications can improve accelerometer+gyroscope fusion. Longer-term, cross-modal knowledge distillation from skeleton data offers a promising avenue for transferring rich pose information to lightweight wrist-worn models without requiring video input at inference time.
+
+\end{document}

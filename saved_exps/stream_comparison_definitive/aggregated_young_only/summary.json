@@ -1,0 +1,74 @@
+{
+  "experiment_name": "stream_comparison_young_20251205_202527",
+  "timestamp": "2025-12-06T03:21:51.998240",
+  "results_dir": "results/stream_comparison_young_20251205_202527",
+  "n_experiments": 6,
+  "experiments": [
+    "single_stream",
+    "dual_symmetric",
+    "dual_asymmetric",
+    "dual_asym_dropout",
+    "kalman_single",
+    "kalman_dual"
+  ],
+  "best_model": "kalman_dual",
+  "best_f1": 0.8788909090909091,
+  "research_questions": {
+    "RQ1": {
+      "question": "Does stream separation improve performance?",
+      "hypothesis": "dual_symmetric > single_stream",
+      "comparison": "single_stream vs dual_symmetric",
+      "model1_score": "83.89%",
+      "model2_score": "81.21%",
+      "difference": "+2.69%",
+      "p_value": 0.16943779983681836,
+      "cohens_d": 0.24557499375636338,
+      "effect_size": "small",
+      "significant": false,
+      "answer": "No significant difference",
+      "supports_hypothesis": false
+    },
+    "RQ2": {
+      "question": "Does asymmetric capacity allocation help?",
+      "hypothesis": "dual_asymmetric > dual_symmetric",
+      "comparison": "dual_symmetric vs dual_asymmetric",
+      "model1_score": "81.21%",
+      "model2_score": "80.89%",
+      "difference": "+0.32%",
+      "p_value": 0.9004014389231276,
+      "cohens_d": 0.027067265519316666,
+      "effect_size": "negligible",
+      "significant": false,
+      "answer": "No significant difference",
+      "supports_hypothesis": false
+    },
+    "RQ3": {
+      "question": "Does modality-specific dropout help?",
+      "hypothesis": "dual_asym_dropout > dual_asymmetric",
+      "comparison": "dual_asymmetric vs dual_asym_dropout",
+      "model1_score": "80.89%",
+      "model2_score": "84.62%",
+      "difference": "-3.73%",
+      "p_value": 0.16593999234666504,
+      "cohens_d": -0.35748887829358156,
+      "effect_size": "small",
+      "significant": false,
+      "answer": "No significant difference",
+      "supports_hypothesis": false
+    },
+    "RQ4": {
+      "question": "Does dual-stream help Kalman-fused features?",
+      "hypothesis": "kalman_dual > kalman_single",
+      "comparison": "kalman_single vs kalman_dual",
+      "model1_score": "86.22%",
+      "model2_score": "87.89%",
+      "difference": "-1.67%",
+      "p_value": 0.07402990278894485,
+      "cohens_d": -0.20597780586288522,
+      "effect_size": "small",
+      "significant": false,
+      "answer": "No significant difference",
+      "supports_hypothesis": false
+    }
+  }
+}

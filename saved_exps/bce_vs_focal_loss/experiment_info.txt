@@ -1,0 +1,13 @@
+Focal Loss vs BCE Comparison Experiment (Robust)
+=================================================
+Start Time: Mon Dec  1 21:40:41 CST 2025
+Results Directory: results/focal_loss_comparison_1201_2140
+Partition: shared
+CPUs: 16
+Memory: 32G
+
+Experiments:
+  1. IMUTransformerSE + BCE Loss (baseline)
+  2. IMUTransformerSE + Focal Loss (alpha=0.75, gamma=2.0)
+  3. DualStreamRobust + BCE Loss (baseline)
+  4. DualStreamRobust + Focal Loss (alpha=0.75, gamma=2.0)

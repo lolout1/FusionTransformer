@@ -1,0 +1,5 @@
+statistic,train_loss,train_accuracy,train_f1_score,train_precision,train_recall,train_auc,val_loss,val_accuracy,val_f1_score,val_precision,val_recall,val_auc,test_loss,test_accuracy,test_f1_score,test_precision,test_recall,test_auc,overfitting_gap_accuracy,overfitting_gap_f1
+mean,0.00,96.68,97.27,98.83,95.75,96.97,0.00,97.65,98.13,99.53,96.77,97.98,0.01,68.15,67.95,76.81,60.92,69.03,29.49,30.18
+std,,,,,,,,,,,,,,,,,,,,
+min,0.00,96.68,97.27,98.83,95.75,96.97,0.00,97.65,98.13,99.53,96.77,97.98,0.01,68.15,67.95,76.81,60.92,69.03,29.49,30.18
+max,0.00,96.68,97.27,98.83,95.75,96.97,0.00,97.65,98.13,99.53,96.77,97.98,0.01,68.15,67.95,76.81,60.92,69.03,29.49,30.18

@@ -1,0 +1,21 @@
+======================================================================
+SINGLESTREAMTRANSFORMER MODEL - Results Summary
+======================================================================
+
+Average Performance:
+  Test F1:       92.31 ± nan%
+  Test Accuracy: 87.18 ± nan%
+  Val F1:        90.18%
+  Val Accuracy:  87.06%
+
+Overfitting Analysis:
+  Gap (Val-Test) F1:  -2.13%
+  Gap (Val-Test) Acc: -0.12%
+
+Per-Subject Performance (Test F1):
+  Best subjects:
+    Subject 34: 92.31%
+  Worst subjects:
+    Subject 34: 92.31%
+
+======================================================================

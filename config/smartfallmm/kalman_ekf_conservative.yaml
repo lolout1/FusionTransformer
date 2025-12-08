@@ -53,8 +53,8 @@ dataset_args:
   kalman_filter_type: ekf
   kalman_output_format: euler
   kalman_include_smv: True
-  kalman_include_uncertainty: True   # ADDED: include uncertainty features
-  kalman_include_innovation: True    # ADDED: include innovation features
+  kalman_include_uncertainty: False  # Keep 7 channels for model compatibility
+  kalman_include_innovation: False
   filter_fs: 30.0
 
   # CONSERVATIVE: Trust gyroscope more, slow quaternion dynamics

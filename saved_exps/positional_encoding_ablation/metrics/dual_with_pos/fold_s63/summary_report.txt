@@ -1,0 +1,21 @@
+======================================================================
+DUALSTREAMBASE MODEL - Results Summary
+======================================================================
+
+Average Performance:
+  Test F1:       95.94 ± nan%
+  Test Accuracy: 94.12 ± nan%
+  Val F1:        91.44%
+  Val Accuracy:  88.82%
+
+Overfitting Analysis:
+  Gap (Val-Test) F1:  -4.50%
+  Gap (Val-Test) Acc: -5.29%
+
+Per-Subject Performance (Test F1):
+  Best subjects:
+    Subject 63: 95.94%
+  Worst subjects:
+    Subject 63: 95.94%
+
+======================================================================

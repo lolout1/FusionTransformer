@@ -1,0 +1,93 @@
+================================================================================
+
+KALMAN FILTER COMPARISON - ANALYSIS REPORT
+
+================================================================================
+
+Generated: 2025-12-01 23:46:47
+
+Results Dir: results/kalman_comparison_20251201_225405
+
+
+
+
+================================================================================
+KALMAN FILTER COMPARISON: Linear KF vs Extended KF
+================================================================================
+
+Filter               Params       Folds    TestAcc        TestF1        
+----------------------------------------------------------------------
+LINEAR               default      22       86.50+/-8.74   87.82+/-8.94  
+LINEAR               tuned        22       86.77+/-8.13   88.09+/-8.38  
+EKF                  default      22       84.88+/-7.92   86.42+/-7.90  
+EKF                  tuned        22       86.15+/-7.79   87.50+/-7.71  
+----------------------------------------------------------------------
+
+
+================================================================================
+PARAMETER TUNING EFFECT ANALYSIS
+================================================================================
+
+--- Linear Kalman Filter ---
+  Test F1: Default 87.82+/-8.94 vs Tuned 88.09+/-8.38 (Delta=+0.27% -> Tuned)
+  Test Acc: Default 86.50+/-8.74 vs Tuned 86.77+/-8.13 (Delta=+0.27% -> Tuned)
+
+--- Extended Kalman Filter ---
+  Test F1: Default 86.42+/-7.90 vs Tuned 87.50+/-7.71 (Delta=+1.07% -> Tuned)
+  Test Acc: Default 84.88+/-7.92 vs Tuned 86.15+/-7.79 (Delta=+1.27% -> Tuned)
+
+--- Linear vs EKF (Best Configs) ---
+  Test F1: Linear 88.09+/-8.38 vs EKF 87.50+/-7.71 (Delta=-0.59% -> Linear)
+  Test Acc: Linear 86.77+/-8.13 vs EKF 86.15+/-7.79 (Delta=-0.62% -> Linear)
+
+
+================================================================================
+STATISTICAL SIGNIFICANCE TESTS
+================================================================================
+
+Paired t-test comparisons
+Significance: * p<0.05, ** p<0.01, *** p<0.001
+
+Linear: Default vs Tuned:
+--------------------------------------------------
+  Test F1: Delta=+0.27% -> Linear_Tune 
+    p=0.4267, Cohen's d=0.173, n=22
+  Test Acc: Delta=+0.27% -> Linear_Tune 
+    p=0.4661, Cohen's d=0.158, n=22
+
+EKF: Default vs Tuned:
+--------------------------------------------------
+  Test F1: Delta=+1.07% -> EKF_Tune 
+    p=0.1004, Cohen's d=0.366, n=22
+  Test Acc: Delta=+1.27% -> EKF_Tune 
+    p=0.0626, Cohen's d=0.419, n=22
+
+Default Params: Linear vs EKF:
+--------------------------------------------------
+  Test F1: Delta=-1.39% -> Linear_Def 
+    p=0.1839, Cohen's d=-0.293, n=22
+  Test Acc: Delta=-1.62% -> Linear_Def 
+    p=0.1510, Cohen's d=-0.318, n=22
+
+Tuned Params: Linear vs EKF:
+--------------------------------------------------
+  Test F1: Delta=-0.59% -> Linear_Tune 
+    p=0.4174, Cohen's d=-0.176, n=22
+  Test Acc: Delta=-0.62% -> Linear_Tune 
+    p=0.4529, Cohen's d=-0.163, n=22
+
+
+================================================================================
+SUMMARY TABLE (Publication Ready)
+================================================================================
+
+Filter Type     Parameters   Folds    Test Acc       Test F1        Val Acc        Val F1        
+---------------------------------------------------------------------------------------------
+LINEAR          default      22       86.50+/-8.74   87.82+/-8.94   96.00+/-1.12   96.84+/-0.91  
+LINEAR          tuned        22       86.77+/-8.13   88.09+/-8.38   95.92+/-1.29   96.78+/-1.04  
+EKF             default      22       84.88+/-7.92   86.42+/-7.90   95.72+/-1.09   96.65+/-0.85  
+EKF             tuned        22       86.15+/-7.79   87.50+/-7.71   96.36+/-0.88   97.12+/-0.71  
+---------------------------------------------------------------------------------------------
+
+Best Configuration:
+  Best Test F1: Linear KF + Tuned Params (88.09%)

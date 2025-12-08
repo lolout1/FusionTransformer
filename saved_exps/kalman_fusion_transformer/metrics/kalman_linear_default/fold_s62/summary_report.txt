@@ -1,0 +1,21 @@
+======================================================================
+KALMANTRANSFORMER MODEL - Results Summary
+======================================================================
+
+Average Performance:
+  Test F1:       79.02 ± nan%
+  Test Accuracy: 73.62 ± nan%
+  Val F1:        96.49%
+  Val Accuracy:  95.59%
+
+Overfitting Analysis:
+  Gap (Val-Test) F1:  17.46%
+  Gap (Val-Test) Acc: 21.97%
+
+Per-Subject Performance (Test F1):
+  Best subjects:
+    Subject 62: 79.02%
+  Worst subjects:
+    Subject 62: 79.02%
+
+======================================================================

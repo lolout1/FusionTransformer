@@ -1,0 +1,17 @@
+\begin{table}[h]
+\centering
+\caption{stream_comparison_young_old_20251205_202440}
+\label{tab:results}
+\begin{tabular}{lcccc}
+\toprule
+Model & F1 (\%) & Acc (\%) & Prec (\%) & Rec (\%) \\
+\midrule
+kalman\_dual & 90.6$\pm$7.0 & 86.1$\pm$9.0 & 85.7$\pm$11.1 & 97.0$\pm$4.2 \\
+kalman\_single & 89.8$\pm$8.1 & 84.7$\pm$11.3 & 85.1$\pm$12.5 & 96.4$\pm$4.0 \\
+single\_stream & 88.3$\pm$6.6 & 82.7$\pm$9.4 & 86.5$\pm$10.8 & 91.4$\pm$8.2 \\
+dual\_symmetric & 86.8$\pm$7.6 & 80.9$\pm$10.4 & 85.4$\pm$11.7 & 90.0$\pm$10.5 \\
+dual\_asym\_dropout & 86.6$\pm$8.9 & 80.8$\pm$12.1 & 85.8$\pm$13.1 & 89.5$\pm$10.8 \\
+dual\_asymmetric & 81.8$\pm$10.5 & 73.9$\pm$14.5 & 84.7$\pm$12.9 & 82.5$\pm$16.4 \\
+\bottomrule
+\end{tabular}
+\end{table}

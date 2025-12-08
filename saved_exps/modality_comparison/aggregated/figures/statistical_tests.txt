@@ -1,0 +1,94 @@
+================================================================================
+STATISTICAL SIGNIFICANCE TESTS (Paired t-test, alpha=0.05)
+================================================================================
+
+
+RQ1: Effect of Gyroscope (No SMV, TransformerSE)
+------------------------------------------------
+  F1-Score:
+    TransformerSE (Acc, 3ch): 85.39% +/- 3.63%
+    TransformerSE (Acc+Gyro, 6ch): 83.69% +/- 10.95%
+    Difference: -1.71%
+    t(3) = 0.354, p = 0.7470 ns
+    Cohen's d = -0.177
+  Accuracy:
+    TransformerSE (Acc, 3ch): 81.07% +/- 3.78%
+    TransformerSE (Acc+Gyro, 6ch): 81.27% +/- 9.96%
+    Difference: +0.20%
+    t(3) = -0.032, p = 0.9768 ns
+    Cohen's d = 0.016
+
+RQ2a: Effect of SMV (Acc-only, TransformerSE)
+---------------------------------------------
+  F1-Score:
+    TransformerSE (Acc, 3ch): 85.39% +/- 3.63%
+    TransformerSE (Acc+SMV, 4ch): 83.91% +/- 8.68%
+    Difference: -1.49%
+    t(3) = 0.421, p = 0.7019 ns
+    Cohen's d = -0.211
+  Accuracy:
+    TransformerSE (Acc, 3ch): 81.07% +/- 3.78%
+    TransformerSE (Acc+SMV, 4ch): 80.17% +/- 9.01%
+    Difference: -0.90%
+    t(3) = 0.170, p = 0.8759 ns
+    Cohen's d = -0.085
+
+RQ2b: Effect of SMV (Acc+Gyro, TransformerSE)
+---------------------------------------------
+  F1-Score:
+    TransformerSE (Acc+Gyro, 6ch): 83.69% +/- 10.95%
+    TransformerSE (Acc+Gyro+SMV, 7ch): 78.33% +/- 13.92%
+    Difference: -5.35%
+    t(3) = 2.031, p = 0.1352 ns
+    Cohen's d = -1.015
+  Accuracy:
+    TransformerSE (Acc+Gyro, 6ch): 81.27% +/- 9.96%
+    TransformerSE (Acc+Gyro+SMV, 7ch): 78.72% +/- 9.71%
+    Difference: -2.54%
+    t(3) = 12.180, p = 0.0012 **
+    Cohen's d = -6.090
+
+RQ2c: Effect of SMV (Acc-only, Regular Transformer)
+---------------------------------------------------
+  F1-Score:
+    Transformer (Acc, 3ch): 83.30% +/- 15.25%
+    Transformer (Acc+SMV, 4ch): 88.25% +/- 5.08%
+    Difference: +4.95%
+    t(1) = -0.487, p = 0.7115 ns
+    Cohen's d = 0.344
+  Accuracy:
+    Transformer (Acc, 3ch): 84.52% +/- 13.48%
+    Transformer (Acc+SMV, 4ch): 87.05% +/- 2.95%
+    Difference: +2.54%
+    t(1) = -0.241, p = 0.8495 ns
+    Cohen's d = 0.170
+
+RQ3a: Effect of SE+TAP (Acc-only)
+---------------------------------
+  F1-Score:
+    Transformer (Acc, 3ch): 83.30% +/- 15.25%
+    TransformerSE (Acc, 3ch): 83.07% +/- 2.30%
+    Difference: -0.23%
+    t(1) = 0.017, p = 0.9889 ns
+    Cohen's d = -0.012
+  Accuracy:
+    Transformer (Acc, 3ch): 84.52% +/- 13.48%
+    TransformerSE (Acc, 3ch): 78.66% +/- 2.66%
+    Difference: -5.86%
+    t(1) = 0.363, p = 0.7783 ns
+    Cohen's d = -0.257
+
+RQ3b: Effect of SE+TAP (Acc+SMV)
+--------------------------------
+  F1-Score:
+    Transformer (Acc+SMV, 4ch): 86.23% +/- 5.04%
+    TransformerSE (Acc+SMV, 4ch): 80.90% +/- 8.01%
+    Difference: -5.33%
+    t(2) = 2.285, p = 0.1496 ns
+    Cohen's d = -1.319
+  Accuracy:
+    Transformer (Acc+SMV, 4ch): 83.63% +/- 5.40%
+    TransformerSE (Acc+SMV, 4ch): 76.85% +/- 8.00%
+    Difference: -6.79%
+    t(2) = 2.547, p = 0.1258 ns
+    Cohen's d = -1.470

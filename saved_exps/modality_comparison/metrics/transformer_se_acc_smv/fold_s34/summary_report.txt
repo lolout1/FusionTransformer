@@ -1,0 +1,21 @@
+======================================================================
+TRANSMODELSE MODEL - Results Summary
+======================================================================
+
+Average Performance:
+  Test F1:       92.11 ± nan%
+  Test Accuracy: 88.00 ± nan%
+  Val F1:        95.40%
+  Val Accuracy:  94.40%
+
+Overfitting Analysis:
+  Gap (Val-Test) F1:  3.30%
+  Gap (Val-Test) Acc: 6.40%
+
+Per-Subject Performance (Test F1):
+  Best subjects:
+    Subject 34: 92.11%
+  Worst subjects:
+    Subject 34: 92.11%
+
+======================================================================

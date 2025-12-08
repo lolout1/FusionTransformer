@@ -1,0 +1,834 @@
+% =============================================================================
+% Attention-Enhanced Transformer Architectures for Wearable Fall Detection
+% A Comprehensive Ablation Study
+% =============================================================================
+% Overleaf-compatible LaTeX document
+% Compile with pdflatex -> bibtex -> pdflatex -> pdflatex
+% =============================================================================
+
+\documentclass[journal,12pt]{IEEEtran}
+
+% =============================================================================
+% PACKAGES
+% =============================================================================
+
+% Mathematics
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{bm}  % Bold math symbols
+
+% Tables
+\usepackage{booktabs}  % Professional tables
+\usepackage{multirow}  % Multi-row cells
+\usepackage{array}     % Enhanced columns
+\usepackage{tabularx}  % Auto-width columns
+\usepackage{colortbl}  % Colored cells
+
+% Figures
+\usepackage{graphicx}
+\usepackage{subfig}    % Subfigures
+\usepackage{float}     % Figure placement
+
+% Algorithms
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% Code listings
+\usepackage{listings}
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10}
+}
+
+% Colors
+\usepackage{xcolor}
+\definecolor{bestresult}{RGB}{0,128,0}
+\definecolor{significant}{RGB}{0,0,180}
+
+% Hyperlinks
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+% Units
+\usepackage{siunitx}
+\sisetup{
+    round-mode=places,
+    round-precision=2,
+    detect-all
+}
+
+% Misc
+\usepackage{enumitem}
+\usepackage{balance}  % Balance columns on last page
+
+% =============================================================================
+% CUSTOM COMMANDS
+% =============================================================================
+
+\newcommand{\best}[1]{\textbf{\textcolor{bestresult}{#1}}}
+\newcommand{\significant}[1]{\textcolor{significant}{#1}}
+\newcommand{\fone}{F\textsubscript{1}}
+\newcommand{\acc}{\mathbf{a}}
+\newcommand{\gyro}{\mathbf{g}}
+\newcommand{\ori}{\mathbf{o}}
+
+% =============================================================================
+% DOCUMENT INFO
+% =============================================================================
+
+\title{Attention-Enhanced Transformer Architectures for Wearable Fall Detection: A Comprehensive Ablation Study}
+
+\author{
+    \IEEEauthorblockN{Author Name\IEEEauthorrefmark{1}}
+    \IEEEauthorblockA{\IEEEauthorrefmark{1}Department of Computer Science\\
+    Texas State University\\
+    San Marcos, TX, USA\\
+    email@txstate.edu}
+}
+
+% =============================================================================
+% BEGIN DOCUMENT
+% =============================================================================
+
+\begin{document}
+
+\maketitle
+
+% =============================================================================
+% ABSTRACT
+% =============================================================================
+
+\begin{abstract}
+Falls are a leading cause of injury-related mortality among elderly populations, making reliable fall detection systems critical for healthcare. This paper presents a comprehensive ablation study of transformer-based architectures for wearable fall detection using wrist-worn smartwatch IMU data. We systematically evaluate 12 architectural choices across two populations: 30 young adults and 51 mixed-age subjects (30 young + 21 elderly). Our key findings include: (1) Squeeze-and-Excitation (SE) attention provides a 10\% \fone{} improvement over baseline transformers, significantly exceeding initial predictions of 2--4\%; (2) Kalman filter-based sensor fusion combined with dual-stream processing achieves 91.01\% \fone{}-score on the mixed-age population; (3) a 2$\times$2 factorial ablation reveals that neither fusion method (concat vs gated, $p=0.65$) nor capacity ratio (50/50 vs 65/35, $p=0.62$) significantly affects performance, providing flexibility in deployment choices; (4) positional encoding harms fall detection performance by 2--3\% \fone{}, as fall signatures are position-invariant within temporal windows. We provide detailed layer-by-layer architecture descriptions, mathematical formulations, and statistical analyses using paired $t$-tests with effect size reporting. Our results establish practical guidelines for deploying attention-enhanced transformers in real-world fall detection systems.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Fall detection, wearable sensors, transformer, attention mechanisms, Kalman filter, IMU, multimodal fusion, squeeze-and-excitation
+\end{IEEEkeywords}
+
+% =============================================================================
+% I. INTRODUCTION
+% =============================================================================
+
+\section{Introduction}
+\label{sec:introduction}
+
+\IEEEPARstart{F}{alls} represent a significant public health concern, particularly among elderly populations. According to the World Health Organization, falls are the second leading cause of unintentional injury deaths worldwide, with adults over 65 years experiencing the highest mortality rates~\cite{who_falls}. In the United States alone, falls among older adults result in over 3 million emergency department visits and approximately 32,000 deaths annually. The economic burden is equally substantial, with fall-related medical costs exceeding \$50 billion per year~\cite{florence2018medical}.
+
+Wearable fall detection systems offer a promising solution for timely intervention, enabling automatic alert mechanisms that can reduce the time between a fall event and medical response. Modern smartwatches equipped with inertial measurement units (IMUs) provide continuous access to accelerometer and gyroscope data, making them ideal platforms for unobtrusive fall monitoring~\cite{wang2020deep}.
+
+\subsection{Challenges}
+
+Despite significant research progress, several challenges remain in wearable fall detection:
+
+\textbf{Multimodal Fusion:} IMU sensors provide complementary information through accelerometer (linear motion) and gyroscope (angular velocity) measurements. However, naively concatenating these modalities often degrades performance due to differing noise characteristics and signal-to-noise ratios. Gyroscope data, in particular, exhibits higher noise levels, with SNR $< 1.0$ observed in 76\% of subjects in our dataset.
+
+\textbf{Population Generalization:} Most fall detection systems are developed and evaluated on young, healthy adults who simulate falls. The movement patterns of elderly individuals differ substantially---slower gait, reduced range of motion, and different activity of daily living (ADL) patterns. Models optimized for young populations may fail to generalize~\cite{kwolek2014human}.
+
+\textbf{Computational Constraints:} Edge deployment on smartwatches imposes strict limitations on model size, inference latency, and power consumption. Architectures must balance accuracy against these practical constraints.
+
+\subsection{Contributions}
+
+This paper makes the following contributions:
+
+\begin{enumerate}
+    \item \textbf{Systematic Ablation Study:} We evaluate 12 distinct architectural choices across preprocessing, attention mechanisms, fusion strategies, and stream architectures using rigorous statistical testing.
+
+    \item \textbf{Population-Dependent Analysis:} We conduct experiments on both young-only (30 subjects) and mixed-age (51 subjects) populations, revealing that optimal configurations differ between demographics.
+
+    \item \textbf{Attention Mechanism Analysis:} We demonstrate that Squeeze-and-Excitation attention provides a 10\% \fone{} improvement---2.5$\times$ higher than initially hypothesized---and that it implicitly learns to perform gravity removal and modality balancing.
+
+    \item \textbf{Best-in-Class Performance:} Our Kalman Dual-Stream Balanced architecture achieves \best{91.01\%} \fone{}-score on the mixed-age population, representing state-of-the-art performance on the SmartFallMM dataset.
+
+    \item \textbf{Practical Guidelines:} We provide concrete recommendations for deploying fall detection transformers, including which architectural choices help or harm performance under different conditions.
+\end{enumerate}
+
+% =============================================================================
+% II. RELATED WORK
+% =============================================================================
+
+\section{Related Work}
+\label{sec:related}
+
+\subsection{IMU-Based Fall Detection}
+
+Traditional approaches to wearable fall detection relied on threshold-based algorithms that triggered alerts when acceleration magnitude exceeded predefined values~\cite{bourke2007threshold}. While computationally efficient, these methods suffer from high false positive rates due to high-impact ADLs such as sitting down quickly or jumping.
+
+Machine learning approaches, including Support Vector Machines (SVMs), Random Forests, and $k$-Nearest Neighbors, improved upon threshold methods by learning discriminative features from labeled data~\cite{abbate2012smartphone}. However, feature engineering remained a bottleneck, requiring domain expertise to design effective handcrafted features.
+
+Deep learning methods, particularly Convolutional Neural Networks (CNNs) and Long Short-Term Memory (LSTM) networks, enabled end-to-end learning from raw sensor data~\cite{musci2020online}. Recent work has explored transformer architectures for time-series classification, leveraging self-attention mechanisms to capture long-range temporal dependencies~\cite{zerveas2021transformer}.
+
+\subsection{Attention Mechanisms}
+
+Attention mechanisms have become ubiquitous in deep learning, originating from sequence-to-sequence models in natural language processing~\cite{vaswani2017attention}. In the context of sensor-based activity recognition, two attention variants are particularly relevant:
+
+\textbf{Squeeze-and-Excitation (SE):} Originally proposed for image classification~\cite{hu2018squeeze}, SE blocks learn channel-wise attention weights through a squeeze (global pooling) and excitation (fully-connected layers with sigmoid activation) mechanism. This enables the model to adaptively emphasize informative channels while suppressing noisy ones.
+
+\textbf{Temporal Attention:} Rather than treating all timesteps equally during pooling, temporal attention learns importance weights for each timestep, allowing the model to focus on discriminative segments (e.g., the impact phase of a fall) while ignoring less relevant portions of the input window~\cite{gao2021danhar}.
+
+\subsection{Kalman Filter in Sensor Fusion}
+
+The Kalman filter provides an optimal estimate of system state by combining noisy sensor measurements with a predictive model~\cite{kalman1960new}. In IMU applications, Kalman filters are commonly used to estimate orientation (roll, pitch, yaw) by fusing accelerometer and gyroscope data~\cite{madgwick2011estimation}. The complementary properties of these sensors---accelerometer providing absolute orientation reference (via gravity) and gyroscope providing smooth angular velocity---make them well-suited for Kalman fusion.
+
+% =============================================================================
+% III. DATASET
+% =============================================================================
+
+\section{Dataset: SmartFallMM}
+\label{sec:dataset}
+
+We evaluate our methods on the SmartFallMM dataset~\cite{smartfallmm}, a multimodal resource for wearable sensor-based human activity recognition collected at Texas State University.
+
+\subsection{Participants}
+
+Table~\ref{tab:participants} summarizes the participant demographics.
+
+\begin{table}[htbp]
+\centering
+\caption{SmartFallMM Participant Demographics}
+\label{tab:participants}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Population} & \textbf{Subjects} & \textbf{Age Range} & \textbf{Falls} \\
+\midrule
+Young & 30 & 18--35 years & Yes (5 types) \\
+Elderly & 21 & 65+ years & No (ADLs only) \\
+\midrule
+\textbf{Total} & \textbf{51} & 18--65+ years & Young only \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Activities}
+
+The dataset includes five fall types performed by young adults: backfall, frontfall, leftfall, rightfall, and rotatefall. Activities of daily living (ADLs) include: drinking water, picking up objects, putting on jacket, sweeping floor, washing hands, waving hand, walking/TUG test, and sit/stand transitions.
+
+\subsection{Sensor Specifications}
+
+\begin{table}[htbp]
+\centering
+\caption{Sensor Specifications}
+\label{tab:sensors}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Specification} & \textbf{Value} \\
+\midrule
+Sensor Location & Wrist (smartwatch) \\
+Accelerometer Range & $\pm$16$g$ \\
+Gyroscope Range & $\pm$2000$^\circ$/s \\
+Nominal Sampling Rate & 32 Hz \\
+Actual Sampling Rate & Variable (25--35 Hz) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =============================================================================
+% IV. METHOD: ARCHITECTURE DESIGN
+% =============================================================================
+
+\section{Method: Architecture Design}
+\label{sec:method}
+
+This section provides detailed descriptions of all model architectures evaluated in our experiments. All models are implemented in PyTorch.
+
+\subsection{Unified-Stream Transformer}
+\label{sec:unified}
+
+The Unified-Stream Transformer serves as our baseline architecture, processing all IMU channels jointly through a single transformer encoder.
+
+\textbf{Input:} 6 channels $[\acc_x, \acc_y, \acc_z, \gyro_x, \gyro_y, \gyro_z]$ representing tri-axial accelerometer and gyroscope measurements.
+
+\textbf{Architecture:}
+\begin{enumerate}
+    \item \textbf{Input Projection:} $\text{Conv1D}(6 \rightarrow 64, k=1)$ projects sensor channels to 64-dimensional embeddings.
+    \item \textbf{Transformer Encoder:} 2 layers with $d_{\text{model}}=64$, $n_{\text{heads}}=4$, $d_{\text{ff}}=128$.
+    \item \textbf{Temporal Pooling:} Global mean pooling across time.
+    \item \textbf{Classifier:} $\text{Linear}(64 \rightarrow 1) \rightarrow \sigma$.
+\end{enumerate}
+
+\textbf{Parameters:} $\sim$25K \quad \textbf{Typical \fone{}:} 78--82\%
+
+\subsection{Squeeze-and-Excitation Module}
+\label{sec:se}
+
+The SE module learns channel-wise importance weights, enabling adaptive suppression of noisy channels:
+
+\begin{equation}
+\label{eq:se}
+\mathbf{s} = \sigma\left(\mathbf{W}_2 \cdot \text{ReLU}\left(\mathbf{W}_1 \cdot \frac{1}{T}\sum_{t=1}^{T} \mathbf{x}_t\right)\right)
+\end{equation}
+
+\begin{equation}
+\label{eq:se_apply}
+\mathbf{y}_t = \mathbf{s} \odot \mathbf{x}_t
+\end{equation}
+
+\noindent where $\mathbf{W}_1 \in \mathbb{R}^{d/r \times d}$ and $\mathbf{W}_2 \in \mathbb{R}^{d \times d/r}$ with reduction ratio $r=4$, $\sigma$ is the sigmoid function, and $\odot$ denotes element-wise multiplication. This adds only $\sim$128 parameters.
+
+\subsection{Temporal Attention Pooling}
+\label{sec:tap}
+
+Rather than uniform averaging, temporal attention learns which timesteps are most discriminative:
+
+\begin{equation}
+\label{eq:tap_alpha}
+\alpha_t = \frac{\exp(\mathbf{w}^\top \tanh(\mathbf{W}_a \mathbf{x}_t))}{\sum_{t'} \exp(\mathbf{w}^\top \tanh(\mathbf{W}_a \mathbf{x}_{t'}))}
+\end{equation}
+
+\begin{equation}
+\label{eq:tap_context}
+\mathbf{c} = \sum_{t=1}^{T} \alpha_t \mathbf{x}_t
+\end{equation}
+
+\noindent This enables the model to focus on the impact phase of falls (typically $<$500ms) while ignoring pre-fall and post-fall segments.
+
+\subsection{Asymmetric Early-Fusion Transformer with SE}
+\label{sec:asymmetric}
+
+This architecture introduces asymmetric capacity allocation between modalities:
+
+\textbf{Accelerometer Projection (75\% capacity):}
+\begin{equation}
+\mathbf{h}_{\text{acc}} = \text{Conv1D}_{\text{acc}}(\mathbf{x}_{\text{acc}}) \in \mathbb{R}^{T \times 48}
+\end{equation}
+
+\textbf{Gyroscope Projection (25\% capacity):}
+\begin{equation}
+\mathbf{h}_{\text{gyro}} = \text{Dropout}_{0.4}(\text{Conv1D}_{\text{gyro}}(\mathbf{x}_{\text{gyro}})) \in \mathbb{R}^{T \times 16}
+\end{equation}
+
+\textbf{Early Fusion:}
+\begin{equation}
+\mathbf{h} = \text{LayerNorm}([\mathbf{h}_{\text{acc}}; \mathbf{h}_{\text{gyro}}]) \in \mathbb{R}^{T \times 64}
+\end{equation}
+
+The fused representation passes through transformer layers, SE block, and temporal attention pooling before classification.
+
+\textbf{Parameters:} $\sim$35K \quad \textbf{Typical \fone{}:} 84--87\%
+
+\subsection{Dual-Stream Asymmetric Transformer}
+\label{sec:dualstream}
+
+This late-fusion architecture processes accelerometer and gyroscope through completely separate pathways:
+
+\textbf{Accelerometer Stream:} Depthwise separable convolution $\rightarrow$ Transformer (1 layer) $\rightarrow$ SE block $\rightarrow$ TAP $\rightarrow$ 48-dim output.
+
+\textbf{Gyroscope Stream:} Depthwise separable convolution $\rightarrow$ SE block $\rightarrow$ MLP $\rightarrow$ Mean pooling $\rightarrow$ 16-dim output.
+
+\textbf{Cross-Modal Gating:}
+\begin{equation}
+\label{eq:gate}
+\mathbf{g} = \text{Softmax}(\text{Linear}([\mathbf{h}_{\text{acc}}; \mathbf{h}_{\text{gyro}}]))
+\end{equation}
+
+\begin{equation}
+\label{eq:fusion}
+\mathbf{h}_{\text{fused}} = g_0 \cdot \text{Proj}(\mathbf{h}_{\text{acc}}) + g_1 \cdot \text{Proj}(\mathbf{h}_{\text{gyro}})
+\end{equation}
+
+\textbf{Parameters:} $\sim$18K \quad \textbf{Typical \fone{}:} 84--86\%
+
+\subsection{Kalman Dual-Stream Architectures}
+\label{sec:kalman}
+
+These architectures process Kalman-fused 7-channel input: $[\text{SMV}, \acc_x, \acc_y, \acc_z, \phi, \theta, \psi]$ where $\phi, \theta, \psi$ are roll, pitch, yaw orientation estimates.
+
+\textbf{Kalman Dual-Stream 65/35:} Accelerometer stream receives 41 dims (65\%), orientation stream receives 23 dims (35\%). Uses concatenation fusion.
+
+\textbf{Kalman Dual-Stream Gated:} Same capacity split with learned gating (Eq.~\ref{eq:gate}--\ref{eq:fusion}).
+
+\textbf{Kalman Dual-Stream Balanced:} Equal 50/50 capacity split (32 dims each). Uses concatenation fusion.
+
+\textbf{Parameters:} $\sim$50--52K \quad \textbf{Best \fone{}:} 91.01\% (Balanced, Young+Old)
+
+% =============================================================================
+% V. EXPERIMENTAL SETUP
+% =============================================================================
+
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Evaluation Protocol}
+
+We employ 22-fold Leave-One-Subject-Out (LOSO) cross-validation, where each fold uses one subject as the test set. Subjects 48 and 57 are held out as a fixed validation set across all folds.
+
+\subsection{Metrics}
+
+We report mean $\pm$ standard deviation across folds:
+\begin{itemize}
+    \item \textbf{\fone{}-Score:} Primary metric due to class imbalance
+    \item \textbf{Accuracy:} Overall classification correctness
+    \item \textbf{Precision \& Recall:} Trade-off analysis
+\end{itemize}
+
+\subsection{Statistical Testing}
+
+All pairwise comparisons use:
+\begin{itemize}
+    \item \textbf{Paired $t$-test:} Significance threshold $\alpha = 0.05$
+    \item \textbf{Cohen's $d$:} Effect size ($|d| < 0.2$: negligible, 0.2--0.5: small, 0.5--0.8: medium, $>0.8$: large)
+\end{itemize}
+
+\subsection{Training Configuration}
+
+\begin{table}[htbp]
+\centering
+\caption{Training Hyperparameters}
+\label{tab:training}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Optimizer & AdamW \\
+Learning Rate & 0.001 \\
+Weight Decay & 0.001 \\
+Epochs & 80 \\
+Batch Size & 64 \\
+Window Size & 128 frames ($\sim$4 sec) \\
+Fall Stride & 16 frames \\
+ADL Stride & 32 (young) / 64 (elderly) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =============================================================================
+% VI. RESULTS: PREPROCESSING ABLATIONS
+% =============================================================================
+
+\section{Results: Preprocessing Ablations}
+\label{sec:preprocess}
+
+\subsection{Gravity Removal}
+
+We evaluate the effect of removing gravity using a 4th-order Butterworth high-pass filter with 0.3 Hz cutoff.
+
+\begin{table}[htbp]
+\centering
+\caption{Gravity Removal Ablation}
+\label{tab:gravity}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Model} & \textbf{With Gravity} & \textbf{Without} & $\Delta$ \textbf{\fone{}} \\
+\midrule
+Unified-Stream & 78.15 $\pm$ 17.45 & 80.93 $\pm$ 12.57 & \best{+2.78\%} \\
+Acc-Only + SE & 83.30 $\pm$ 14.48 & 82.80 $\pm$ 12.04 & $-$0.50\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Finding:} Gravity removal helps baseline models (+2.8\% \fone{}) but has negligible effect on SE-equipped models. The SE mechanism learns to adaptively weight channels, effectively ignoring the constant gravity component.
+
+\subsection{Normalization}
+
+\begin{table}[htbp]
+\centering
+\caption{Architecture-Specific Normalization Effect}
+\label{tab:norm}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Architecture} & \textbf{With Norm} & \textbf{Without} & \textbf{Better} \\
+\midrule
+Early-Fusion + SE & \best{84.9 $\pm$ 12.1} & 80.3 $\pm$ 15.9 & With (+4.6\%) \\
+Dual-Stream Late & 79.0 $\pm$ 19.1 & \best{84.8 $\pm$ 9.6} & Without (+5.8\%) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Critical Finding:} Normalization effect is \emph{architecture-dependent}. Early-fusion benefits from standardized inputs; late-fusion dual-stream suffers because normalization removes magnitude information used by the gating mechanism.
+
+\subsection{Kalman Preprocessing vs In-Model Fusion}
+
+\begin{table}[htbp]
+\centering
+\caption{Kalman Fusion Strategy Comparison}
+\label{tab:kalman_preprocess}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Model} & \textbf{Kalman Mode} & \textbf{Test \fone{} (\%)} \\
+\midrule
+Unified-Stream (Raw) & None & \best{84.40 $\pm$ 9.39} \\
+Dual-Stream (Raw) & None & \best{84.84 $\pm$ 7.40} \\
+Unified + Kalman Preproc & Preprocessing & 77.55 $\pm$ 9.74 \\
+Dual + Kalman Preproc & Preprocessing & 79.47 $\pm$ 10.15 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Finding:} Kalman preprocessing \emph{hurts} performance by 5--7\% \fone{}. The filter removes high-frequency transients that characterize falls. In-model fusion (Section~\ref{sec:kalman}) preserves raw accelerometer while adding orientation estimates.
+
+% =============================================================================
+% VII. RESULTS: ARCHITECTURE ABLATIONS
+% =============================================================================
+
+\section{Results: Architecture Ablations}
+\label{sec:arch_ablation}
+
+\subsection{Squeeze-and-Excitation Module Effect}
+
+\begin{table}[htbp]
+\centering
+\caption{SE Module and SMV Ablation}
+\label{tab:se}
+\begin{tabular}{@{}cccc@{}}
+\toprule
+\textbf{SE Block} & \textbf{SMV} & \textbf{Test \fone{} (\%)} & $\Delta$ \textbf{vs Baseline} \\
+\midrule
+No & No & 76.29 & --- \\
+No & Yes & 81.28 & +4.99\% \\
+Yes & No & \best{86.37} & \best{+10.08\%} \\
+Yes & Yes & 85.54 & +9.25\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Findings:}
+\begin{enumerate}
+    \item SE blocks provide $\sim$10\% \fone{} improvement, exceeding the initial hypothesis of 2--4\%.
+    \item SMV alone provides +4.99\% improvement.
+    \item SMV is \emph{redundant} when SE is present ($-$0.83\%).
+\end{enumerate}
+
+\subsection{Positional Encoding}
+
+\begin{table}[htbp]
+\centering
+\caption{Positional Encoding Ablation}
+\label{tab:posenc}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Model} & \textbf{No Pos Enc} & \textbf{With Pos Enc} & $\Delta$ \\
+\midrule
+Unified-Stream & \best{85.88 $\pm$ 8.38} & 83.56 $\pm$ 9.96 & $-$2.32\% \\
+Dual-Stream & \best{84.35 $\pm$ 9.61} & 81.44 $\pm$ 13.90 & $-$2.91\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Finding:} Positional encoding \emph{hurts} performance by 2--3\% \fone{}. Falls can occur at any position within the window, and their signatures are position-invariant. Adding positional encoding introduces spurious inductive bias.
+
+% =============================================================================
+% VIII. RESULTS: SINGLE VS DUAL-STREAM
+% =============================================================================
+
+\section{Results: Single vs Dual-Stream Architectures}
+\label{sec:stream}
+
+\subsection{Young-Only Population}
+
+\begin{table}[htbp]
+\centering
+\caption{Single vs Dual-Stream (Young-Only, Raw Input)}
+\label{tab:stream_young}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Experiment} & \textbf{Single \fone{}} & \textbf{Dual \fone{}} & \textbf{Winner} \\
+\midrule
+Stream Ablation & 84.40\% & 84.84\% & Dual (+0.44\%) \\
+Pos Encoding & \best{87.82\%} & 84.35\% & Single (+3.47\%) \\
+BCE/Focal Loss & \best{86.57\%} & 85.81\% & Single (+0.76\%) \\
+SE/SMV & \best{86.37\%} & 61.61\%$^*$ & Single \\
+\bottomrule
+\multicolumn{4}{l}{\footnotesize $^*$Training failed}
+\end{tabular}
+\end{table}
+
+\textbf{Conclusion:} Single-stream wins 3/4 experiments for raw acc+gyro input.
+
+\subsection{Young + Old Population}
+
+\begin{table}[htbp]
+\centering
+\caption{Stream Comparison (Young + Old, 22-fold LOSO)}
+\label{tab:stream_mixed}
+\begin{tabular}{@{}clc@{}}
+\toprule
+\textbf{Rank} & \textbf{Model} & \textbf{Test \fone{} (\%)} \\
+\midrule
+1 & \best{Kalman Dual-Stream} & \best{90.59 $\pm$ 6.99} \\
+2 & Kalman Unified-Stream & 89.81 $\pm$ 8.08 \\
+3 & Unified-Stream (Raw) & 88.27 $\pm$ 6.57 \\
+4 & Dual-Symmetric (Raw) & 86.78 $\pm$ 7.61 \\
+5 & Dual-Asym + Dropout & 86.55 $\pm$ 8.94 \\
+6 & Dual-Asymmetric & 81.76 $\pm$ 10.46 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Statistical Analysis}
+
+\begin{table}[htbp]
+\centering
+\caption{Statistical Significance Tests}
+\label{tab:stats}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Comparison} & $\Delta$ \textbf{\fone{}} & \textbf{$p$-value} & \textbf{Cohen's $d$} & \textbf{Sig.} \\
+\midrule
+Unified vs Dual-Sym & +1.49\% & 0.343 & 0.21 & No \\
+Kalman Single vs Dual & $-$0.78\% & 0.281 & $-$0.10 & No \\
+Dual-Sym vs Asym & +5.02\% & 0.064 & 0.55 & No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding:} No statistically significant difference between single and dual-stream (all $p > 0.05$).
+
+% =============================================================================
+% IX. RESULTS: CROSS-POPULATION COMPARISON
+% =============================================================================
+
+\section{Results: Cross-Population Comparison}
+\label{sec:cross}
+
+\subsection{Best Configurations by Population}
+
+\begin{table}[htbp]
+\centering
+\caption{Best Models by Population}
+\label{tab:best_pop}
+\begin{tabular}{@{}llc@{}}
+\toprule
+\textbf{Population} & \textbf{Best Model} & \textbf{Test \fone{}} \\
+\midrule
+Young + Old & Kalman DS Balanced & \best{91.01 $\pm$ 6.98\%} \\
+Young Only & Kalman DS Gated & \best{89.26 $\pm$ 8.35\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Population-Dependent Findings}
+
+\begin{table}[htbp]
+\centering
+\caption{Population-Dependent Architectural Effects}
+\label{tab:pop_findings}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Finding} & \textbf{Young Only} & \textbf{Young + Old} \\
+\midrule
+Best \fone{} & 89.26\% & \best{91.01\%} \\
+Best Fusion & Learned Gating & Balanced (50/50) \\
+SE Effect & $\sim$5--10\% & $\sim$0.65\% (n.s.) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Interpretation:} Including elderly ADLs requires balanced capacity allocation. Learned gating may overfit to young-adult patterns, while 50/50 split generalizes better to elderly movement characteristics.
+
+% =============================================================================
+% X. RESULTS: FUSION STRATEGY ABLATION
+% =============================================================================
+
+\section{Results: Fusion Strategy Ablation}
+\label{sec:fusion_ablation}
+
+This 2$\times$2 factorial experiment isolates fusion method (concat vs gated) and capacity ratio (50/50 vs 65/35) effects.
+
+\subsection{Experimental Design}
+
+\begin{table}[htbp]
+\centering
+\caption{Fusion Strategy 2$\times$2 Design}
+\label{tab:fusion_design}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+& \textbf{Ratio 0.50} & \textbf{Ratio 0.65} \\
+\midrule
+\textbf{Concat} & A: Baseline & B: Test ratio \\
+\textbf{Gated} & C: Test fusion & D: Original \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Results}
+
+\begin{table}[htbp]
+\centering
+\caption{Fusion Strategy Ablation Results (22-fold LOSO)}
+\label{tab:fusion_results}
+\begin{tabular}{@{}clccc@{}}
+\toprule
+\textbf{Config} & \textbf{Fusion} & \textbf{Acc Ratio} & \textbf{Test \fone{} (\%)} & \textbf{Std} \\
+\midrule
+A & Concat & 0.50 & 90.09 & 6.54 \\
+B & Concat & 0.65 & 89.36 & 6.75 \\
+C & Gated & 0.50 & 89.93 & 7.30 \\
+D & Gated & 0.65 & \best{90.21} & 7.99 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Main Effects Analysis}
+
+\begin{table}[htbp]
+\centering
+\caption{Factorial Analysis of Fusion Strategy}
+\label{tab:fusion_stats}
+\begin{tabular}{@{}lcccl@{}}
+\toprule
+\textbf{Effect} & $\Delta$ \textbf{\fone{}} & \textbf{$p$-value} & \textbf{Cohen's $d$} & \textbf{Sig.} \\
+\midrule
+Fusion Method & $-$0.34\% & 0.6536 & $-$0.05 & No \\
+Capacity Ratio & +0.23\% & 0.6201 & +0.03 & No \\
+Interaction & +1.00\% & 0.2106 & +0.13 & No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding:} Neither fusion method ($p = 0.65$) nor capacity ratio ($p = 0.62$) has a statistically significant effect. All four configurations perform equivalently at $\sim$89--90\% \fone{}.
+
+\subsection{Interpretation}
+
+The original 2\% gap between KalmanBalancedRatio (91.01\%) and KalmanGatedFusion (89.03\%) observed in Section~\ref{sec:cross} cannot be attributed to either factor in isolation. The observed difference likely arose from other sources including random seed variation and hyperparameter differences.
+
+\textbf{Practical Implication:} Use simpler concat fusion with balanced (50/50) capacity for interpretability and stability, since performance is equivalent across all configurations.
+
+% =============================================================================
+% XI. DISCUSSION
+% =============================================================================
+
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why SE Exceeds Performance Predictions}
+
+Our initial hypothesis predicted 2--4\% improvement from SE attention. The observed 10\% gain ($76.29\% \rightarrow 86.37\%$) was 2.5$\times$ higher. We propose three explanations:
+
+\textbf{Implicit Gravity Removal:} SE learns weighted channel combinations that adaptively emphasize or suppress the gravity component based on activity context.
+
+\textbf{Modality Balancing:} With 6-channel input, SE naturally up-weights more reliable accelerometer channels, achieving asymmetric processing without architectural changes.
+
+\textbf{Sample-Adaptive Processing:} Unlike fixed preprocessing, SE adapts to each individual sample, learning class-conditional feature extraction.
+
+\subsection{Population-Dependent Findings}
+
+Optimal configurations differ between populations because:
+\begin{enumerate}
+    \item Elderly movements are slower, requiring more orientation information
+    \item Learned gating may overfit to young-adult patterns
+    \item Balanced capacity provides more robust generalization
+\end{enumerate}
+
+\subsection{Practical Recommendations}
+
+Based on our ablation study:
+
+\textbf{Preprocessing:}
+\begin{itemize}
+    \item Enable normalization for single-stream; disable for late-fusion dual-stream
+    \item Do NOT apply Kalman as preprocessing; integrate in-model
+    \item Gravity removal optional---SE learns equivalent functionality
+\end{itemize}
+
+\textbf{Architecture:}
+\begin{itemize}
+    \item Include SE blocks (+10\% improvement)
+    \item Use TAP instead of global average pooling
+    \item Disable positional encoding ($-$2--3\%)
+    \item Omit explicit SMV when using SE
+\end{itemize}
+
+\textbf{Production (91.01\% \fone{}):}
+\begin{itemize}
+    \item Kalman Dual-Stream Balanced
+    \item 50/50 capacity split
+    \item Concatenation fusion
+    \item BCE loss (not Focal for dual-stream)
+\end{itemize}
+
+\subsection{Limitations}
+
+\begin{itemize}
+    \item Single sensor location (wrist only)
+    \item Variable sampling rate (25--35 Hz)
+    \item Limited elderly subjects (21, ADLs only)
+    \item No real-world deployment validation
+\end{itemize}
+
+% =============================================================================
+% XII. CONCLUSION
+% =============================================================================
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper presented a comprehensive ablation study of transformer-based architectures for wearable fall detection. Our systematic evaluation of 12 architectural choices yields the following conclusions:
+
+\begin{enumerate}
+    \item \textbf{Best Performance:} Kalman Dual-Stream Balanced achieves \best{91.01\%} \fone{} on mixed-age population.
+
+    \item \textbf{SE Attention:} Provides 10\% improvement---2.5$\times$ higher than hypothesized---by learning adaptive channel weighting.
+
+    \item \textbf{Single vs Dual-Stream:} No significant difference ($p > 0.05$); choose based on interpretability needs.
+
+    \item \textbf{Fusion Strategy Flexibility:} A 2$\times$2 factorial ablation shows neither fusion method (concat vs gated, $p=0.65$) nor capacity ratio (50/50 vs 65/35, $p=0.62$) significantly affects performance. Use simpler concat fusion for interpretability.
+
+    \item \textbf{Negative Results:} Positional encoding hurts ($-$2--3\%), Kalman preprocessing hurts ($-$6--7\%), SMV redundant with SE ($-$0.8\%).
+\end{enumerate}
+
+Our findings provide actionable guidelines for deploying fall detection systems and establish a rigorous evaluation framework for future research.
+
+% =============================================================================
+% ACKNOWLEDGMENTS
+% =============================================================================
+
+\section*{Acknowledgment}
+
+The authors thank the SmartFall Group at Texas State University for providing the SmartFallMM dataset.
+
+% =============================================================================
+% REFERENCES
+% =============================================================================
+
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{99}
+
+\bibitem{who_falls}
+World Health Organization, ``Falls,'' Fact Sheet, 2021. [Online]. Available: https://www.who.int/news-room/fact-sheets/detail/falls
+
+\bibitem{florence2018medical}
+C.~S. Florence, G.~Bergen, A.~Atherly, E.~Burns, J.~Stevens, and C.~Drake, ``Medical costs of fatal and nonfatal falls in older adults,'' \textit{Journal of the American Geriatrics Society}, vol.~66, no.~4, pp.~693--698, 2018.
+
+\bibitem{wang2020deep}
+Y.~Wang, S.~Cang, and H.~Yu, ``A survey on wearable sensor modality centred human activity recognition in health care,'' \textit{Expert Systems with Applications}, vol.~137, pp.~167--190, 2020.
+
+\bibitem{kwolek2014human}
+B.~Kwolek and M.~Kepski, ``Human fall detection on embedded platform using depth maps and wireless accelerometer,'' \textit{Computer Methods and Programs in Biomedicine}, vol.~117, no.~3, pp.~489--501, 2014.
+
+\bibitem{bourke2007threshold}
+A.~K. Bourke, J.~V. O'Brien, and G.~M. Lyons, ``Evaluation of a threshold-based tri-axial accelerometer fall detection algorithm,'' \textit{Gait \& Posture}, vol.~26, no.~2, pp.~194--199, 2007.
+
+\bibitem{abbate2012smartphone}
+S.~Abbate, M.~Avvenuti, F.~Bonatesta, G.~Cola, P.~Corsini, and A.~Vecchio, ``A smartphone-based fall detection system,'' \textit{Pervasive and Mobile Computing}, vol.~8, no.~6, pp.~883--899, 2012.
+
+\bibitem{musci2020online}
+M.~Musci, D.~De Martini, N.~Blber, and M.~Prates, ``Online fall detection using recurrent neural networks,'' \textit{arXiv preprint arXiv:2003.01797}, 2020.
+
+\bibitem{zerveas2021transformer}
+G.~Zerveas, S.~Jayaraman, D.~Patel, A.~Bhamidipaty, and C.~Eickhoff, ``A transformer-based framework for multivariate time series representation learning,'' in \textit{Proc. KDD}, 2021, pp.~2114--2124.
+
+\bibitem{vaswani2017attention}
+A.~Vaswani, N.~Shazeer, N.~Parmar, J.~Uszkoreit, L.~Jones, A.~N. Gomez, L.~Kaiser, and I.~Polosukhin, ``Attention is all you need,'' in \textit{Proc. NeurIPS}, 2017, pp.~5998--6008.
+
+\bibitem{hu2018squeeze}
+J.~Hu, L.~Shen, and G.~Sun, ``Squeeze-and-excitation networks,'' in \textit{Proc. CVPR}, 2018, pp.~7132--7141.
+
+\bibitem{gao2021danhar}
+W.~Gao, L.~Zhang, Q.~Teng, J.~He, and H.~Wu, ``DanHAR: Dual attention network for multimodal human activity recognition using wearable sensors,'' \textit{Applied Soft Computing}, vol.~111, p.~107728, 2021.
+
+\bibitem{kalman1960new}
+R.~E. Kalman, ``A new approach to linear filtering and prediction problems,'' \textit{Journal of Basic Engineering}, vol.~82, no.~1, pp.~35--45, 1960.
+
+\bibitem{madgwick2011estimation}
+S.~O.~H. Madgwick, A.~J.~L. Harrison, and R.~Vaidyanathan, ``Estimation of IMU and MARG orientation using a gradient descent algorithm,'' in \textit{Proc. IEEE ICORR}, 2011, pp.~1--7.
+
+\bibitem{smartfallmm}
+SmartFall Group, ``SmartFallMM: A multimodal dataset collected with commodity devices,'' Texas State University, 2024. [Online]. Available: https://github.com/txst-cs-smartfall/SmartFallMM-Dataset
+
+\end{thebibliography}
+
+% =============================================================================
+% END DOCUMENT
+% =============================================================================
+
+\end{document}

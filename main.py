@@ -75,6 +75,11 @@ def get_args():
     #loss args
     parser.add_argument('--loss', default='loss.BCE' , help = 'Name of loss function to use' )
     parser.add_argument('--loss-args', default ="{}", type = str,  help = 'A dictionary for loss')
+    parser.add_argument('--loss-type', default='bce', type=str, choices=['bce', 'focal'],
+                        help='Loss function type: bce (BCEWithLogitsLoss) or focal (BinaryFocalLoss)')
+    parser.add_argument('--loss_type', default='bce', type=str, choices=['bce', 'focal'],
+                        help='Loss function type (yaml-style alias for --loss-type)')
+    parser.add_argument('--loss_args', default={}, type=dict, help='Dictionary of loss function arguments')
     
     #dataset args 
     parser.add_argument('--dataset-args', default=str, help = 'Arguements for dataset')
@@ -124,6 +129,11 @@ def get_args():
     parser.add_argument('--single-fold', type=int, default=None,
                         help='Run only a single LOSO fold for specified test subject (for parallel job submission)')
 
+    # Kalman preprocessing for IMU smoothing
+    parser.add_argument('--enable-kalman-preprocessing', type=str2bool, default=False,
+                        help='Enable Kalman filter preprocessing for IMU data smoothing')
+    parser.add_argument('--kalman-args', type=str, default='{}',
+                        help='Kalman filter parameters as dict string')
 
     return parser
 
@@ -214,6 +224,27 @@ class Trainer():
         self.inertial_modality = [modality  for modality in arg.dataset_args['modalities'] if modality != 'skeleton']
         self.fuse = len(self.inertial_modality) > 1
         self.use_skeleton = arg.dataset_args.get('use_skeleton', True)
+
+        # Kalman preprocessing configuration
+        self.enable_kalman_preprocessing = getattr(arg, 'enable_kalman_preprocessing', False)
+        kalman_args_raw = getattr(arg, 'kalman_args', {})
+        # Handle both dict and string formats
+        if isinstance(kalman_args_raw, str):
+            import ast
+            try:
+                self.kalman_config = ast.literal_eval(kalman_args_raw) if kalman_args_raw else {}
+            except (ValueError, SyntaxError):
+                self.kalman_config = {}
+        else:
+            self.kalman_config = kalman_args_raw if kalman_args_raw else {}
+
+        if self.enable_kalman_preprocessing:
+            from utils.kalman_preprocessing import kalman_preprocess_batch
+            self._kalman_preprocess = kalman_preprocess_batch
+            self.print_log(f'Kalman preprocessing ENABLED with config: {self.kalman_config}')
+        else:
+            self._kalman_preprocess = None
+
         # In single-fold mode, use exact work_dir without timestamp (parallel execution)
         single_fold_mode = getattr(self.arg, 'single_fold', None) is not None
         if os.path.exists(self.arg.work_dir):
@@ -455,10 +486,27 @@ class Trainer():
         '''
         Loading loss function for the models training
         '''
-        #self.criterion = torch.nn.CrossEntropyLoss()
-        self.criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weights)
-        # alpha = 1/self.pos_weights.item()
-        #self.criterion = BinaryFocalLoss(alpha = 0.75)
+        # Determine loss type from both arg styles
+        loss_type = getattr(self.arg, 'loss_type', 'bce')
+        if loss_type == 'bce':
+            loss_type = getattr(self.arg, 'loss_type', 'bce')
+
+        if loss_type == 'focal':
+            # Get loss args from config
+            loss_args = getattr(self.arg, 'loss_args', {})
+            if isinstance(loss_args, str):
+                import ast
+                try:
+                    loss_args = ast.literal_eval(loss_args) if loss_args else {}
+                except:
+                    loss_args = {}
+            alpha = loss_args.get('alpha', 0.75)
+            gamma = loss_args.get('gamma', 2.0)
+            self.criterion = BinaryFocalLoss(alpha=alpha, gamma=gamma)
+            self.print_log(f'Using BinaryFocalLoss with alpha={alpha}, gamma={gamma}')
+        else:
+            self.criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weights)
+            self.print_log('Using BCEWithLogitsLoss with pos_weight')
     
     def load_weights(self):
         '''
@@ -924,7 +972,10 @@ class Trainer():
                     skl_tensor = inputs['skeleton'].to(device_str)
                 targets = targets.to(device_str)
 
-            
+                # Apply Kalman preprocessing if enabled
+                if self._kalman_preprocess is not None:
+                    acc_data = self._kalman_preprocess(acc_data, True, self.kalman_config)
+
             timer['dataloader'] += self.split_time()
 
             self.optimizer.zero_grad()
@@ -990,6 +1041,10 @@ class Trainer():
                 if self.use_skeleton and 'skeleton' in inputs:
                     skl_tensor = inputs['skeleton'].to(device_str)
                 targets = targets.to(device_str)
+
+                # Apply Kalman preprocessing if enabled
+                if self._kalman_preprocess is not None:
+                    acc_data = self._kalman_preprocess(acc_data, True, self.kalman_config)
 
                 logits, _ = self.model(acc_data.float(), skl_tensor.float() if skl_tensor is not None else None)
                 batch_loss = self.criterion(logits.squeeze(1), targets.float())

@@ -1,0 +1,25 @@
+======================================================================
+IMUTRANSFORMERSE MODEL - Results Summary
+======================================================================
+
+Average Performance:
+  Test F1:       84.75 ± 10.27%
+  Test Accuracy: 82.53 ± 10.14%
+  Val F1:        94.97%
+  Val Accuracy:  93.66%
+
+Overfitting Analysis:
+  Gap (Val-Test) F1:  10.21%
+  Gap (Val-Test) Acc: 11.13%
+
+Per-Subject Performance (Test F1):
+  Best subjects:
+    Subject 50: 98.41%
+    Subject 58: 98.36%
+    Subject 43: 97.78%
+  Worst subjects:
+    Subject 54: 59.72%
+    Subject 31: 66.67%
+    Subject 36: 69.70%
+
+======================================================================

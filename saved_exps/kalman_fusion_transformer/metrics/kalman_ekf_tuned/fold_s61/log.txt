@@ -1,0 +1,135 @@
+# Parameters: 294452
+Model size : 0.28 MB
+Parameters: 
+{'config': 'config/smartfallmm/kalman_ekf_tuned.yaml', 'dataset': 'smartfallmm', 'batch_size': 64, 'test_batch_size': 64, 'val_batch_size': 64, 'num_epoch': 80, 'start_epoch': 0, 'optimizer': 'adamw', 'base_lr': 0.001, 'weight_decay': 0.001, 'model': 'Models.imu_transformer_kalman.KalmanTransformer', 'device': [0], 'model_args': {'imu_frames': 128, 'imu_channels': 7, 'acc_frames': 128, 'acc_coords': 7, 'num_classes': 1, 'num_heads': 4, 'num_layers': 2, 'embed_dim': 64, 'dropout': 0.5, 'activation': 'relu', 'norm_first': True, 'se_reduction': 4, 'acc_ratio': 0.65}, 'weights': None, 'model_saved_name': 'test', 'loss': 'loss.BCE', 'loss_args': '{}', 'dataset_args': {'mode': 'sliding_window', 'max_length': 128, 'task': 'fd', 'modalities': ['accelerometer', 'gyroscope'], 'age_group': ['young'], 'sensors': ['watch'], 'stride': 32, 'use_skeleton': False, 'enable_normalization': True, 'normalize_modalities': 'all', 'enable_filtering': False, 'enable_motion_filtering': False, 'enable_class_aware_stride': True, 'fall_stride': 16, 'adl_stride': 32, 'convert_gyro_to_rad': True, 'enable_simple_truncation': True, 'max_truncation_diff': 50, 'discard_mismatched_modalities': False, 'length_sensitive_modalities': ['accelerometer', 'gyroscope'], 'enable_kalman_fusion': True, 'kalman_filter_type': 'ekf', 'kalman_output_format': 'euler', 'kalman_include_smv': True, 'kalman_include_uncertainty': False, 'kalman_include_innovation': False, 'filter_fs': 30.0, 'kalman_Q_quat': 0.005, 'kalman_Q_bias': 5e-05, 'kalman_R_acc': 0.1}, 'subjects': [29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63], 'validation_subjects': [48, 57], 'train_only_subjects': [29, 30, 32, 35, 39, 59], 'feeder': 'Feeder.Make_Dataset.UTD_mm', 'train_feeder_args': {'batch_size': 64}, 'val_feeder_args': {'batch_size': 64}, 'test_feeder_args': {'batch_size': 64}, 'include_val': True, 'enable_test_grouping': False, 'test_group_min_size': 2, 'test_group_max_size': 3, 'test_group_ratio_tolerance': 0.1, 'test_group_extreme_threshold': 0.05, 'seed': 2, 'log_interval': 10, 'work_dir': 'results/kalman_comparison_20251201_225405/metrics/kalman_ekf_tuned/fold_s61', 'print_log': True, 'phase': 'train', 'num_worker': 3, 'result_file': None, 'single_fold': 61}
+
+Using custom validation subjects: [48, 57]
+  (Optimal would be: [38, 44])
+Using configured train-only subjects: [29, 30, 32, 35, 39, 59]
+Total subjects: 30
+Validation subjects (held out): [48, 57]
+Train-only subjects (never tested): [29, 30, 32, 35, 39, 59]
+Test candidates for LOSO: [31, 34, 36, 37, 38, 43, 44, 45, 46, 49, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61, 62, 63]
+SINGLE-FOLD MODE: Testing only subject 61
+Number of test folds: 1
+
+
+============================================================
+Fold 1/1
+Test subjects: [61]
+Validation subjects: [48, 57]
+Training subjects (27): [29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 43, 44, 45, 46, 49, 50, 51, 52, 53, 54, 55, 56, 58, 59, 60, 62, 63]
+============================================================
+
+Model Parameters: 294452
+[Fold 1] Dataset windows -> train: 3082 (27 subjects, fall=1895, adl=1187), val: 340 (2 subjects, fall=217, adl=123), test: 88 (1 subjects: 61, fall=52, adl=36)
+	Training Loss: 0.011868,  Acc: 65.444517%, F1 score: 70.008448%, Precision: 75.060386%, Recall: 65.593668%, AUC: 65.400035%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 1
+Val Loss: 0.009318. Val Acc: 64.411765% F1 score: 65.527066%, Precision: 85.820896%, Recall: 52.995392%, AUC: 68.774119%
+Weights Saved
+	Training Loss: 0.007027,  Acc: 75.665152%, F1 score: 79.073661%, Precision: 83.895796%, Recall: 74.775726%, AUC: 75.930407%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 2
+Val Loss: 0.006261. Val Acc: 78.235294% F1 score: 82.296651%, Precision: 85.572139%, Recall: 79.262673%, AUC: 77.842719%
+Weights Saved
+	Training Loss: 0.005634,  Acc: 80.532122%, F1 score: 83.570646%, Precision: 86.852590%, Recall: 80.527704%, AUC: 80.533439%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 3
+Val Loss: 0.005268. Val Acc: 77.647059% F1 score: 79.347826%, Precision: 96.688742%, Recall: 67.281106%, AUC: 81.608033%
+Weights Saved
+	Training Loss: 0.004228,  Acc: 85.107073%, F1 score: 87.448728%, Precision: 90.749149%, Recall: 84.379947%, AUC: 85.323925%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 4
+Val Loss: 0.002186. Val Acc: 93.235294% F1 score: 94.588235%, Precision: 96.634615%, Recall: 92.626728%, AUC: 93.467836%
+Weights Saved
+	Training Loss: 0.003816,  Acc: 86.599611%, F1 score: 88.774123%, Precision: 91.535874%, Recall: 86.174142%, AUC: 86.726498%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 5
+Val Loss: 0.002204. Val Acc: 92.352941% F1 score: 93.689320%, Precision: 98.974359%, Recall: 88.940092%, AUC: 93.657038%
+	Training Loss: 0.003521,  Acc: 87.994809%, F1 score: 89.945652%, Precision: 92.717087%, Recall: 87.335092%, AUC: 88.191556%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 6
+Val Loss: 0.002081. Val Acc: 91.470588% F1 score: 92.909535%, Precision: 98.958333%, Recall: 87.557604%, AUC: 92.965794%
+Weights Saved
+	Training Loss: 0.003133,  Acc: 88.286827%, F1 score: 90.068776%, Precision: 94.080460%, Recall: 86.385224%, AUC: 88.853943%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 7
+Val Loss: 0.001215. Val Acc: 97.352941% F1 score: 97.921478%, Precision: 98.148148%, Recall: 97.695853%, AUC: 97.221910%
+Weights Saved
+	Training Loss: 0.002769,  Acc: 89.746918%, F1 score: 91.436314%, Precision: 93.983287%, Recall: 89.023747%, AUC: 89.962589%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 8
+Val Loss: 0.001572. Val Acc: 95.882353% F1 score: 96.744186%, Precision: 97.652582%, Recall: 95.852535%, AUC: 95.893747%
+	Training Loss: 0.002589,  Acc: 91.044776%, F1 score: 92.500000%, Precision: 95.350140%, Recall: 89.815303%, AUC: 91.411443%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 9
+Val Loss: 0.001679. Val Acc: 96.176471% F1 score: 96.983759%, Precision: 97.663551%, Recall: 96.313364%, AUC: 96.124162%
+	Training Loss: 0.002233,  Acc: 92.180402%, F1 score: 93.505794%, Precision: 95.539648%, Recall: 91.556728%, AUC: 92.366401%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 10
+Val Loss: 0.004446. Val Acc: 89.411765% F1 score: 91.044776%, Precision: 98.918919%, Recall: 84.331797%, AUC: 91.352890%
+	Training Loss: 0.002172,  Acc: 91.920831%, F1 score: 93.261164%, Precision: 95.722222%, Recall: 90.923483%, AUC: 92.218270%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 11
+Val Loss: 0.001528. Val Acc: 96.470588% F1 score: 97.183099%, Precision: 99.043062%, Recall: 95.391705%, AUC: 96.882844%
+	Training Loss: 0.002090,  Acc: 92.602206%, F1 score: 93.861066%, Precision: 95.821880%, Recall: 91.978892%, AUC: 92.788098%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 12
+Val Loss: 0.001424. Val Acc: 95.588235% F1 score: 96.487119%, Precision: 98.095238%, Recall: 94.930876%, AUC: 95.839422%
+	Training Loss: 0.001920,  Acc: 93.510707%, F1 score: 94.638070%, Precision: 96.185286%, Recall: 93.139842%, AUC: 93.621311%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 13
+Val Loss: 0.002225. Val Acc: 95.000000% F1 score: 95.981087%, Precision: 98.543689%, Recall: 93.548387%, AUC: 95.554681%
+	Training Loss: 0.001922,  Acc: 93.802726%, F1 score: 94.858681%, Precision: 96.813187%, Recall: 92.981530%, AUC: 94.047631%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 14
+Val Loss: 0.002029. Val Acc: 95.294118% F1 score: 96.244131%, Precision: 98.086124%, Recall: 94.470046%, AUC: 95.609007%
+	Training Loss: 0.002009,  Acc: 93.283582%, F1 score: 94.439968%, Precision: 96.170678%, Recall: 92.770449%, AUC: 93.436614%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 15
+Val Loss: 0.001593. Val Acc: 95.588235% F1 score: 96.453901%, Precision: 99.029126%, Recall: 94.009217%, AUC: 96.191600%
+	Training Loss: 0.002144,  Acc: 92.504867%, F1 score: 93.758444%, Precision: 96.068660%, Recall: 91.556728%, AUC: 92.787631%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 16
+Val Loss: 0.003066. Val Acc: 93.235294% F1 score: 94.562648%, Precision: 97.087379%, Recall: 92.165899%, AUC: 93.643925%
+	Training Loss: 0.001703,  Acc: 93.737833%, F1 score: 94.799245%, Precision: 96.861233%, Recall: 92.823219%, AUC: 94.010599%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 17
+Val Loss: 0.004447. Val Acc: 90.000000% F1 score: 91.904762%, Precision: 95.073892%, Recall: 88.940092%, AUC: 90.405005%
+	Training Loss: 0.001561,  Acc: 94.289422%, F1 score: 95.281501%, Precision: 96.839237%, Recall: 93.773087%, AUC: 94.443410%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 18
+Val Loss: 0.003431. Val Acc: 92.058824% F1 score: 93.462470%, Precision: 98.469388%, Recall: 88.940092%, AUC: 93.250534%
+	Training Loss: 0.001593,  Acc: 94.873459%, F1 score: 95.775401%, Precision: 97.073171%, Recall: 94.511873%, AUC: 94.981295%  
+	Time consumption: [Data]01%, [Network]99%
+Eval epoch: 19
+Val Loss: 0.003332. Val Acc: 91.470588% F1 score: 92.944039%, Precision: 98.453608%, Recall: 88.018433%, AUC: 92.789704%
+ ------------ Test Subjects 61 -------
+Eval epoch: 1
+Test Loss: 0.013319. Test Acc: 84.090909% F1 score: 87.931034%, Precision: 79.687500%, Recall: 98.076923%, AUC: 80.982906%
+Test accuracy for : 84.0909090909091
+Test F-Score: 87.9310344827586
+
+======================================================================
+KALMANTRANSFORMER MODEL - Results Summary
+======================================================================
+
+Average Performance:
+  Test F1:       87.93 ± nan%
+  Test Accuracy: 84.09 ± nan%
+  Val F1:        97.92%
+  Val Accuracy:  97.35%
+
+Overfitting Analysis:
+  Gap (Val-Test) F1:  9.99%
+  Gap (Val-Test) Acc: 13.26%
+
+Per-Subject Performance (Test F1):
+  Best subjects:
+    Subject 61: 87.93%
+  Worst subjects:
+    Subject 61: 87.93%
+
+======================================================================
+Comprehensive statistics saved to: results/kalman_comparison_20251201_225405/metrics/kalman_ekf_tuned/fold_s61/scores_comprehensive.csv
