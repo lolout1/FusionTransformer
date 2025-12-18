@@ -511,6 +511,10 @@ class DatasetBuilder:
             # Simple truncation tracking
             'simple_truncation_applied': 0,
             'skipped_truncation_too_large': 0,
+            # File loading errors
+            'skipped_file_load_error': 0,
+            # No windows generated
+            'skipped_no_windows': 0,
             # Class-level tracking
             'file_count': 0,
             'window_count': 0,
@@ -600,6 +604,10 @@ class DatasetBuilder:
             # Simple truncation statistics
             'simple_truncation_applied': 0,
             'skipped_truncation_too_large': 0,
+            # File loading errors (previously untracked)
+            'skipped_file_load_error': 0,
+            # No windows generated after processing
+            'skipped_no_windows': 0,
             # Motion filtering statistics
             'motion_total_windows': 0,
             'motion_passed_windows': 0,
@@ -963,7 +971,11 @@ class DatasetBuilder:
 
                     except Exception as e :
                         executed = False
-                        print(e)
+                        # Track file load errors (previously untracked - caused "unaccounted" skips)
+                        self.skip_stats['skipped_file_load_error'] += 1
+                        self.subject_modality_stats[subject_id]['skipped_file_load_error'] += 1
+                        if self.debug:
+                            print(f"S{subject_id}A{action_id}: File load error - {e}")
                 # trial_difference = self.get_size_diff(trial_data)
                 # self.store_trial_diff(trial_difference)
 
@@ -1275,29 +1287,37 @@ class DatasetBuilder:
                         continue
 
                     #print(trial_data['skeleton'][0].shape)
-                    if self._len_check(trial_data):
-                        # Track per-subject statistics
-                        self.subject_modality_stats[subject_id]['file_count'] += 1
+                    if not self._len_check(trial_data):
+                        # Track trials that fail length check (produce 0-1 windows)
+                        self.skip_stats['skipped_no_windows'] += 1
+                        self.subject_modality_stats[subject_id]['skipped_no_windows'] += 1
+                        if self.debug:
+                            window_counts = {k: len(v) for k, v in trial_data.items()}
+                            print(f"S{subject_id}A{action_id}T{trial_id}: No valid windows generated {window_counts}")
+                        continue
 
-                        # Count windows generated from this trial
-                        num_windows = len(trial_data['labels'])
-                        self.subject_modality_stats[subject_id]['window_count'] += num_windows
+                    # Track per-subject statistics
+                    self.subject_modality_stats[subject_id]['file_count'] += 1
 
-                        # Track class distribution (fall vs ADL)
-                        fall_count = int(np.sum(trial_data['labels'] == 1))
-                        adl_count = int(np.sum(trial_data['labels'] == 0))
-                        self.subject_modality_stats[subject_id]['fall_windows'] += fall_count
-                        self.subject_modality_stats[subject_id]['adl_windows'] += adl_count
+                    # Count windows generated from this trial
+                    num_windows = len(trial_data['labels'])
+                    self.subject_modality_stats[subject_id]['window_count'] += num_windows
 
-                        # Track motion filtering statistics if available
-                        if motion_stats is not None:
-                            self.subject_modality_stats[subject_id]['motion_total_windows'] += motion_stats['total_windows']
-                            self.subject_modality_stats[subject_id]['motion_passed_windows'] += motion_stats['active_windows']
-                            self.subject_modality_stats[subject_id]['motion_rejected_windows'] += motion_stats['quiet_windows']
+                    # Track class distribution (fall vs ADL)
+                    fall_count = int(np.sum(trial_data['labels'] == 1))
+                    adl_count = int(np.sum(trial_data['labels'] == 0))
+                    self.subject_modality_stats[subject_id]['fall_windows'] += fall_count
+                    self.subject_modality_stats[subject_id]['adl_windows'] += adl_count
 
-                        self._add_trial_data(trial_data)
-                        self.skip_stats['valid_trials'] += 1
-                        self.subject_modality_stats[subject_id]['valid_trials'] += 1
+                    # Track motion filtering statistics if available
+                    if motion_stats is not None:
+                        self.subject_modality_stats[subject_id]['motion_total_windows'] += motion_stats['total_windows']
+                        self.subject_modality_stats[subject_id]['motion_passed_windows'] += motion_stats['active_windows']
+                        self.subject_modality_stats[subject_id]['motion_rejected_windows'] += motion_stats['quiet_windows']
+
+                    self._add_trial_data(trial_data)
+                    self.skip_stats['valid_trials'] += 1
+                    self.subject_modality_stats[subject_id]['valid_trials'] += 1
                 # for modality, file_path in trial_data.files.items():
                 #     window_stack = self.process(trial_data[modality])
                 #     if len(window_stack) != 0 : 
@@ -1456,6 +1476,8 @@ class DatasetBuilder:
             print(f"  - Sequence too short (< {self.max_length} samples): {self.skip_stats['skipped_too_short']}")
             print(f"  - Preprocessing errors: {self.skip_stats['skipped_preprocessing_error']}")
             print(f"  - DTW length mismatch (acc-gyro diff > 10): {self.skip_stats['skipped_dtw_length_mismatch']}")
+            print(f"  - File load errors: {self.skip_stats['skipped_file_load_error']}")
+            print(f"  - No windows generated: {self.skip_stats['skipped_no_windows']}")
             if self.enable_simple_truncation:
                 print(f"  - Truncation diff too large (> {self.max_truncation_diff}): {self.skip_stats['skipped_truncation_too_large']}")
             if self.enable_timestamp_alignment:
@@ -1504,11 +1526,28 @@ class DatasetBuilder:
                 total_sub = stats['total_trials']
                 valid_sub = stats['valid_trials']
                 skipped_sub = total_sub - valid_sub
-                print(f"  Subject {subject_id}: {valid_sub}/{total_sub} valid "
-                      f"(skipped: missing={stats['skipped_missing_modality']}, "
-                      f"mismatch={stats['skipped_length_mismatch']}, "
-                      f"short={stats['skipped_too_short']}, "
-                      f"error={stats['skipped_preprocessing_error']})")
+                # Build skip reasons string with all non-zero values
+                skip_parts = []
+                if stats['skipped_too_short'] > 0:
+                    skip_parts.append(f"short={stats['skipped_too_short']}")
+                if stats['skipped_truncation_too_large'] > 0:
+                    skip_parts.append(f"trunc={stats['skipped_truncation_too_large']}")
+                if stats['skipped_length_mismatch'] > 0:
+                    skip_parts.append(f"mismatch={stats['skipped_length_mismatch']}")
+                if stats['skipped_missing_modality'] > 0:
+                    skip_parts.append(f"missing={stats['skipped_missing_modality']}")
+                if stats['skipped_preprocessing_error'] > 0:
+                    skip_parts.append(f"error={stats['skipped_preprocessing_error']}")
+                if stats['skipped_dtw_length_mismatch'] > 0:
+                    skip_parts.append(f"dtw={stats['skipped_dtw_length_mismatch']}")
+                if stats.get('skipped_duration_drift', 0) > 0:
+                    skip_parts.append(f"drift={stats['skipped_duration_drift']}")
+                if stats.get('skipped_file_load_error', 0) > 0:
+                    skip_parts.append(f"load_err={stats['skipped_file_load_error']}")
+                if stats.get('skipped_no_windows', 0) > 0:
+                    skip_parts.append(f"no_win={stats['skipped_no_windows']}")
+                skip_str = ', '.join(skip_parts) if skip_parts else 'unknown'
+                print(f"  Subject {subject_id}: {valid_sub}/{total_sub} valid (skip: {skip_str})")
             if len(problematic_subjects) > display_count:
                 print(f"  ... and {len(problematic_subjects) - display_count} more subjects with issues")
         else:

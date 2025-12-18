@@ -265,11 +265,16 @@ class UTD_mm(torch.utils.data.Dataset):
             gyro_data = torch.tensor(self.gyro_data[index, :, :])
 
             if self.gyro_magnitude_only:
-                # 4 channels: [ax, ay, az, gyro_mag]
                 # Collapses 3 noisy gyro channels into 1 magnitude value
                 # This reduces noise while preserving rotational intensity information
                 gyro_mag = self.cal_smv(gyro_data)  # (T, 1)
-                imu_data = torch.cat((acc_data, gyro_mag), dim=-1)  # 4 ch
+                if self.include_smv:
+                    # 5 channels: [smv, ax, ay, az, gyro_mag]
+                    acc_smv = self.cal_smv(acc_data)
+                    imu_data = torch.cat((acc_smv, acc_data, gyro_mag), dim=-1)  # 5 ch
+                else:
+                    # 4 channels: [ax, ay, az, gyro_mag]
+                    imu_data = torch.cat((acc_data, gyro_mag), dim=-1)  # 4 ch
             elif self.include_smv:
                 # 8 channels: [smv, ax, ay, az, gyro_mag, gx, gy, gz]
                 acc_smv = self.cal_smv(acc_data)

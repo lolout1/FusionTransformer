@@ -61,27 +61,38 @@ class DualStreamBase(nn.Module):
         super().__init__()
 
         self.imu_frames = imu_frames
+        self.imu_channels = imu_channels
         self.acc_dim = acc_dim
         self.gyro_dim = gyro_dim
         self.embed_dim = acc_dim + gyro_dim
         self.use_pos_encoding = use_pos_encoding
 
+        # Channel split based on input format:
+        # 7 channels: [smv, ax, ay, az, gx, gy, gz] -> acc=4, gyro=3
+        # 6 channels: [ax, ay, az, gx, gy, gz] -> acc=3, gyro=3
+        if imu_channels == 7:
+            self.acc_in_channels = 4  # [smv, ax, ay, az]
+            self.gyro_in_channels = 3  # [gx, gy, gz]
+        else:
+            self.acc_in_channels = 3  # [ax, ay, az]
+            self.gyro_in_channels = 3  # [gx, gy, gz]
+
         # Activation function
         act_fn = nn.SiLU() if activation.lower() == 'silu' else nn.ReLU()
 
-        # Accelerometer projection (3 channels -> acc_dim)
+        # Accelerometer projection (acc_in_channels -> acc_dim)
         # Lower dropout for cleaner accelerometer signal
         self.acc_proj = nn.Sequential(
-            nn.Conv1d(3, acc_dim, kernel_size=8, padding='same'),
+            nn.Conv1d(self.acc_in_channels, acc_dim, kernel_size=8, padding='same'),
             nn.BatchNorm1d(acc_dim),
             act_fn,
             nn.Dropout(dropout * acc_dropout_mult)
         )
 
-        # Gyroscope projection (3 channels -> gyro_dim)
+        # Gyroscope projection (gyro_in_channels -> gyro_dim)
         # Higher dropout for noisier gyroscope signal
         self.gyro_proj = nn.Sequential(
-            nn.Conv1d(3, gyro_dim, kernel_size=8, padding='same'),
+            nn.Conv1d(self.gyro_in_channels, gyro_dim, kernel_size=8, padding='same'),
             nn.BatchNorm1d(gyro_dim),
             act_fn,
             nn.Dropout(dropout * gyro_dropout_mult)
@@ -136,19 +147,20 @@ class DualStreamBase(nn.Module):
         Forward pass.
 
         Args:
-            acc_data: (B, T, 6) IMU data where channels are [ax,ay,az,gx,gy,gz]
+            acc_data: (B, T, C) IMU data where:
+                - 7 channels: [smv, ax, ay, az, gx, gy, gz]
+                - 6 channels: [ax, ay, az, gx, gy, gz]
             skl_data: Ignored (for API compatibility)
 
         Returns:
             logits: (B, 1) classification logits
             features: (B, embed_dim) features before classifier
         """
-        # Split into accelerometer and gyroscope
-        # acc_data: (B, T, 6) = [ax, ay, az, gx, gy, gz]
+        # Split into accelerometer and gyroscope using configured channel counts
         B, T, C = acc_data.shape
 
-        acc = acc_data[:, :, :3]   # (B, T, 3) accelerometer
-        gyro = acc_data[:, :, 3:]  # (B, T, 3) gyroscope
+        acc = acc_data[:, :, :self.acc_in_channels]   # (B, T, acc_in_channels)
+        gyro = acc_data[:, :, self.acc_in_channels:self.acc_in_channels + self.gyro_in_channels]  # (B, T, gyro_in_channels)
 
         # Rearrange for Conv1d: (B, C, T)
         acc = rearrange(acc, 'b t c -> b c t')
@@ -197,14 +209,14 @@ class DualStreamBase(nn.Module):
         Get separate stream features for analysis.
 
         Args:
-            acc_data: (B, T, 6) IMU data
+            acc_data: (B, T, C) IMU data (6ch or 7ch)
 
         Returns:
             acc_feat: (B, acc_dim, T) accelerometer features
             gyro_feat: (B, gyro_dim, T) gyroscope features
         """
-        acc = acc_data[:, :, :3]
-        gyro = acc_data[:, :, 3:]
+        acc = acc_data[:, :, :self.acc_in_channels]
+        gyro = acc_data[:, :, self.acc_in_channels:self.acc_in_channels + self.gyro_in_channels]
 
         acc = rearrange(acc, 'b t c -> b c t')
         gyro = rearrange(gyro, 'b t c -> b c t')
@@ -248,8 +260,8 @@ class DualStreamBaseSE(DualStreamBase):
         """Forward pass with SE attention."""
         B, T, C = acc_data.shape
 
-        acc = acc_data[:, :, :3]
-        gyro = acc_data[:, :, 3:]
+        acc = acc_data[:, :, :self.acc_in_channels]
+        gyro = acc_data[:, :, self.acc_in_channels:self.acc_in_channels + self.gyro_in_channels]
 
         acc = rearrange(acc, 'b t c -> b c t')
         gyro = rearrange(gyro, 'b t c -> b c t')
@@ -295,9 +307,199 @@ class DualStreamBaseSE(DualStreamBase):
         return logits, features
 
 
+class TemporalAttentionPooling(nn.Module):
+    """Learnable temporal pooling for fall impact detection."""
+
+    def __init__(self, embed_dim: int):
+        super().__init__()
+        self.attention = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim // 2),
+            nn.Tanh(),
+            nn.Linear(embed_dim // 2, 1, bias=False)
+        )
+
+    def forward(self, x: torch.Tensor):
+        """x: (B, T, C) -> context (B, C), weights (B, T)"""
+        import torch.nn.functional as F
+        scores = self.attention(x).squeeze(-1)
+        weights = F.softmax(scores, dim=1)
+        context = torch.einsum('bt,btc->bc', weights, x)
+        return context, weights
+
+
+class DualStreamBaseTAP(DualStreamBase):
+    """
+    Dual-stream with Temporal Attention Pooling (but NO SE).
+
+    Uses learned attention weights to focus on important time steps
+    (e.g., fall impact phase) instead of simple global average pooling.
+
+    This allows studying the effect of TAP separately from SE.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Replace GAP with TAP
+        self.temporal_pool = TemporalAttentionPooling(self.embed_dim)
+
+    def forward(self,
+                acc_data: torch.Tensor,
+                skl_data: Optional[torch.Tensor] = None,
+                **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass with Temporal Attention Pooling."""
+        B, T, C = acc_data.shape
+
+        acc = acc_data[:, :, :self.acc_in_channels]
+        gyro = acc_data[:, :, self.acc_in_channels:self.acc_in_channels + self.gyro_in_channels]
+
+        acc = rearrange(acc, 'b t c -> b c t')
+        gyro = rearrange(gyro, 'b t c -> b c t')
+
+        acc_feat = self.acc_proj(acc)
+        gyro_feat = self.gyro_proj(gyro)
+
+        x = torch.cat([acc_feat, gyro_feat], dim=1)
+        x = rearrange(x, 'b c t -> b t c')
+
+        if self.use_pos_encoding and self.pos_encoding is not None:
+            if T <= self.imu_frames:
+                x = x + self.pos_encoding[:, :T, :]
+            else:
+                pos = torch.nn.functional.interpolate(
+                    self.pos_encoding.permute(0, 2, 1),
+                    size=T, mode='linear', align_corners=False
+                ).permute(0, 2, 1)
+                x = x + pos
+
+        x = rearrange(x, 'b t c -> t b c')
+        x = self.encoder(x)
+        x = rearrange(x, 't b c -> b t c')
+
+        # Temporal Attention Pooling (NOT GAP)
+        features, attn_weights = self.temporal_pool(x)
+
+        features = self.dropout(features)
+        logits = self.output(features)
+
+        return logits, features
+
+
+class DualStreamBaseSETAP(DualStreamBase):
+    """
+    Dual-stream with BOTH SE and Temporal Attention Pooling.
+
+    Full architecture with:
+    - Squeeze-Excitation for channel attention
+    - Temporal Attention Pooling for time-step attention
+
+    This is the complete dual-stream transformer for ablation comparison.
+    """
+
+    def __init__(self, se_reduction: int = 4, **kwargs):
+        super().__init__(**kwargs)
+
+        # Add SE blocks for each stream
+        self.acc_se = self._make_se_block(self.acc_dim, se_reduction)
+        self.gyro_se = self._make_se_block(self.gyro_dim, se_reduction)
+
+        # Add TAP
+        self.temporal_pool = TemporalAttentionPooling(self.embed_dim)
+
+    def _make_se_block(self, channels: int, reduction: int) -> nn.Module:
+        """Create SE block."""
+        reduced = max(channels // reduction, 4)
+        return nn.Sequential(
+            nn.AdaptiveAvgPool1d(1),
+            nn.Flatten(),
+            nn.Linear(channels, reduced, bias=False),
+            nn.SiLU(),
+            nn.Linear(reduced, channels, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self,
+                acc_data: torch.Tensor,
+                skl_data: Optional[torch.Tensor] = None,
+                **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass with SE + TAP."""
+        B, T, C = acc_data.shape
+
+        acc = acc_data[:, :, :self.acc_in_channels]
+        gyro = acc_data[:, :, self.acc_in_channels:self.acc_in_channels + self.gyro_in_channels]
+
+        acc = rearrange(acc, 'b t c -> b c t')
+        gyro = rearrange(gyro, 'b t c -> b c t')
+
+        # Project each stream
+        acc_feat = self.acc_proj(acc)
+        gyro_feat = self.gyro_proj(gyro)
+
+        # Apply SE attention
+        acc_scale = self.acc_se(acc_feat).unsqueeze(2)
+        gyro_scale = self.gyro_se(gyro_feat).unsqueeze(2)
+
+        acc_feat = acc_feat * acc_scale
+        gyro_feat = gyro_feat * gyro_scale
+
+        # Concatenate and process
+        x = torch.cat([acc_feat, gyro_feat], dim=1)
+        x = rearrange(x, 'b c t -> b t c')
+
+        if self.use_pos_encoding and self.pos_encoding is not None:
+            if T <= self.imu_frames:
+                x = x + self.pos_encoding[:, :T, :]
+            else:
+                pos = torch.nn.functional.interpolate(
+                    self.pos_encoding.permute(0, 2, 1),
+                    size=T, mode='linear', align_corners=False
+                ).permute(0, 2, 1)
+                x = x + pos
+
+        x = rearrange(x, 'b t c -> t b c')
+        x = self.encoder(x)
+        x = rearrange(x, 't b c -> b t c')
+
+        # Temporal Attention Pooling (NOT GAP)
+        features, attn_weights = self.temporal_pool(x)
+
+        features = self.dropout(features)
+        logits = self.output(features)
+
+        return logits, features
+
+
+class KalmanDualStreamBaseTAP(DualStreamBaseTAP):
+    """
+    Dual-stream TAP transformer for Kalman-fused IMU input.
+
+    This model is architecturally identical to DualStreamBaseTAP but is designed
+    for Kalman-preprocessed input where gyroscope data is replaced with
+    orientation estimates (roll, pitch, yaw).
+
+    Input format: [smv, ax, ay, az, roll, pitch, yaw] - 7 channels
+        - ACC stream: [smv, ax, ay, az] (4ch) - accelerometer with SMV
+        - ORI stream: [roll, pitch, yaw] (3ch) - Kalman orientation estimates
+
+    This allows direct comparison between:
+        - DualStreamBaseTAP + Raw gyro: Tests raw angular velocity
+        - KalmanDualStreamBaseTAP + Kalman: Tests fused orientation
+
+    The architectural identity ensures any performance difference is due to
+    the Kalman preprocessing, not model architecture differences.
+    """
+
+    def __init__(self, **kwargs):
+        # Force 7 channels for Kalman input
+        kwargs.setdefault('imu_channels', 7)
+        super().__init__(**kwargs)
+
+
 # Aliases for easy import
 DualBase = DualStreamBase
 DualBaseSE = DualStreamBaseSE
+DualBaseTAP = DualStreamBaseTAP
+DualBaseSETAP = DualStreamBaseSETAP
+KalmanTAP = KalmanDualStreamBaseTAP
 
 
 if __name__ == '__main__':

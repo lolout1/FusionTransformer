@@ -253,9 +253,10 @@ class Trainer():
                 pass
             else:
                 self.arg.work_dir = f"{self.arg.work_dir}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-        os.makedirs(self.arg.work_dir, exist_ok=True) 
-        self.model_path = f'{self.arg.work_dir}/{self.arg.model_saved_name}'                    
-        self.save_config(arg.config, arg.work_dir)
+        os.makedirs(self.arg.work_dir, exist_ok=True)
+        self.model_path = f'{self.arg.work_dir}/{self.arg.model_saved_name}'
+        if arg.config is not None:
+            self.save_config(arg.config, arg.work_dir)
         if self.arg.phase == 'train':
             self.model = self.load_model(arg.model, arg.model_args)
         else: 
