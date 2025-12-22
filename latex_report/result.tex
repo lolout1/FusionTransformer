@@ -40,9 +40,16 @@ Table~\ref{tab:kalman_vs_raw} demonstrates that Kalman fusion consistently impro
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/training_curves_kalman_se_tap.png}
-\caption{Training curves for the best model (Kalman + SE + TAP). Left: Loss curves showing train/validation convergence. Right: F1 score progression across epochs, averaged over 21 LOSO folds.}
+\includegraphics[width=\columnwidth]{figures/training_curves_all_models.png}
+\caption{Training dynamics for all model configurations: Train vs Validation loss curves averaged over 21 LOSO folds. Shaded regions indicate standard deviation across folds. All models converge smoothly with small train-validation gaps, indicating minimal overfitting.}
 \label{fig:training_curves}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/training_curves_kalman_comparison.png}
+\caption{Kalman fusion impact on training dynamics. Left: Transformer models show similar convergence patterns but Kalman (solid) achieves lower final loss. Right: CNN-Mamba models converge faster with raw input (dashed).}
+\label{fig:training_curves_comparison}
 \end{figure}
 
 The Kalman-fused input representation consists of 7 channels: signal magnitude vector (SMV), accelerometer components ($a_x$, $a_y$, $a_z$), and orientation angles (roll, pitch, yaw). In contrast, the raw representation uses accelerometer ($a_x$, $a_y$, $a_z$), gyroscope ($\omega_x$, $\omega_y$, $\omega_z$), and SMV. The orientation representation provides a more interpretable and physically meaningful feature space for fall detection, as falls are characterized by specific orientation changes rather than raw angular velocities.
