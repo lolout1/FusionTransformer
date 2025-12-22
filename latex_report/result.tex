@@ -1,0 +1,93 @@
+\section{Results}
+\label{sec:Results}
+
+We present comprehensive experimental results evaluating the impact of Kalman fusion on fall detection performance. All experiments use 22-fold Leave-One-Subject-Out Cross-Validation (LOSO-CV) with young subjects as test folds and elderly subjects contributing ADL samples for training. We report F1 score as the primary metric given the class imbalance inherent in fall detection (falls are rare events).
+
+\subsection{Kalman Fusion Ablation Study}
+\label{sec:kalman_ablation}
+
+To isolate the effect of Kalman fusion, we conducted a controlled comparison using identical model architecture, hyperparameters, and training procedures. The only variable changed was whether the input was processed through our linear Kalman filter to extract orientation features (roll, pitch, yaw) or used as raw accelerometer and gyroscope signals.
+
+\begin{table}[htbp]
+\centering
+\caption{Controlled Comparison: Kalman Fusion vs. Raw Input (22-fold LOSO-CV). Both configurations use identical transformer architecture with SE attention and temporal attention pooling, 50:50 embedding ratio, and focal loss ($\alpha=0.75$, $\gamma=2.0$).}
+\label{tab:kalman_vs_raw}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Input Type} & \textbf{F1 (\%)} & \textbf{Acc (\%)} & \textbf{Prec (\%)} & \textbf{Recall (\%)} \\
+\midrule
+Raw 7ch (acc + gyro + SMV) & 89.49 $\pm$ 6.44 & 84.90 $\pm$ 8.67 & 86.77 $\pm$ 8.84 & 93.13 $\pm$ 7.55 \\
+\textbf{Kalman 7ch (acc + ori + SMV)} & \textbf{90.89 $\pm$ 5.80} & \textbf{86.98 $\pm$ 7.26} & \textbf{88.33 $\pm$ 8.15} & \textbf{94.38 $\pm$ 7.48} \\
+\midrule
+\textbf{Improvement} & \textbf{+1.40} & \textbf{+2.08} & \textbf{+1.56} & \textbf{+1.25} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:kalman_vs_raw} demonstrates that Kalman fusion consistently improves all metrics. The F1 score improvement of +1.40\% (from 89.49\% to 90.89\%) is achieved by replacing raw gyroscope channels with Kalman-estimated orientation angles. Notably, the standard deviation is also reduced with Kalman fusion (5.80\% vs 6.44\%), indicating more consistent performance across subjects.
+
+The Kalman-fused input representation consists of 7 channels: signal magnitude vector (SMV), accelerometer components ($a_x$, $a_y$, $a_z$), and orientation angles (roll, pitch, yaw). In contrast, the raw representation uses accelerometer ($a_x$, $a_y$, $a_z$), gyroscope ($\omega_x$, $\omega_y$, $\omega_z$), and SMV. The orientation representation provides a more interpretable and physically meaningful feature space for fall detection, as falls are characterized by specific orientation changes rather than raw angular velocities.
+
+\subsection{Architecture Comparison: Transformer vs CNN}
+\label{sec:arch_comparison}
+
+To validate that Kalman fusion benefits are not architecture-specific, we compared our transformer-based approach with a CNN-Mamba hybrid architecture. Both models use the same Kalman-fused input representation and training configuration.
+
+\begin{table}[htbp]
+\centering
+\caption{Architecture Comparison with Kalman Fusion (22-fold LOSO-CV). Both models use Kalman-fused 6-channel input with focal loss.}
+\label{tab:arch_comparison}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Architecture} & \textbf{F1 (\%)} & \textbf{Acc (\%)} & \textbf{Prec (\%)} & \textbf{Recall (\%)} \\
+\midrule
+CNN-Mamba (Kalman) & 88.86 $\pm$ 6.77 & 84.22 $\pm$ 8.17 & 86.79 $\pm$ 9.37 & 92.11 $\pm$ 8.89 \\
+\textbf{Transformer (Kalman)} & \textbf{90.89 $\pm$ 5.80} & \textbf{86.98 $\pm$ 7.26} & \textbf{88.33 $\pm$ 8.15} & \textbf{94.38 $\pm$ 7.48} \\
+\midrule
+\textbf{Improvement} & \textbf{+2.03} & \textbf{+2.76} & \textbf{+1.54} & \textbf{+2.27} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:arch_comparison} shows that the transformer architecture outperforms CNN-Mamba by +2.03\% F1 score when both use Kalman-fused input. The transformer's self-attention mechanism more effectively captures the temporal dependencies in orientation sequences that characterize fall events. The CNN-Mamba model, while achieving a respectable 88.86\% F1, shows higher variance across subjects (6.77\% vs 5.80\%).
+
+\subsection{Loss Function Analysis}
+\label{sec:loss_analysis}
+
+Given the severe class imbalance in fall detection (falls represent a minority of samples), we investigated the impact of focal loss versus binary cross-entropy (BCE) loss.
+
+\begin{table}[htbp]
+\centering
+\caption{Loss Function Comparison on CNN-Mamba with Kalman Fusion (22-fold LOSO-CV).}
+\label{tab:loss_comparison}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Loss Function} & \textbf{F1 (\%)} & \textbf{Acc (\%)} & \textbf{Prec (\%)} & \textbf{Recall (\%)} \\
+\midrule
+BCE Loss & 88.01 $\pm$ 8.37 & 84.26 $\pm$ 9.95 & 92.17 $\pm$ 7.47 & 85.70 $\pm$ 13.64 \\
+\textbf{Focal Loss ($\alpha$=0.75, $\gamma$=2)} & \textbf{88.86 $\pm$ 6.77} & 84.22 $\pm$ 8.17 & 86.79 $\pm$ 9.37 & \textbf{92.11 $\pm$ 8.89} \\
+\midrule
+\textbf{Improvement} & \textbf{+0.85} & -0.04 & -5.38 & \textbf{+6.41} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:loss_comparison} reveals that focal loss improves F1 score by +0.85\% primarily through a substantial increase in recall (+6.41\%). This is clinically significant for fall detection systems, where missing a fall (false negative) has more severe consequences than a false alarm. The focal loss down-weights easy negatives (ADL samples correctly classified with high confidence), allowing the model to focus learning on the harder fall detection task. While precision decreases with focal loss, the overall F1 score improves due to the recall gains.
+
+\subsection{Summary of Key Findings}
+
+Our experimental evaluation leads to the following conclusions:
+
+\begin{enumerate}
+    \item \textbf{Kalman fusion improves fall detection}: Under controlled conditions with identical architecture, Kalman-fused orientation features outperform raw gyroscope data by +1.40\% F1 score (90.89\% vs 89.49\%).
+
+    \item \textbf{Transformer architecture is superior}: The transformer with SE attention and temporal attention pooling outperforms CNN-Mamba by +2.03\% F1 score when both use Kalman-fused input.
+
+    \item \textbf{Focal loss benefits imbalanced classification}: Focal loss improves recall by +6.41\% compared to BCE, which is critical for fall detection where missing falls has severe consequences.
+
+    \item \textbf{Best configuration achieves 90.89\% F1}: The optimal configuration combines Kalman fusion, transformer architecture with SE attention and temporal attention pooling, 50:50 embedding ratio, and focal loss, achieving 90.89\% $\pm$ 5.80\% F1 score on 22-fold LOSO-CV. This result is consistent with our previously reported 91.01\% F1 under different random seed initialization.
+\end{enumerate}
+

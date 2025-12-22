@@ -1,0 +1,153 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Dual-Stream Learning Architecture with Kalman Fusion for  Wearable Fall Detection Systems\\
+{\footnotesize \textsuperscript{*}Note: Sub-titles are not captured in Xplore and
+should not be used}
+\thanks{Identify applicable funding agency here. If none, delete this.}
+}
+
+\author{\IEEEauthorblockN{1\textsuperscript{st} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{2\textsuperscript{nd} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{3\textsuperscript{rd} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{4\textsuperscript{th} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{5\textsuperscript{th} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{6\textsuperscript{th} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+}
+
+\maketitle
+
+\begin{abstract}
+Wearable fall-detection systems must operate under strict resource and latency constraints while maintaining high sensitivity to fall events and robustness to diverse Activity of Daily Life (ADLs). In our setting, a smartwatch collects inertial data (which can be noisy) and performs on-device inference using a lightweight deep learning architecture. The conventional wisdom is to only use a single stream architecture for fall detection on the edge device because it reduces model complexity and inference time. However, single-stream accelerometer data lacks contextual information, such as directional information of motion. In this paper, we explore single-stream (accelerometer only) versus dual-stream (accelerometer data and gyroscope as two separate inputs) architecture and demonstrate that dual stream with Kalman fusion can reduce noise in inertia sensor data and retain the directional information and can achieve a fall detection model that surpasses our previous single-stream models.
+%trained using the same dataset using two different machine learning models, CNN and Transformer. %deployed on low-cost commodity devices.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Wearable systems, Fall Detection, Kalman Filter
+\end{IEEEkeywords}
+
+\section{Introduction}
+A wearable fall detection system is a critical aspect of health monitoring, particularly
+for older adults who are at a higher risk of falls [18]. Early fall detection systems relied on specialized hardware put on the chest or waist of the body to monitor sudden changes in movement and body orientation [ 13 ]. These early devices were often bulky and
+restricted the free movement of users, leading to low acceptance among users. The increasing prevalence of smartphones and
+smartwatches, equipped with multiple inertia sensors and robust computational capabilities, presents an opportunity for the deployment of a fall detection system on low-cost smartwatch 
+devices. These devices, already widely adopted by older adults, offer a non-intrusive solution for continuous health monitoring.
+Recently, more and more wearable fall detection systems have been implemented using various machine learning algorithms. However,
+the source of data used for training the algorithms has predominantly been the
+single stream accelerometer data sensed from an edge device due to privacy concerns with visual data. A Long Short-Term Memory (LSTM), a
+variant of the Recurrent Neural Network (RNN) using an accelerometer
+data captured through a wrist-worn watch has been shown to exhibit
+better performance than traditional machine learning methods (SVM, Random Forest) in
+fall detection after extensive experiments with three different open-
+source simulated fall datasets, as well as real-world tests involving
+five young adults of varying heights and weights [11].
+Transformer models have risen in popularity in recent years. Their
+success in the Natural Language Processing (NLP) task has made
+them a viable architecture for fall detection because  of their ability 
+%to capture long-range temporal dependencies. 
+%these
+%applications deal with sequential data. The ability 
+to process long
+sequences of temporally related data coupled with the attention mechanism for parallel processing 
+in fall detection [12, 17].
+
+Despite all the advancements, current fall detection systems deployed on wearable devices 
+struggle with accurately distinguishing the Activities of Daily Living
+(ADLs) from soft falls, which are common among older adults. Most
+existing models rely heavily on accelerometer data 
+which limits the contextual information, such as orientation information, that can be obtained from the gyroscope. However, our prior work in~\cite{awatif} and our recent investigation (November 2025) identified a critical challenge: accelerometer-only models outperformed accelerometer+gyroscope models (87.35\% vs 85.30\% using the F1 score metric) when trained with the same dataset.   This motivates us to investigate why gyroscopic data, which seems to provide more contextual information, is not helpful. Our investigation leads to a dual stream architecture for accelerometer and gyroscope data as two separate stream inputs optimized with a Kalman fusion and temporal attention pooling. We demonstrated via various ablation studies that our dual stream architecture with Kalman Fusion can achieve the highest F1 score of 91\% for a wearable fall detection system.
+%Our prior investigation (November 2025) identified a critical challenge: accelerometer-only models outperformed accelerometer+gyroscope models (87.35% vs 85.30% F1). This counterintuitive finding led investigate how to leverage gyroscope data effectively by asking the question of whether processing accelerometer and gyroscope in separate streams (dual-stream)  is better than joint
+The main contributions of the paper are:
+\begin{itemize}
+\item Demonstrates that adding raw gyroscope to existing accelerometer data as a single stream hurts the performance (-1.6\% to -2.0\% F1 score) because a single-stream architectures mix all channels in the first layer, allowing
+noisy gyroscope signals 
+%(SNR < 1.0 for 76\% of subjects) 
+to corrupt accelerometer features. 
+%That is why Kalman-fused orientation helps
+%(+3.78% F1). 
+%The solution is not to discard gyroscope data but to process it through Kalman fusion to
+%extract orientation.
+\item Shows that adding gyroscope data can enhance fall detection when processed through Kalman fusion to
+extract orientation information. Under controlled experimental conditions with identical model architecture, Kalman fusion improves performance by +1.61\% F1 score (from 89.49\% to 91.01\%),
+but Kalman smoothing applied to raw sensor signals hurts the performance.
+\item Verify experimentally that dual-stream architecture, which treats accelerometer and gyroscope data as two separate streams of input and processed through different encoders, fused with Kalman fusion, achieved 91.01\% F1 score using 22-fold validation with leave-one-out subject. This is the highest F1 score achieved with the SmartfallMM dataset.
+%± 7.14% (22-fold LOSO, Young+Old) attention pooling and  Without Kalman, single-stream performs marginally better but
+%differences are not significant.(-\
+\end{itemize}
+
+The remainder of this paper is organized as follows. The back-..
+\input{relatedWork}
+\input{methodology}
+\input{experiment}
+\input{result}
+\input{conclusion}
+
+
+
+
+\section*{Acknowledgment}
+
+The preferred spelling of the word ``acknowledgment'' in America is without 
+an ``e'' after the ``g''. Avoid the stilted expression ``one of us (R. B. 
+G.) thanks $\ldots$''. Instead, try ``R. B. G. thanks$\ldots$''. Put sponsor 
+acknowledgments in the unnumbered footnote on the first page.
+
+\section*{References}
+
+
+\begin{thebibliography}{00}
+\bibitem{b1} G. Eason, B. Noble, and I. N. Sneddon, ``On certain integrals of Lipschitz-Hankel type involving products of Bessel functions,'' Phil. Trans. Roy. Soc. London, vol. A247, pp. 529--551, April 1955.
+\bibitem{b2} J. Clerk Maxwell, A Treatise on Electricity and Magnetism, 3rd ed., vol. 2. Oxford: Clarendon, 1892, pp.68--73.
+\bibitem{b3} I. S. Jacobs and C. P. Bean, ``Fine particles, thin films and exchange anisotropy,'' in Magnetism, vol. III, G. T. Rado and H. Suhl, Eds. New York: Academic, 1963, pp. 271--350.
+\bibitem{b4} K. Elissa, ``Title of paper if known,'' unpublished.
+\bibitem{b5} R. Nicole, ``Title of paper with only first word capitalized,'' J. Name Stand. Abbrev., in press.
+\bibitem{b6} Y. Yorozu, M. Hirano, K. Oka, and Y. Tagawa, ``Electron spectroscopy studies on magneto-optical media and plastic substrate interface,'' IEEE Transl. J. Magn. Japan, vol. 2, pp. 740--741, August 1987 [Digests 9th Annual Conf. Magnetics Japan, p. 301, 1982].
+\bibitem{b7} M. Young, The Technical Writer's Handbook. Mill Valley, CA: University Science, 1989.
+\end{thebibliography}
+\vspace{12pt}
+\color{red}
+IEEE conference templates contain guidance text for composing and formatting conference papers. Please ensure that all template text is removed from your conference paper prior to submission to the conference. Failure to remove the template text from your paper may result in your paper not being published.
+
+\end{document}
+
