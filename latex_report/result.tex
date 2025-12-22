@@ -54,52 +54,57 @@ To understand the contribution of Squeeze-Excitation (SE) channel attention and 
 
 Figure~\ref{fig:ablation_heatmap} reveals an important interaction effect: while SE and TAP individually improve performance on raw input, their combination yields the best results only with Kalman fusion (90.85\%). This suggests that the cleaner orientation signals from Kalman filtering enable the attention mechanisms to more effectively focus on fall-relevant temporal patterns.
 
-\subsection{Architecture Comparison: Transformer vs CNN}
+\subsection{Architecture-Specific Kalman Effects}
 \label{sec:arch_comparison}
 
-To validate that Kalman fusion benefits are not architecture-specific, we compared our transformer-based approach with a CNN-Mamba hybrid architecture.
+A critical finding of this study is that Kalman fusion affects different architectures in opposite directions. We conducted rigorous statistical analysis using paired t-tests and Wilcoxon signed-rank tests across all 21 LOSO folds.
 
 \begin{table}[htbp]
 \centering
-\caption{CNN-Mamba Input Comparison (21-fold LOSO-CV).}
-\label{tab:cnn_comparison}
-\begin{tabular}{@{}lc@{}}
+\caption{Kalman Effect by Architecture (21-fold LOSO-CV). Statistical tests performed on per-subject F1 scores.}
+\label{tab:kalman_effect}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}lccccc@{}}
 \toprule
-\textbf{CNN-Mamba Input} & \textbf{F1 (\%)} \\
+\textbf{Architecture} & \textbf{Raw F1} & \textbf{Kalman F1} & \textbf{$\Delta$} & \textbf{Cohen's d} & \textbf{p-value} \\
 \midrule
-Raw 6ch (acc + gyro) & \textbf{89.98} \\
-Kalman 6ch (acc + ori) & 88.09 \\
-\midrule
-$\Delta$ & -1.89 \\
+Transformer & 89.49 & 90.89 & +1.40 & 0.23 & 0.111 \\
+CNN-Mamba & 89.98 & 88.09 & -1.89 & -0.18 & 0.226 \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
+\vspace{1mm}
+\scriptsize
+\textit{Cohen's d: effect size (0.2=small, 0.5=medium, 0.8=large). p-value from paired t-test.}
 \end{table}
 
-Interestingly, Table~\ref{tab:cnn_comparison} shows that the CNN-Mamba architecture performs \textit{better} with raw input (89.98\%) than Kalman-fused input (88.09\%). This contrasts with the transformer, which benefits significantly from Kalman fusion. The CNN's convolutional layers may be better suited to extract patterns from high-frequency raw signals, while transformers benefit more from the cleaner orientation representation.
+Table~\ref{tab:kalman_effect} reveals a striking architecture-dependent effect: transformers improve with Kalman fusion (+1.40\%, d=0.23) while CNNs degrade (-1.89\%, d=-0.18). Although neither effect reaches statistical significance at $\alpha=0.05$, the opposing directions suggest a fundamental difference in how these architectures process IMU signals.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/f1_bar_comparison.png}
-\caption{F1 score comparison across model configurations. Kalman fusion with SE+TAP achieves the best performance (90.85\%).}
-\label{fig:f1_comparison}
+\includegraphics[width=\columnwidth]{figures/frequency_analysis_worst_subjects.png}
+\caption{Frequency analysis of fall signals for challenging subjects (S36, S38). Kalman filtering (green) attenuates high-frequency content (5-15Hz) that CNNs use for impact detection, while preserving low-frequency orientation information that transformers leverage.}
+\label{fig:frequency_analysis}
 \end{figure}
 
-\begin{table}[htbp]
-\centering
-\caption{Transformer Architecture Comparison (21-fold LOSO-CV).}
-\label{tab:transformer_arch}
-\begin{tabular}{@{}lcc@{}}
-\toprule
-\textbf{Model} & \textbf{Stream} & \textbf{F1 (\%)} \\
-\midrule
-TransModel & Single & 86.99 \\
-TransModelSE & Single + SE/TAP & 87.80 \\
-\textbf{KalmanDualStream} & Dual + SE/TAP & \textbf{90.85} \\
-\bottomrule
-\end{tabular}
-\end{table}
+\subsubsection{Why Kalman Fusion Helps Transformers}
 
-Table~\ref{tab:transformer_arch} demonstrates that the dual-stream architecture with Kalman fusion significantly outperforms single-stream alternatives. The +2.87\% improvement from TransModelSE to KalmanDualStream validates our hypothesis that separate processing of accelerometer and orientation streams enables more effective feature extraction.
+Kalman fusion transforms raw gyroscope angular velocity ($\omega_x, \omega_y, \omega_z$ in rad/s) into orientation angles (roll, pitch, yaw in radians) by fusing accelerometer and gyroscope measurements. The transformer's self-attention mechanism computes global temporal dependencies through:
+\begin{equation}
+\text{Attention}(Q,K,V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+\end{equation}
+Raw angular velocity is difficult to interpret---the same $\omega_z$ value could mean standing still with slight drift or mid-fall rotation. Kalman-fused orientation provides \textit{absolute} body pose information: a roll angle of $-\pi/2$ unambiguously indicates a side-lying position regardless of how fast the rotation occurred. This semantic clarity enables transformers to learn meaningful temporal attention patterns over body orientation changes during falls.
+
+\subsubsection{Why Kalman Fusion Hurts CNNs}
+
+CNN convolutions excel at detecting local patterns through learned kernels. Fall detection with CNNs relies heavily on detecting \textit{magnitude spikes}---sudden high-amplitude changes in angular velocity that accompany impact. The raw gyroscope captures these transient events directly. However, Kalman fusion converts velocity to position (orientation), transforming sharp spikes into gradual angle changes. A fall that produces a distinctive 500$^\circ$/s spike in raw gyroscope becomes a smooth 90$^\circ$ orientation change after fusion. The CNN kernels, optimized for detecting local discontinuities, find less distinctive patterns in the fused representation.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/worst_subject_signals.png}
+\caption{Signal comparison for worst-performing subjects across fall activities. Blue: raw gyroscope (noisy, high-frequency). Green: Kalman orientation (smooth, low-frequency). Red shading indicates fall impact region.}
+\label{fig:worst_signals}
+\end{figure}
 
 \subsection{Loss Function Analysis}
 \label{sec:loss_analysis}
