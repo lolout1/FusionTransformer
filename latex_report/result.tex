@@ -177,6 +177,41 @@ Our analysis reveals that Kalman fusion particularly benefits challenging subjec
 \label{fig:training_dynamics}
 \end{figure}
 
+\subsection{Modality Baseline Comparison}
+\label{sec:modality_baseline}
+
+To establish robust baselines and quantify the contribution of each signal modality, we compared transformer models with different input configurations using identical preprocessing and hyperparameters.
+
+\begin{table}[htbp]
+\centering
+\caption{Modality Baseline Comparison (21-fold LOSO-CV Test Results)}
+\label{tab:modality_baseline}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}lcccccl@{}}
+\toprule
+\textbf{Input Configuration} & \textbf{Ch} & \textbf{Loss} & \textbf{Acc (\%)} & \textbf{F1 (\%)} & \textbf{Recall (\%)} & \textbf{$\Delta$ F1} \\
+\midrule
+Acc + SMV (no gyro) & 4 & 0.00122 & 78.29 & 84.49 & 86.36 & baseline \\
+Acc + Gyro (no SE/TAP) & 6 & 0.00135 & 81.70 & 86.99 & 87.95 & +2.50 \\
+Acc + Gyro + SE & 6 & 0.00147 & 83.29 & 87.80 & 87.35 & +3.31 \\
+\textbf{Kalman Dual SE+TAP} & \textbf{7} & \textbf{0.00083} & \textbf{86.92} & \textbf{90.85} & \textbf{94.30} & \textbf{+6.36} \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{1mm}
+\scriptsize
+\textit{All models use TransModel architecture with focal loss ($\alpha$=0.75, $\gamma$=2.0). Ch=input channels. $\Delta$ F1 relative to Acc+SMV baseline.}
+\end{table}
+
+Table~\ref{tab:modality_baseline} reveals the incremental contribution of each component:
+\begin{itemize}
+    \item \textbf{Gyroscope contribution}: Adding raw gyroscope to accelerometer improves F1 by +2.50\% (84.49\% $\rightarrow$ 86.99\%), demonstrating that angular velocity information is valuable for fall detection.
+    \item \textbf{SE attention contribution}: The Squeeze-Excitation module adds +0.81\% (86.99\% $\rightarrow$ 87.80\%), enabling the model to weight channels based on their relevance.
+    \item \textbf{Kalman + Dual-stream + TAP}: The full configuration achieves +6.36\% over the acc+SMV baseline (84.49\% $\rightarrow$ 90.85\%), with the largest gains coming from Kalman fusion and temporal attention pooling.
+\end{itemize}
+
+The acc+SMV baseline (84.49\% F1) represents the minimum viable fall detection system using only accelerometer data. While functional, it lacks the orientation information that distinguishes different fall types (forward, backward, lateral). The Kalman-fused orientation provides this missing information in a semantically meaningful form.
+
 \subsection{Architecture Comparison: Single-Stream vs Dual-Stream}
 \label{sec:arch_stream_comparison}
 
@@ -215,7 +250,7 @@ We compared single-stream and dual-stream architectures with identical hyperpara
 \textit{Dual-stream with Kalman fusion achieves +3.86\% F1 improvement over single-stream raw baseline. The dual-stream architecture processes accelerometer and orientation features separately before fusion.}
 \end{table}
 
-Table~\ref{tab:stream_comparison} demonstrates that the dual-stream architecture with Kalman fusion achieves substantially better performance (+3.86\% F1) compared to single-stream alternatives. The improvement stems from two factors: (1) Kalman fusion provides semantically meaningful orientation features, and (2) separate processing of accelerometer and orientation streams allows the model to learn modality-specific patterns before fusion. Note that adding SE to single-stream raw input actually slightly decreased performance (87.80\% vs 86.99\%), suggesting that channel attention is less beneficial when processing heterogeneous raw signals.
+Table~\ref{tab:stream_comparison} demonstrates that the dual-stream architecture with Kalman fusion achieves substantially better performance (+3.86\% F1) compared to single-stream alternatives. The improvement stems from two factors: (1) Kalman fusion provides semantically meaningful orientation features, and (2) separate processing of accelerometer and orientation streams allows the model to learn modality-specific patterns before fusion. Adding SE to single-stream raw input provides a modest improvement (+0.81\%, from 86.99\% to 87.80\%), but the full dual-stream Kalman configuration achieves the best results.
 
 \subsection{Summary of Key Findings}
 
