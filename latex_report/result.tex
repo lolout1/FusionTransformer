@@ -341,7 +341,14 @@ The ``separate'' normalization approach (normalizing accelerometer and orientati
 \subsection{Transformer vs CNN Statistical Comparison}
 \label{sec:trans_vs_cnn}
 
-To rigorously validate the superiority of our dual-stream Kalman transformer over CNN-based approaches, we conducted a comprehensive statistical comparison using 21-fold LOSO-CV.
+To rigorously validate the superiority of our dual-stream Kalman transformer over CNN-based approaches, we conducted a comprehensive statistical comparison using 21-fold LOSO-CV. Figure~\ref{fig:cnn_architecture} illustrates the CNN-Mamba baseline architecture used for comparison.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/arch_cnn_mamba.png}
+\caption{\textbf{CNN-Mamba Baseline Architecture.} Raw 6-channel IMU input is processed through three Conv1D blocks (Conv1D + BatchNorm + ReLU + MaxPool), followed by a Mamba State Space Model block for sequence modeling. Global average pooling and a fully connected layer produce the final classification. This architecture achieves 88.86\% F1 with raw input but degrades to 88.09\% with Kalman fusion, opposite to the transformer.}
+\label{fig:cnn_architecture}
+\end{figure}
 
 \begin{table}[htbp]
 \centering

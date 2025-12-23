@@ -1,12 +1,18 @@
 \section{Methodology}
 \label{sec:Meth}
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/arch_dual_stream_kalman.png}
+\caption{\textbf{Overview of Dual-Stream Kalman Transformer Architecture.} Raw accelerometer and gyroscope signals are fused through a Linear Kalman Filter to extract orientation estimates (roll, pitch, yaw). The resulting 7-channel features (SMV + accelerometer + orientation) are split into two parallel streams: (1) accelerometer stream processing motion magnitude, and (2) orientation stream processing body pose. Each stream undergoes Conv1D projection, BatchNorm, and Squeeze-Excitation (SE) attention before concatenation. The fused 64-dimensional features pass through a transformer encoder with temporal attention pooling (TAP) for fall/ADL classification. This architecture achieves 91.10\% F1 score on 21-fold LOSO cross-validation.}
+\label{fig:overview}
+\end{figure*}
+
 \subsection{SmartFall System Architecture}
 \label{sec:Arch}
 
 \begin{figure}[t]
 \centering
-%\includegraphics[width=\linewidth]{figures/smartfall_architecture.pdf}  % TODO: Add SmartFall system diagram
 \includegraphics[width=\linewidth]{figures/architecture_diagram.png}
 \caption{SmartFall system with Watch-Phone-based Architecture.}
 \label{fig:Watch-Phone}
@@ -134,20 +140,15 @@ This representation replaces the raw gyroscope signals ($\omega_x$, $\omega_y$, 
 \subsection{Dual-Stream Transformer Architecture}
 \label{sec:DualStream}
 
-Our dual-stream transformer architecture processes Kalman-fused features through parallel encoder streams with Squeeze-and-Excitation (SE) attention for channel weighting and Temporal Attention Pooling (TAP) for sequence aggregation. Figure~\ref{fig:architecture} illustrates the complete architecture.
+Our dual-stream transformer architecture processes Kalman-fused features through parallel encoder streams with Squeeze-and-Excitation (SE) attention for channel weighting and Temporal Attention Pooling (TAP) for sequence aggregation. The complete architecture is illustrated in Figure~\ref{fig:overview}.
+
+For comparison, Figure~\ref{fig:single_stream} shows the single-stream baseline that processes raw accelerometer and gyroscope jointly, which we demonstrate underperforms due to noisy gyroscope signals corrupting accelerometer features.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/arch_dual_stream_kalman.png}
-\caption{Dual-stream Kalman transformer architecture. Raw accelerometer and gyroscope inputs are fused through a Linear Kalman Filter to extract orientation (roll, pitch, yaw). The 7-channel output (SMV + acc + orientation) is split into two streams: accelerometer (4ch $\rightarrow$ 32 embed) and orientation (3ch $\rightarrow$ 32 embed). Each stream passes through Conv1D projection, BatchNorm, and SE attention before concatenation. The fused 64-dim features are processed by a transformer encoder with temporal attention pooling (TAP) for final classification.}
-\label{fig:architecture}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\columnwidth]{figures/preprocessing_pipeline_detailed.png}
-\caption{Preprocessing pipeline with channel-aware normalization. Raw IMU data is resampled to 30Hz, windowed into 256-frame segments (~8.5s), and processed through the Kalman filter. Critical insight: accelerometer channels are z-score normalized while orientation channels are kept in raw radians to preserve physical meaning.}
-\label{fig:preprocessing}
+\includegraphics[width=\columnwidth]{figures/arch_single_stream.png}
+\caption{\textbf{Single-Stream Raw Transformer (Baseline).} Raw 6-channel IMU data (acc + gyro) is projected to a shared embedding space via Conv1D. The SE module provides channel attention, followed by a transformer encoder and temporal attention pooling. This architecture achieves 89.49\% F1 but is limited by noisy gyroscope signals corrupting the shared feature space.}
+\label{fig:single_stream}
 \end{figure}
 
 \subsubsection{Layer-by-Layer Architecture (Best Configuration)}
@@ -219,8 +220,8 @@ Figure~\ref{fig:preprocessing} illustrates the complete preprocessing pipeline. 
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/preprocessing_pipeline.png}
-\caption{Preprocessing pipeline with Kalman fusion and channel-aware normalization. Raw accelerometer and gyroscope signals are fused via Linear Kalman Filter to produce 7-channel output. Channel-aware normalization applies StandardScaler only to accelerometer channels [0:4], preserving orientation angles in raw radians.}
+\includegraphics[width=\columnwidth]{figures/preprocessing_pipeline_detailed.png}
+\caption{\textbf{Preprocessing Pipeline with Channel-Aware Normalization.} Raw IMU data undergoes: (1) resampling to 30Hz, (2) sliding window segmentation (128 frames, ~4.3s), (3) Kalman fusion to extract orientation, and (4) channel-aware normalization where accelerometer channels are z-score normalized while orientation channels remain in raw radians to preserve physical meaning.}
 \label{fig:preprocessing}
 \end{figure}
 
