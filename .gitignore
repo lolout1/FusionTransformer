@@ -28,7 +28,6 @@ mismatch_analysis/
 
 # Documentation (commit to private repo instead)
 *.md
-latex_report/
 notebooks/
 
 # Temporary and backup files
@@ -55,11 +54,11 @@ notebooks/
 /*.sh
 
 # Experimental/ablation configs (keep only production configs)
+# KEEP: modality_ablation/, ekf_robust/, comprehensive_ablation/
 config/smartfallmm/ablation_*/
 config/smartfallmm/bugfix*/
-config/smartfallmm/comprehensive_ablation/
+config/smartfallmm/comprehensive_ablation_*/
 config/smartfallmm/timestamp_trim_test/
-config/smartfallmm/ekf_robust/
 config/smartfallmm/critique_ablation/
 config/smartfallmm/cnn_*/
 config/smartfallmm/conv_tokenizer_ablation/
@@ -70,6 +69,7 @@ config/smartfallmm/hyperparam_tuning/
 config/smartfallmm/kalman_*/
 config/smartfallmm/lr_schedule_ablation/
 config/smartfallmm/modality_comparison/
+config/smartfallmm/modality_smv_comparison/
 config/smartfallmm/normalization_ablation/
 config/smartfallmm/optimal_combined.yaml
 config/smartfallmm/patch_transformer_ablation/
@@ -77,6 +77,19 @@ config/smartfallmm/phone/
 config/smartfallmm/se_tap_ablation_*/
 config/smartfallmm/stream_*/
 config/smartfallmm/yaw_ablation/
+config/smartfallmm/cfeb_ablation_*/
+config/smartfallmm/asymmetric_*/
+config/smartfallmm/controlled_comparison/
+config/smartfallmm/model_comparison/
+config/smartfallmm/transformer_architecture_comparison/
+config/smartfallmm/imu_*.yaml
+config/smartfallmm/dual_stream_*.yaml
+config/smartfallmm/kalman_*.yaml
+config/smartfallmm/comparison_*.yaml
+config/smartfallmm/transformer_*.yaml
+config/smartfallmm/transmodel_*.yaml
+config/smartfallmm/madgwick_*.yaml
+config/smartfallmm/dualstream_*.yaml
 
 # Scripts directory (experimental scripts)
 scripts/
