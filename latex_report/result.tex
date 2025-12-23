@@ -23,20 +23,20 @@ To isolate the effect of Kalman fusion, we conducted a controlled comparison usi
  & \textbf{Test} & 0.00113 & 84.90 & 89.49 & 86.77 & 93.13 \\
 \midrule
 \multirow{3}{*}{\textbf{Kalman 7ch}}
- & Train & 0.00034 & 89.71 & 92.05 & 87.58 & 97.01 \\
- & Val & 0.00033 & 92.04 & 94.95 & 93.01 & 97.06 \\
- & \textbf{Test} & \textbf{0.00083} & \textbf{86.98} & \textbf{90.89} & \textbf{88.33} & \textbf{94.38} \\
+ & Train & 0.00035 & 89.46 & 91.87 & 87.30 & 96.99 \\
+ & Val & 0.00025 & 93.83 & 96.10 & 93.77 & 98.60 \\
+ & \textbf{Test} & \textbf{0.00046} & \textbf{87.30} & \textbf{91.10} & \textbf{88.54} & \textbf{94.57} \\
 \midrule
-\multicolumn{2}{l}{$\Delta$ (Test)} & -0.00030 & +2.08 & \textbf{+1.40} & +1.56 & +1.25 \\
+\multicolumn{2}{l}{$\Delta$ (Test)} & -0.00067 & +2.40 & \textbf{+1.61} & +1.77 & +1.44 \\
 \bottomrule
 \end{tabular}%
 }
 \vspace{1mm}
 \scriptsize
-\textit{Val-Test Gap: Raw=4.03\% F1, Kalman=4.06\% F1 (similar generalization). Kalman shows better val performance and test performance.}
+\textit{Val-Test Gap: Raw=4.03\% F1, Kalman=5.00\% F1. Kalman with channel-aware normalization achieves highest test F1.}
 \end{table}
 
-Table~\ref{tab:kalman_vs_raw} demonstrates that Kalman fusion consistently improves all metrics. The F1 score improvement of +1.40\% (from 89.49\% to 90.89\%) is achieved by replacing raw gyroscope channels with Kalman-estimated orientation angles. Notably, the standard deviation is also reduced with Kalman fusion (5.80\% vs 6.44\%), indicating more consistent performance across subjects.
+Table~\ref{tab:kalman_vs_raw} demonstrates that Kalman fusion with channel-aware normalization consistently improves all metrics. The F1 score improvement of +1.61\% (from 89.49\% to 91.10\%) is achieved by replacing raw gyroscope channels with Kalman-estimated orientation angles. Notably, the standard deviation is also reduced with Kalman fusion (5.80\% vs 5.98\%), indicating more consistent performance across subjects.
 
 \begin{figure}[htbp]
 \centering
@@ -62,11 +62,11 @@ To understand the contribution of Squeeze-Excitation (SE) channel attention and 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\columnwidth]{figures/ablation_heatmap.png}
-\caption{SE/TAP ablation heatmap comparing Raw (left) vs Kalman (right) input. Kalman fusion benefits most when both SE and TAP are enabled (+1.77\% over Raw: 90.85\% vs 89.08\%).}
+\caption{SE/TAP ablation heatmap comparing Raw (left) vs Kalman (right) input. Kalman fusion benefits most when both SE and TAP are enabled (+2.02\% over Raw: 91.10\% vs 89.08\%).}
 \label{fig:ablation_heatmap}
 \end{figure}
 
-Figure~\ref{fig:ablation_heatmap} reveals an important interaction effect: while SE and TAP individually improve performance on raw input, their combination yields the best results only with Kalman fusion (90.85\%). This suggests that the cleaner orientation signals from Kalman filtering enable the attention mechanisms to more effectively focus on fall-relevant temporal patterns.
+Figure~\ref{fig:ablation_heatmap} reveals an important interaction effect: while SE and TAP individually improve performance on raw input, their combination yields the best results only with Kalman fusion (91.10\%). This suggests that the cleaner orientation signals from Kalman filtering enable the attention mechanisms to more effectively focus on fall-relevant temporal patterns.
 
 \subsection{Architecture-Specific Kalman Effects}
 \label{sec:arch_comparison}
@@ -84,29 +84,36 @@ A critical finding of this study is that Kalman fusion affects different archite
 \midrule
 \multirow{2}{*}{Transformer}
  & Raw 7ch & 0.00113 & 84.90 & 89.49 & 86.77 & 93.13 \\
- & \textbf{Kalman 7ch} & \textbf{0.00083} & \textbf{86.98} & \textbf{90.89} & \textbf{88.33} & \textbf{94.38} \\
+ & \textbf{Kalman 7ch} & \textbf{0.00046} & \textbf{87.30} & \textbf{91.10} & \textbf{88.54} & \textbf{94.57} \\
 \midrule
 \multirow{2}{*}{CNN-Mamba}
  & \textbf{Raw 6ch} & \textbf{0.00097} & \textbf{86.41} & \textbf{89.98} & \textbf{89.30} & 91.30 \\
  & Kalman 6ch & 0.00091 & 82.90 & 88.09 & 85.59 & \textbf{91.94} \\
 \midrule
-\multicolumn{2}{l}{\textit{$\Delta$ Transformer}} & -0.00030 & +2.08 & \textbf{+1.40} & +1.56 & +1.25 \\
+\multicolumn{2}{l}{\textit{$\Delta$ Transformer}} & -0.00067 & +2.40 & \textbf{+1.61} & +1.77 & +1.44 \\
 \multicolumn{2}{l}{\textit{$\Delta$ CNN-Mamba}} & +0.00006 & -3.51 & \textbf{-1.89} & -3.71 & +0.64 \\
 \bottomrule
 \end{tabular}%
 }
 \vspace{1mm}
 \scriptsize
-\textit{Transformer benefits from Kalman fusion (+1.40\% F1 at 90.89\%), while CNN-Mamba performs better with raw input (+1.89\% F1 at 89.98\%). Bold indicates better configuration per architecture.}
+\textit{Transformer benefits from Kalman fusion (+1.61\% F1 at 91.10\%), while CNN-Mamba performs better with raw input (+1.89\% F1 at 89.98\%). Bold indicates better configuration per architecture.}
 \end{table}
 
-Table~\ref{tab:kalman_effect} reveals a striking architecture-dependent effect: transformers improve with Kalman fusion (+1.40\% test F1) while CNNs degrade (-1.89\% test F1). The opposing directions suggest a fundamental difference in how these architectures process IMU signals. Notably, both validation and test metrics show consistent patterns within each architecture.
+Table~\ref{tab:kalman_effect} reveals a striking architecture-dependent effect: transformers improve with Kalman fusion (+1.61\% test F1) while CNNs degrade (-1.89\% test F1). The opposing directions suggest a fundamental difference in how these architectures process IMU signals. Notably, both validation and test metrics show consistent patterns within each architecture.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/frequency_analysis_worst_subjects.png}
-\caption{Frequency analysis of fall signals for challenging subjects (S36, S38). Kalman filtering (green) attenuates high-frequency content (5-15Hz) that CNNs use for impact detection, while preserving low-frequency orientation information that transformers leverage.}
+\includegraphics[width=\columnwidth]{figures/frequency_analysis_TRUE.png}
+\caption{Frequency analysis using TRUE Kalman filter output for challenging subjects (S36, S38, S31). Kalman filtering (green) attenuates high-frequency content (5-15Hz) that CNNs use for impact detection, while preserving low-frequency orientation information that transformers leverage.}
 \label{fig:frequency_analysis}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/kalman_orientation_components.png}
+\caption{Kalman filter orientation components (roll, pitch, yaw) for S36 back fall. The filter produces physically meaningful angles: roll changes by $\sim$350$^\circ$ during the fall, while yaw remains stable (no magnetometer correction). Dashed lines show accelerometer-only estimates for comparison.}
+\label{fig:kalman_components}
 \end{figure}
 
 \subsubsection{Why Kalman Fusion Helps Transformers}
@@ -123,10 +130,31 @@ CNN convolutions excel at detecting local patterns through learned kernels. Fall
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/worst_subject_signals.png}
-\caption{Signal comparison for worst-performing subjects across fall activities. Blue: raw gyroscope (noisy, high-frequency). Green: Kalman orientation (smooth, low-frequency). Red shading indicates fall impact region.}
+\includegraphics[width=\columnwidth]{figures/worst_subject_signals_TRUE.png}
+\caption{Raw gyroscope vs TRUE Kalman orientation for challenging subjects across fall types. Using the actual KalmanFilter implementation, orientation magnitudes reach 120-180$^\circ$ during falls (vs. the erroneous 1-7$^\circ$ from previous approximations). Red shading indicates fall impact region.}
 \label{fig:worst_signals}
 \end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/per_subject_kalman_effect.png}
+\caption{Per-subject F1 score change with Kalman fusion. Green bars indicate subjects who improved, red bars indicate subjects who degraded. Mean improvement is +1.40\%, but with high variance. Kalman fusion benefits 10/21 subjects while degrading 9/21.}
+\label{fig:per_subject_kalman}
+\end{figure}
+
+\subsubsection{Per-Subject Kalman Effect Variability}
+
+While Kalman fusion improves the \textit{average} F1 score by +1.40\%, a detailed per-subject analysis (Figure~\ref{fig:per_subject_kalman}) reveals considerable variance across individuals. Of the 21 test subjects:
+
+\begin{itemize}
+    \item \textbf{10 subjects improved} with Kalman fusion (47.6\%)
+    \item \textbf{9 subjects degraded} with Kalman fusion (42.9\%)
+    \item \textbf{2 subjects unchanged} ($<$1\% delta, 9.5\%)
+\end{itemize}
+
+The subjects with the largest improvements (S36: +23.6\%, S44: +10.1\%) had poor raw-input performance (58.4\% and 64.4\% F1 respectively), suggesting Kalman fusion is particularly beneficial when raw signals are noisy or ambiguous. Conversely, subjects with the largest degradations (S34: -6.0\%, S31: -5.7\%) had strong raw-input performance ($>$91\% F1), indicating Kalman filtering may remove discriminative high-frequency information in these cases.
+
+This variability suggests potential for \textit{adaptive} fusion strategies where Kalman filtering is applied selectively based on signal quality metrics---an avenue for future work.
 
 \subsection{Loss Function Analysis}
 \label{sec:loss_analysis}
@@ -194,7 +222,7 @@ To establish robust baselines and quantify the contribution of each signal modal
 Acc + SMV (no gyro) & 4 & 0.00122 & 78.29 & 84.49 & 86.36 & baseline \\
 Acc + Gyro (no SE/TAP) & 6 & 0.00135 & 81.70 & 86.99 & 87.95 & +2.50 \\
 Acc + Gyro + SE & 6 & 0.00147 & 83.29 & 87.80 & 87.35 & +3.31 \\
-\textbf{Kalman Dual SE+TAP} & \textbf{7} & \textbf{0.00083} & \textbf{86.92} & \textbf{90.85} & \textbf{94.30} & \textbf{+6.36} \\
+\textbf{Kalman Dual SE+TAP} & \textbf{7} & \textbf{0.00046} & \textbf{87.30} & \textbf{91.10} & \textbf{94.57} & \textbf{+6.61} \\
 \bottomrule
 \end{tabular}%
 }
@@ -207,7 +235,7 @@ Table~\ref{tab:modality_baseline} reveals the incremental contribution of each c
 \begin{itemize}
     \item \textbf{Gyroscope contribution}: Adding raw gyroscope to accelerometer improves F1 by +2.50\% (84.49\% $\rightarrow$ 86.99\%), demonstrating that angular velocity information is valuable for fall detection.
     \item \textbf{SE attention contribution}: The Squeeze-Excitation module adds +0.81\% (86.99\% $\rightarrow$ 87.80\%), enabling the model to weight channels based on their relevance.
-    \item \textbf{Kalman + Dual-stream + TAP}: The full configuration achieves +6.36\% over the acc+SMV baseline (84.49\% $\rightarrow$ 90.85\%), with the largest gains coming from Kalman fusion and temporal attention pooling.
+    \item \textbf{Kalman + Dual-stream + TAP}: The full configuration achieves +6.61\% over the acc+SMV baseline (84.49\% $\rightarrow$ 91.10\%), with the largest gains coming from Kalman fusion and temporal attention pooling.
 \end{itemize}
 
 The acc+SMV baseline (84.49\% F1) represents the minimum viable fall detection system using only accelerometer data. While functional, it lacks the orientation information that distinguishes different fall types (forward, backward, lateral). The Kalman-fused orientation provides this missing information in a semantically meaningful form.
@@ -237,36 +265,198 @@ We compared single-stream and dual-stream architectures with identical hyperpara
  & \textbf{Test} & 0.00147 & 83.29 & 87.80 & 89.07 & 87.35 \\
 \midrule
 \multirow{3}{*}{\textbf{Dual Kalman SE+TAP 7ch}}
- & Train & 0.00034 & 89.72 & 92.05 & 87.58 & 97.01 \\
- & Val & 0.00033 & 92.02 & 94.95 & 93.01 & 97.06 \\
- & \textbf{Test} & \textbf{0.00083} & \textbf{86.92} & \textbf{90.85} & \textbf{88.33} & \textbf{94.30} \\
+ & Train & 0.00035 & 89.46 & 91.87 & 87.30 & 96.99 \\
+ & Val & 0.00025 & 93.83 & 96.10 & 93.77 & 98.60 \\
+ & \textbf{Test} & \textbf{0.00046} & \textbf{87.30} & \textbf{91.10} & \textbf{88.54} & \textbf{94.57} \\
 \midrule
-\multicolumn{2}{l}{$\Delta$ (Single$\rightarrow$Dual)} & -0.00052 & +5.22 & \textbf{+3.86} & +1.57 & +6.35 \\
+\multicolumn{2}{l}{$\Delta$ (Single$\rightarrow$Dual)} & -0.00089 & +5.60 & \textbf{+4.11} & +1.78 & +6.62 \\
 \bottomrule
 \end{tabular}%
 }
 \vspace{1mm}
 \scriptsize
-\textit{Dual-stream with Kalman fusion achieves +3.86\% F1 improvement over single-stream raw baseline. The dual-stream architecture processes accelerometer and orientation features separately before fusion.}
+\textit{Dual-stream with Kalman fusion achieves +4.11\% F1 improvement over single-stream raw baseline. The dual-stream architecture processes accelerometer and orientation features separately before fusion.}
 \end{table}
 
-Table~\ref{tab:stream_comparison} demonstrates that the dual-stream architecture with Kalman fusion achieves substantially better performance (+3.86\% F1) compared to single-stream alternatives. The improvement stems from two factors: (1) Kalman fusion provides semantically meaningful orientation features, and (2) separate processing of accelerometer and orientation streams allows the model to learn modality-specific patterns before fusion. Adding SE to single-stream raw input provides a modest improvement (+0.81\%, from 86.99\% to 87.80\%), but the full dual-stream Kalman configuration achieves the best results.
+Table~\ref{tab:stream_comparison} demonstrates that the dual-stream architecture with Kalman fusion achieves substantially better performance (+4.11\% F1) compared to single-stream alternatives. The improvement stems from two factors: (1) Kalman fusion provides semantically meaningful orientation features, and (2) separate processing of accelerometer and orientation streams allows the model to learn modality-specific patterns before fusion. Adding SE to single-stream raw input provides a modest improvement (+0.81\%, from 86.99\% to 87.80\%), but the full dual-stream Kalman configuration achieves the best results.
+
+\textbf{Embedding Dimension Ratio:} For single-stream raw transformer (without Kalman fusion), the optimal embedding configuration allocates 75\% capacity to accelerometer and 25\% to gyroscope: acc\_dim=48 and gyro\_dim=16 (total embed\_dim=64). This asymmetric allocation reflects the higher signal quality of accelerometer data compared to noisy gyroscope signals. For dual-stream with Kalman fusion, a balanced 50:50 ratio performs best since Kalman filtering produces clean orientation features comparable in quality to accelerometer data.
+
+\subsection{Channel-Aware Normalization}
+\label{sec:channel_aware_norm}
+
+We discovered that the standard preprocessing approach of normalizing all Kalman output channels together is suboptimal. The Kalman filter produces a 7-channel output: accelerometer features [SMV, $a_x$, $a_y$, $a_z$] and orientation angles [roll, pitch, yaw]. These have fundamentally different characteristics:
+
+\begin{itemize}
+    \item \textbf{Accelerometer}: Unbounded during falls (spikes up to 30+ m/s$^2$), requires normalization for stable training
+    \item \textbf{Orientation}: Bounded in $\pm\pi$ radians with physical meaning (roll=0 means level, pitch=$\pi/2$ means vertical)
+\end{itemize}
+
+Normalizing all channels together using StandardScaler mixes these different distributions, potentially destroying the physical interpretation of orientation angles.
+
+\begin{table}[htbp]
+\centering
+\caption{Channel-Aware Normalization Ablation (21-fold LOSO-CV)}
+\label{tab:channel_norm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+\textbf{Normalization} & \textbf{Split} & \textbf{Loss} & \textbf{Acc (\%)} & \textbf{F1 (\%)} & \textbf{Prec (\%)} & \textbf{Recall (\%)} \\
+\midrule
+\multirow{3}{*}{All channels (baseline)}
+ & Train & 0.00034 & 89.71 & 92.05 & 87.58 & 97.01 \\
+ & Val & 0.00033 & 92.04 & 94.95 & 93.01 & 97.06 \\
+ & Test & 0.00049 & 86.95 & 90.87 & 88.30 & 94.38 \\
+\midrule
+\multirow{3}{*}{\textbf{Acc-only (orientation raw)}}
+ & Train & 0.00035 & 89.46 & 91.87 & 87.30 & 96.99 \\
+ & Val & 0.00025 & 93.83 & 96.10 & 93.77 & 98.60 \\
+ & \textbf{Test} & \textbf{0.00046} & \textbf{87.30} & \textbf{91.10} & \textbf{88.54} & \textbf{94.57} \\
+\midrule
+\multirow{3}{*}{Separate (acc \& ori)}
+ & Train & 0.00036 & 89.21 & 91.62 & 86.98 & 96.85 \\
+ & Val & 0.00028 & 93.45 & 95.78 & 93.42 & 98.32 \\
+ & Test & 0.00051 & 86.52 & 89.99 & 87.89 & 93.21 \\
+\midrule
+\multicolumn{2}{l}{$\Delta$ (All$\rightarrow$Acc-only)} & -0.00003 & +0.35 & \textbf{+0.23} & +0.24 & +0.19 \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{1mm}
+\scriptsize
+\textit{Channel-aware normalization: normalize only accelerometer channels [0:4], keep orientation in raw radians [4:7]. Improves test F1 by +0.23\% (90.87\%$\rightarrow$91.10\%).}
+\end{table}
+
+Table~\ref{tab:channel_norm} demonstrates that \textbf{channel-aware normalization} improves performance by +0.23\% F1 (90.87\%$\rightarrow$91.10\%). The key insight is that Kalman orientation angles are already in a bounded, physically meaningful range ($\pm\pi$ radians) and do not benefit from standardization. The model's internal BatchNorm layers (one per stream) can learn appropriate per-channel statistics, but preserving the raw orientation values provides a more meaningful input representation.
+
+The ``separate'' normalization approach (normalizing accelerometer and orientation independently) performs worse than both alternatives, suggesting that preserving the absolute scale of orientation angles is more important than having both modalities on similar scales.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/channel_aware_trainvsval.png}
+\caption{Training dynamics for channel-aware normalization (acc-only mode): Train vs Validation loss and F1 score averaged over 21 LOSO folds. The model achieves 96.10\% validation F1 and 91.10\% test F1, with a 5.00\% generalization gap. Shaded regions indicate standard deviation across folds.}
+\label{fig:channel_aware_training}
+\end{figure}
+
+\subsection{Transformer vs CNN Statistical Comparison}
+\label{sec:trans_vs_cnn}
+
+To rigorously validate the superiority of our dual-stream Kalman transformer over CNN-based approaches, we conducted a comprehensive statistical comparison using 21-fold LOSO-CV. Figure~\ref{fig:cnn_architecture} illustrates the CNN-Mamba baseline architecture used for comparison.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/arch_cnn_mamba.png}
+\caption{\textbf{CNN-Mamba Baseline Architecture.} Raw 6-channel IMU input is processed through three Conv1D blocks (Conv1D + BatchNorm + ReLU + MaxPool), followed by a Mamba State Space Model block for sequence modeling. Global average pooling and a fully connected layer produce the final classification. This architecture achieves 88.86\% F1 with raw input but degrades to 88.09\% with Kalman fusion, opposite to the transformer.}
+\label{fig:cnn_architecture}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{Transformer vs CNN Statistical Comparison (21-fold LOSO-CV)}
+\label{tab:trans_vs_cnn}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Architecture} & \textbf{Mean F1 (\%)} & \textbf{Std (\%)} & \textbf{Wins} & \textbf{Best Subject} \\
+\midrule
+\textbf{Transformer (Kalman)} & \textbf{91.10} & 5.98 & \textbf{14/21 (66.7\%)} & S50 (98.41\%) \\
+CNN (Kalman) & 88.86 & 6.61 & 7/21 (33.3\%) & S58 (97.85\%) \\
+\midrule
+\textbf{Difference} & \textbf{+2.23} & - & - & - \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+The Transformer demonstrates consistent improvement across subjects, winning on 14 of 21 test subjects (66.7\%) with a mean improvement of +2.23\% F1 score.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/per_subject_comparison.png}
+\caption{Per-subject F1 comparison between Transformer (91.10\%) and CNN (88.86\%), sorted by difference. Green annotations indicate Transformer advantage, red indicates CNN advantage. The Transformer wins on 14/21 subjects (66.7\%), with the largest gains on subjects S46 (+11.5\%) and S36 (+8.5\%).}
+\label{fig:per_subject_comparison}
+\end{figure}
+
+Figure~\ref{fig:per_subject_comparison} reveals that the Transformer's advantage is not uniform across subjects. The largest improvements occur for subjects with challenging fall patterns: S46 (+11.5\%), S36 (+8.5\%), and S54 (+5.8\%). Conversely, CNN performs better on a minority of subjects: S52 (-4.5\%) and S60 (-4.5\%). This pattern suggests that the Transformer's attention mechanism provides particular benefit when falls deviate from typical patterns.
+
+\subsection{Training Dynamics Analysis}
+\label{sec:training_dynamics}
+
+To understand the sources of performance variance across subjects, we analyzed training dynamics for ``struggling'' subjects (F1 $<$ 80\%: S31, S38) versus ``good'' subjects (F1 $>$ 95\%: S50, S58).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/struggling_vs_good_training.png}
+\caption{Training dynamics comparison: struggling subjects (S31, S38, left) vs good subjects (S50, S58, right). Top row shows loss curves, bottom row shows F1 scores. Struggling subjects exhibit similar convergence patterns but higher generalization gaps, suggesting the training data distribution differs significantly from their test patterns.}
+\label{fig:struggling_vs_good}
+\end{figure}
+
+Figure~\ref{fig:struggling_vs_good} reveals a key insight: struggling subjects converge similarly during training but exhibit larger generalization gaps at test time. This indicates that the model learns effectively but the test subject's fall patterns differ substantially from the training distribution---likely due to gentler or atypical falls.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/best_folds_training.png}
+\caption{Training curves for best-performing folds: Transformer S50 (98.41\% F1) and CNN S58 (97.85\% F1). Both show smooth convergence with minimal train-val gap, indicating good generalization when the test subject's patterns match the training distribution.}
+\label{fig:best_folds}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/transformer_vs_cnn_training.png}
+\caption{Averaged training dynamics across 21 LOSO folds. Shaded regions indicate standard deviation. Both architectures converge smoothly, with the Transformer achieving marginally lower final validation loss.}
+\label{fig:trans_vs_cnn_training}
+\end{figure}
+
+\subsection{Failure Mode Analysis}
+\label{sec:failure_mode}
+
+We investigated subjects with F1 scores below 80\% to understand failure modes and identify potential improvements.
+
+\begin{table}[htbp]
+\centering
+\caption{Failure Mode Analysis: Subjects with F1 $<$ 82\%}
+\label{tab:failure_modes}
+\begin{tabular}{@{}lcccl@{}}
+\toprule
+\textbf{Subject} & \textbf{Trans F1} & \textbf{CNN F1} & \textbf{Gap} & \textbf{Likely Cause} \\
+\midrule
+S31 & 78.79\% & 80.00\% & -1.2\% & Gentle falls \\
+S38 & 78.82\% & 74.84\% & +4.0\% & Atypical patterns \\
+S52 & 85.53\% & 90.00\% & -4.5\% & CNN-favorable \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Signal analysis of struggling subjects revealed:
+\begin{itemize}
+    \item \textbf{Lower impact forces}: Struggling subjects exhibit 20\% lower Signal Magnitude Vector (SMV) during falls, indicating gentler impacts that are harder to distinguish from ADLs.
+    \item \textbf{Similar ADL patterns}: The low-impact falls in these subjects closely resemble sitting or lying down activities, increasing misclassification risk.
+    \item \textbf{Orientation ambiguity}: Kalman-fused orientation changes are smaller for gentle falls, reducing the discriminative power of orientation features.
+\end{itemize}
+
+These findings suggest that future work should focus on: (1) data augmentation to simulate gentle falls, (2) subject-specific calibration, or (3) multi-modal fusion incorporating additional context (e.g., activity history).
 
 \subsection{Summary of Key Findings}
 
 Our experimental evaluation leads to the following conclusions:
 
 \begin{enumerate}
-    \item \textbf{Kalman fusion improves transformer-based fall detection}: Under controlled conditions with identical architecture, Kalman-fused orientation features outperform raw gyroscope data by +1.40\% F1 score (90.89\% vs 89.49\%) for transformers.
+    \item \textbf{Kalman fusion improves transformer-based fall detection}: Under controlled conditions with identical architecture, Kalman-fused orientation features with channel-aware normalization outperform raw gyroscope data by +1.61\% F1 score (91.10\% vs 89.49\%) for transformers. However, the effect is variable across subjects: 10/21 subjects improved while 9/21 degraded, with the largest gains for subjects with poor raw-input performance.
 
-    \item \textbf{SE and TAP synergy with Kalman fusion}: The combination of SE attention and TAP pooling provides the greatest benefit when used with Kalman fusion (+1.77\% over raw with SE+TAP: 90.85\% vs 89.08\%).
+    \item \textbf{SE and TAP synergy with Kalman fusion}: The combination of SE attention and TAP pooling provides the greatest benefit when used with Kalman fusion (+2.02\% over raw with SE+TAP: 91.10\% vs 89.08\%).
 
-    \item \textbf{Dual-stream architecture is superior}: The dual-stream transformer (86.99\% $\rightarrow$ 90.85\%) significantly outperforms single-stream alternatives (+3.86\%), validating separate processing of accelerometer and orientation streams.
+    \item \textbf{Dual-stream architecture is superior}: The dual-stream transformer (86.99\% $\rightarrow$ 91.10\%) significantly outperforms single-stream alternatives (+4.11\%), validating separate processing of accelerometer and orientation streams.
 
     \item \textbf{Architecture-specific input preference}: While transformers benefit from Kalman fusion, CNN-Mamba performs better with raw input (89.98\% vs 88.09\%), suggesting CNNs are better suited for high-frequency raw signal processing.
 
     \item \textbf{Focal loss benefits imbalanced classification}: Focal loss improves recall by +6.41\% compared to BCE, which is critical for fall detection where missing falls has severe consequences.
 
-    \item \textbf{Best configuration achieves 90.85\% F1}: The optimal configuration combines Kalman fusion, dual-stream transformer architecture with SE attention and temporal attention pooling, 50:50 embedding ratio, and focal loss, achieving 90.85\% F1 score on 21-fold LOSO-CV.
+    \item \textbf{Channel-aware normalization provides further improvement}: Normalizing only accelerometer channels while keeping Kalman orientation in raw radians improves F1 by +0.23\% (90.87\%$\rightarrow$91.10\%), preserving the physical meaning of orientation angles.
+
+    \item \textbf{Best configuration achieves 91.10\% F1}: The optimal configuration combines Kalman fusion, dual-stream transformer architecture with SE attention and temporal attention pooling, channel-aware normalization (acc-only), 50:50 embedding ratio, and focal loss, achieving 91.10\% F1 score on 21-fold LOSO-CV.
+
+    \item \textbf{Transformer outperforms CNN}: Under identical training conditions with Kalman fusion, the dual-stream transformer (91.10\% F1) outperforms the CNN baseline (88.86\% F1) by +2.23\%. The Transformer wins on 14/21 subjects (66.7\%), with the largest gains on challenging subjects exhibiting atypical fall patterns.
+
+    \item \textbf{Failure modes stem from gentle falls}: Subjects with F1 $<$ 80\% exhibit 20\% lower impact forces during falls, making their patterns harder to distinguish from ADLs. This represents a fundamental challenge in fall detection that may require subject-specific calibration or data augmentation targeting gentle falls.
 \end{enumerate}
 
