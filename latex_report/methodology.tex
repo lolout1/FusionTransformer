@@ -138,9 +138,16 @@ Our dual-stream transformer architecture processes Kalman-fused features through
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/architecture_diagram.png}
-\caption{Dual-stream transformer architecture with Kalman fusion. The 7-channel Kalman output is split into accelerometer (4ch) and orientation (3ch) streams, each processed by separate transformer encoders with SE attention. Temporal Attention Pooling aggregates sequence features before fusion and classification.}
+\includegraphics[width=\columnwidth]{figures/arch_dual_stream_kalman.png}
+\caption{Dual-stream Kalman transformer architecture. Raw accelerometer and gyroscope inputs are fused through a Linear Kalman Filter to extract orientation (roll, pitch, yaw). The 7-channel output (SMV + acc + orientation) is split into two streams: accelerometer (4ch $\rightarrow$ 32 embed) and orientation (3ch $\rightarrow$ 32 embed). Each stream passes through Conv1D projection, BatchNorm, and SE attention before concatenation. The fused 64-dim features are processed by a transformer encoder with temporal attention pooling (TAP) for final classification.}
 \label{fig:architecture}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/preprocessing_pipeline_detailed.png}
+\caption{Preprocessing pipeline with channel-aware normalization. Raw IMU data is resampled to 30Hz, windowed into 256-frame segments (~8.5s), and processed through the Kalman filter. Critical insight: accelerometer channels are z-score normalized while orientation channels are kept in raw radians to preserve physical meaning.}
+\label{fig:preprocessing}
 \end{figure}
 
 \subsubsection{Layer-by-Layer Architecture (Best Configuration)}
