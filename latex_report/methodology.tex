@@ -140,118 +140,113 @@ This representation replaces the raw gyroscope signals ($\omega_x$, $\omega_y$, 
 \subsection{Dual-Stream Transformer Architecture}
 \label{sec:DualStream}
 
-Our dual-stream transformer architecture processes Kalman-fused features through parallel encoder streams with Squeeze-and-Excitation (SE) attention for channel weighting and Temporal Attention Pooling (TAP) for sequence aggregation. The complete architecture is illustrated in Figure~\ref{fig:overview}.
-
-For comparison, Figure~\ref{fig:single_stream} shows the single-stream baseline that processes raw accelerometer and gyroscope jointly, which we demonstrate underperforms due to noisy gyroscope signals corrupting accelerometer features.
+Our architecture processes Kalman-fused features through parallel encoder streams, leveraging Squeeze-and-Excitation (SE) attention for channel weighting and Temporal Attention Pooling (TAP) for sequence aggregation (Figure~\ref{fig:overview}). For comparison, Figure~\ref{fig:single_stream} shows the single-stream baseline that achieves 89.49\% F1 but suffers from noisy gyroscope signals corrupting accelerometer features.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/arch_single_stream.png}
-\caption{\textbf{Single-Stream Raw Transformer (Baseline).} Raw 6-channel IMU data (acc + gyro) is projected to a shared embedding space via Conv1D. The SE module provides channel attention, followed by a transformer encoder and temporal attention pooling. This architecture achieves 89.49\% F1 but is limited by noisy gyroscope signals corrupting the shared feature space.}
+\includegraphics[width=0.85\columnwidth]{figures/arch_single_stream.png}
+\caption{Single-stream baseline architecture processing raw 6-channel IMU data through a shared embedding space.}
 \label{fig:single_stream}
 \end{figure}
 
-\subsubsection{Layer-by-Layer Architecture (Best Configuration)}
+\subsubsection{Architecture Specification}
 
-The optimal architecture achieving 91.10\% test F1 consists of the following layers:
+Table~\ref{tab:architecture} summarizes the layer-by-layer configuration achieving 91.10\% test F1 with only $\sim$47K parameters.
 
-\textbf{1. Input Layer:}
-\begin{itemize}
-    \item Input shape: $(B, T, 7)$ where $B$=batch size, $T$=128 timesteps
-    \item 7 channels: [SMV, $a_x$, $a_y$, $a_z$, roll, pitch, yaw]
-\end{itemize}
+\begin{table}[htbp]
+\centering
+\caption{Dual-Stream Transformer Architecture}
+\label{tab:architecture}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}llc@{}}
+\toprule
+\textbf{Layer} & \textbf{Operation} & \textbf{Output Shape} \\
+\midrule
+\multicolumn{3}{l}{\textit{Input \& Split}} \\
+Input & Kalman features & $(B, T, 7)$ \\
+Split & $\mathbf{X}_{\text{acc}} = \mathbf{X}_{[:,0:4]}$, $\mathbf{X}_{\text{ori}} = \mathbf{X}_{[:,4:7]}$ & $(B,T,4)$, $(B,T,3)$ \\
+\midrule
+\multicolumn{3}{l}{\textit{Stream Processing ($\times 2$)}} \\
+Projection & $\mathbf{H} = \text{Conv1D}(\mathbf{X}, d_{\text{emb}}=32)$ & $(B, T, 32)$ \\
+Normalize & $\hat{\mathbf{H}} = \text{BatchNorm}(\mathbf{H})$ & $(B, T, 32)$ \\
+SE Attention & $\tilde{\mathbf{H}} = \hat{\mathbf{H}} \odot \sigma(\text{MLP}(\text{GAP}(\hat{\mathbf{H}})))$ & $(B, T, 32)$ \\
+Transformer & $\mathbf{Z} = \text{TransEnc}(\tilde{\mathbf{H}}; L{=}2, h{=}4)$ & $(B, T, 32)$ \\
+\midrule
+\multicolumn{3}{l}{\textit{Fusion \& Classification}} \\
+Concatenate & $\mathbf{F} = [\mathbf{Z}_{\text{acc}}; \mathbf{Z}_{\text{ori}}]$ & $(B, T, 64)$ \\
+TAP & $\mathbf{c} = \sum_t \alpha_t \mathbf{F}_t$, \; $\alpha = \text{softmax}(\mathbf{W}\mathbf{F})$ & $(B, 64)$ \\
+Classifier & $\hat{y} = \sigma(\mathbf{W}_c \cdot \text{LN}(\mathbf{c}))$ & $(B, 1)$ \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{1mm}
+\scriptsize
+$B$: batch size, $T{=}128$: sequence length, $L$: transformer layers, $h$: attention heads
+\end{table}
 
-\textbf{2. Channel Split (50:50 ratio):}
-\begin{itemize}
-    \item Accelerometer stream: 4 channels $\rightarrow$ embed\_dim/2 = 32
-    \item Orientation stream: 3 channels $\rightarrow$ embed\_dim/2 = 32
-\end{itemize}
+\subsubsection{Squeeze-and-Excitation (SE) Module}
 
-\textbf{3. Stream-Specific Processing (×2 streams):}
-\begin{itemize}
-    \item \textbf{Linear Projection:} $d_{in} \rightarrow 32$
-    \item \textbf{BatchNorm1D:} Normalizes per-channel statistics
-    \item \textbf{SE Block:} Squeeze-Excitation with reduction=4
-    \begin{itemize}
-        \item Global Average Pool: $(B, T, 32) \rightarrow (B, 32)$
-        \item FC$_1$: $32 \rightarrow 8$ (ReLU)
-        \item FC$_2$: $8 \rightarrow 32$ (Sigmoid)
-        \item Channel reweighting: $\mathbf{x} \odot \sigma(\mathbf{s})$
-    \end{itemize}
-    \item \textbf{Transformer Encoder:} 2 layers, 4 heads, embed\_dim=32
-    \begin{itemize}
-        \item Multi-Head Self-Attention: $d_k = d_v = 32/4 = 8$
-        \item Feed-Forward: $32 \rightarrow 128 \rightarrow 32$
-        \item Pre-norm (norm\_first=True), Dropout=0.5
-    \end{itemize}
-\end{itemize}
+The SE module~\cite{hu2018squeeze} learns channel-wise attention weights through global context aggregation:
+\begin{equation}
+\text{SE}(\mathbf{H}) = \mathbf{H} \odot \sigma\left(\mathbf{W}_2 \cdot \text{ReLU}(\mathbf{W}_1 \cdot \text{GAP}(\mathbf{H}))\right)
+\end{equation}
+where $\text{GAP}(\cdot)$ denotes global average pooling, $\mathbf{W}_1 \in \mathbb{R}^{d/r \times d}$ and $\mathbf{W}_2 \in \mathbb{R}^{d \times d/r}$ with reduction ratio $r{=}4$, and $\odot$ is element-wise multiplication.
 
-\textbf{4. Feature Fusion:}
-\begin{itemize}
-    \item Concatenation: $(B, T, 32) \oplus (B, T, 32) \rightarrow (B, T, 64)$
-\end{itemize}
+\subsubsection{Temporal Attention Pooling (TAP)}
 
-\textbf{5. Temporal Attention Pooling (TAP):}
-\begin{itemize}
-    \item Attention weights: $\mathbf{a} = \text{softmax}(\mathbf{W}\mathbf{h} + \mathbf{b})$
-    \item Weighted sum: $\mathbf{c} = \sum_t a_t \mathbf{h}_t$
-    \item Output: $(B, T, 64) \rightarrow (B, 64)$
-\end{itemize}
-
-\textbf{6. Classification Head:}
-\begin{itemize}
-    \item LayerNorm: $(B, 64) \rightarrow (B, 64)$
-    \item Dropout: $p=0.5$
-    \item Linear: $64 \rightarrow 1$ (binary classification)
-    \item Sigmoid activation for probability output
-\end{itemize}
-
-\textbf{Total Parameters:} $\sim$47K (lightweight for edge deployment)
+Rather than mean pooling, TAP learns to weight timesteps by their relevance:
+\begin{align}
+\alpha_t &= \frac{\exp(\mathbf{w}^\top \mathbf{h}_t + b)}{\sum_{t'} \exp(\mathbf{w}^\top \mathbf{h}_{t'} + b)} \\
+\mathbf{c} &= \sum_{t=1}^{T} \alpha_t \mathbf{h}_t
+\end{align}
+where $\mathbf{w} \in \mathbb{R}^{d}$ and $b \in \mathbb{R}$ are learnable parameters. This allows the model to focus on fall-critical frames rather than averaging over the entire window.
 
 \subsection{Data Processing Pipeline}
 \label{sec:DataPipeline}
 
 \subsubsection{Dataset}
-We use the SmartFallMM dataset, which contains accelerometer and gyroscope data from smartwatches worn by 30 young subjects (ages 18-35) and 21 elderly subjects (ages 65+). Young subjects performed both falls (5 types: back, front, left, right, rotation) and Activities of Daily Living (ADLs), while elderly subjects performed only ADLs. This reflects the real-world constraint that inducing falls in elderly populations is unethical.
+
+The SmartFallMM dataset comprises IMU recordings from 51 subjects: 30 young adults (ages 18--35) performing both falls and ADLs, and 21 elderly subjects (ages 65+) performing only ADLs. Falls include 5 types: back, front, left, right, and rotation. This split reflects the ethical constraint that inducing falls in elderly populations is prohibited.
 
 \subsubsection{Preprocessing Pipeline}
 
-Figure~\ref{fig:preprocessing} illustrates the complete preprocessing pipeline. Raw sensor data is sampled at 30 Hz. The pipeline consists of:
+Figure~\ref{fig:preprocessing} illustrates our four-stage preprocessing pipeline operating at $f_s = 30$ Hz.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/preprocessing_pipeline_detailed.png}
-\caption{\textbf{Preprocessing Pipeline with Channel-Aware Normalization.} Raw IMU data undergoes: (1) resampling to 30Hz, (2) sliding window segmentation (128 frames, ~4.3s), (3) Kalman fusion to extract orientation, and (4) channel-aware normalization where accelerometer channels are z-score normalized while orientation channels remain in raw radians to preserve physical meaning.}
+\includegraphics[width=0.9\columnwidth]{figures/preprocessing_pipeline_detailed.png}
+\caption{Preprocessing pipeline: raw IMU $\rightarrow$ Kalman fusion $\rightarrow$ channel-aware normalization $\rightarrow$ sliding window segmentation.}
 \label{fig:preprocessing}
 \end{figure}
 
-\textbf{Step 1: Unit Conversion}
-\begin{itemize}
-    \item Gyroscope: degrees/s $\rightarrow$ radians/s (multiply by $\pi/180$)
-    \item Accelerometer: m/s$^2$ (unchanged)
-\end{itemize}
+\textbf{Stage 1: Unit Conversion.} Raw gyroscope readings are converted from degrees/s to radians/s:
+\begin{equation}
+\boldsymbol{\omega}_{\text{rad}} = \boldsymbol{\omega}_{\text{deg}} \cdot \frac{\pi}{180}
+\end{equation}
 
-\textbf{Step 2: Kalman Fusion}
-\begin{itemize}
-    \item Input: 3-axis accelerometer + 3-axis gyroscope (6 channels)
-    \item Output: SMV + 3-axis accelerometer + roll/pitch/yaw (7 channels)
-    \item Parameters: $Q_{ori}=0.005$, $Q_{rate}=0.01$, $R_{acc}=0.05$, $R_{gyro}=0.1$
-\end{itemize}
+\textbf{Stage 2: Kalman Fusion.} The 6-channel raw input $[\mathbf{a}, \boldsymbol{\omega}] \in \mathbb{R}^{T \times 6}$ is transformed to 7 channels:
+\begin{equation}
+\mathbf{X} = [\text{SMV}, a_x, a_y, a_z, \phi, \theta, \psi] \in \mathbb{R}^{T \times 7}
+\end{equation}
+with Kalman parameters: $Q_{\text{ori}}{=}0.005$, $Q_{\text{rate}}{=}0.01$, $R_{\text{acc}}{=}0.05$, $R_{\text{gyro}}{=}0.1$.
 
-\textbf{Step 3: Channel-Aware Normalization}
-\begin{itemize}
-    \item Accelerometer channels [SMV, $a_x$, $a_y$, $a_z$]: StandardScaler (zero mean, unit variance)
-    \item Orientation channels [roll, pitch, yaw]: \textbf{No normalization} (preserve $\pm\pi$ radian range)
-\end{itemize}
+\textbf{Stage 3: Channel-Aware Normalization.} We apply z-score normalization \textit{only} to accelerometer channels:
+\begin{equation}
+\tilde{x}_i = \begin{cases}
+(x_i - \mu_i) / \sigma_i & \text{if } i \in \{0,1,2,3\} \text{ (acc)} \\
+x_i & \text{if } i \in \{4,5,6\} \text{ (orientation)}
+\end{cases}
+\end{equation}
+This preserves the physical meaning of orientation angles (bounded in $[-\pi, +\pi]$ rad), while normalizing unbounded accelerometer values that can spike to 30+ m/s$^2$ during falls.
 
-This channel-aware approach recognizes that accelerometer values are unbounded during falls (spikes up to 30+ m/s$^2$) and require normalization, while Kalman orientation angles are inherently bounded in $[-\pi, +\pi]$ radians with physical meaning (roll=0 means level). Normalizing orientation would destroy this interpretability.
-
-\textbf{Step 4: Sliding Window Segmentation}
-\begin{itemize}
-    \item Window size: 128 samples (4.27 seconds at 30 Hz)
-    \item Class-aware stride: 16 samples (fall), 64 samples (ADL)
-    \item This asymmetric stride addresses class imbalance by generating more fall training examples
-\end{itemize}
+\textbf{Stage 4: Sliding Window.} Sequences are segmented with window size $W{=}128$ samples ($\approx$4.3s) using class-aware strides:
+\begin{equation}
+s = \begin{cases}
+16 \text{ samples} & \text{(fall windows)} \\
+64 \text{ samples} & \text{(ADL windows)}
+\end{cases}
+\end{equation}
+The asymmetric stride generates more fall training examples to address class imbalance.
 
 \subsection{Evaluation Protocol}
 \label{sec:Evaluation}
