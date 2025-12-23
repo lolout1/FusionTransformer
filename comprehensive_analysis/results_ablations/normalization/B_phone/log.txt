@@ -1,0 +1,23 @@
+# Parameters: 294164
+Model size : 0.28 MB
+Parameters: 
+{'config': 'config/smartfallmm/normalization_ablation/B_kalman_acc_only_phone.yaml', 'dataset': 'smartfallmm', 'batch_size': 64, 'test_batch_size': 8, 'val_batch_size': 8, 'num_epoch': 80, 'start_epoch': 0, 'optimizer': 'adamw', 'base_lr': 0.001, 'weight_decay': 0.0005, 'lr_scheduler': 'none', 'warmup_epochs': 10, 'min_lr': 1e-06, 'model': 'Models.kalman_transformer_variants.KalmanBalancedFlexible', 'device': [0], 'model_args': {'imu_frames': 128, 'imu_channels': 7, 'num_heads': 4, 'num_layers': 2, 'embed_dim': 64, 'dropout': 0.5, 'activation': 'relu', 'norm_first': True, 'se_reduction': 4, 'acc_ratio': 0.5, 'use_se': True, 'use_tap': True, 'use_pos_encoding': False}, 'weights': None, 'model_saved_name': 'test', 'loss': 'loss.BCE', 'loss_args': {'alpha': 0.75, 'gamma': 2.0}, 'loss_type': 'focal', 'dataset_args': {'mode': 'sliding_window', 'max_length': 128, 'task': 'fd', 'modalities': ['accelerometer', 'gyroscope'], 'age_group': ['young', 'old'], 'sensors': ['phone'], 'stride': 32, 'enable_normalization': True, 'normalize_modalities': 'all', 'kalman_normalize_mode': 'acc_only', 'enable_filtering': False, 'enable_motion_filtering': False, 'enable_class_aware_stride': True, 'fall_stride': 16, 'adl_stride': 64, 'convert_gyro_to_rad': True, 'enable_simple_truncation': True, 'max_truncation_diff': 50, 'enable_kalman_fusion': True, 'kalman_filter_type': 'linear', 'kalman_output_format': 'euler', 'kalman_include_smv': True, 'filter_fs': 30.0, 'kalman_Q_orientation': 0.005, 'kalman_Q_rate': 0.01, 'kalman_R_acc': 0.05, 'kalman_R_gyro': 0.1, 'enable_kalman_smoothing': False, 'include_smv': False}, 'subjects': [2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63], 'validation_subjects': [48, 57], 'train_only_subjects': [2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 29, 30, 32, 35, 39, 45, 59], 'feeder': 'Feeder.Make_Dataset.UTD_mm', 'train_feeder_args': {'batch_size': 64}, 'val_feeder_args': {'batch_size': 64}, 'test_feeder_args': {'batch_size': 64}, 'include_val': True, 'enable_test_grouping': False, 'test_group_min_size': 2, 'test_group_max_size': 3, 'test_group_ratio_tolerance': 0.1, 'test_group_extreme_threshold': 0.05, 'seed': 2, 'log_interval': 10, 'work_dir': 'results/normalization_ablation_20251222/B_phone', 'print_log': True, 'phase': 'train', 'num_worker': 0, 'result_file': None, 'single_fold': None, 'enable_kalman_preprocessing': False, 'kalman_args': '{}'}
+
+Using custom validation subjects: [48, 57]
+  (Optimal would be: [38, 44])
+Using configured train-only subjects: [2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 29, 30, 32, 35, 39, 45, 59]
+Total subjects: 51
+Validation subjects (held out): [48, 57]
+Train-only subjects (never tested): [2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 29, 30, 32, 35, 39, 45, 59]
+Test candidates for LOSO: [31, 34, 36, 37, 38, 43, 44, 46, 49, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61, 62, 63]
+Number of test folds: 21
+
+
+============================================================
+Fold 1/21
+Test subjects: [31]
+Validation subjects: [48, 57]
+Training subjects (48): [2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 29, 30, 32, 34, 35, 36, 37, 38, 39, 43, 44, 45, 46, 49, 50, 51, 52, 53, 54, 55, 56, 58, 59, 60, 61, 62, 63]
+============================================================
+
+Model Parameters: 294164
