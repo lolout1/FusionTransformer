@@ -1,5 +1,0 @@
-experiment,filter_type,params,n_folds,test_acc_mean,test_acc_std,test_f1_mean,test_f1_std
-kalman_linear_default,linear,default,22,86.5032,8.7351,87.8155,8.9408
-kalman_linear_tuned,linear,tuned,22,86.7705,8.1279,88.0873,8.3812
-kalman_ekf_default,ekf,default,22,84.8845,7.9150,86.4227,7.8969
-kalman_ekf_tuned,ekf,tuned,22,86.1509,7.7876,87.4973,7.7140

@@ -1,2 +1,0 @@
-transformer_mean_f1,transformer_std_f1,cnn_mean_f1,cnn_std_f1,mean_improvement,transformer_wins,cnn_wins,paired_ttest_pvalue,cohens_d,total_trials
-91.09761904761905,6.126596856952402,88.86428571428571,6.770235277616703,2.233333333333333,14,7,0.01891394339013444,0.5573249070304729,453

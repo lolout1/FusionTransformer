@@ -1,7 +1,0 @@
-model,description,stream_type,kalman,se_tap,n_folds,test_acc_mean,test_acc_std,test_f1_mean,test_f1_std
-MODEL_A,Single-stream Raw,single,False,False,22,81.5150,9.9677,84.3964,9.3908
-MODEL_B,Dual-stream Raw,dual,False,False,22,81.8191,7.9952,84.8368,7.4034
-MODEL_C,Single-stream + Kalman,single,True,False,22,73.1595,10.4859,77.5523,9.7435
-MODEL_D,Dual-stream + Kalman,dual,True,False,22,74.6327,11.5751,79.4655,10.1506
-MODEL_E,Single + Kalman + SE,single,True,True,22,75.0627,9.5698,79.8759,8.7816
-MODEL_F,Dual + Kalman + SE,dual,True,True,22,70.7414,14.7489,78.1077,11.6935

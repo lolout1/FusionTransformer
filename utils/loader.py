@@ -438,6 +438,16 @@ class DatasetBuilder:
         # only gyroscope data is normalized (robust gyro normalization)
         self.normalize_modalities = kwargs.get('normalize_modalities', 'all')
 
+        # Kalman output normalization mode (only applies when enable_kalman_fusion=True)
+        # Options:
+        #   'all': Normalize all channels together (default, backward compatible but suboptimal)
+        #   'acc_only': Normalize only accelerometer channels, keep orientation in radians (RECOMMENDED)
+        #   'separate': Normalize acc and orientation channels separately
+        #   'none': Skip normalization for Kalman output
+        # Rationale: Kalman orientation (roll/pitch/yaw) is already bounded in ±π radians
+        #            with physical meaning. Normalizing with acc destroys this meaning.
+        self.kalman_normalize_mode = kwargs.get('kalman_normalize_mode', 'all')
+
         # Separate filter parameters for accelerometer vs gyroscope
         # Accelerometer: Low-pass filter (human motion < 5 Hz)
         self.acc_filter_cutoff = kwargs.get('acc_filter_cutoff', 5.5)    # Hz (low-pass)
@@ -480,7 +490,22 @@ class DatasetBuilder:
         # Instead of complex alignment, just truncate both modalities to min length
         # Much simpler and more robust than DTW or timestamp interpolation
         self.enable_simple_truncation = kwargs.get('enable_simple_truncation', False)
-        self.max_truncation_diff = kwargs.get('max_truncation_diff', 50)  # Max samples to truncate
+        self.max_truncation_diff = kwargs.get('max_truncation_diff', 50)  # Max samples to truncate (fallback)
+
+        # Class-aware truncation limits (different thresholds for falls vs ADLs)
+        # Falls need tighter alignment (shorter events), ADLs can be more lenient (longer activities)
+        self.enable_class_aware_truncation = kwargs.get('enable_class_aware_truncation', True)
+        self.fall_max_truncation_diff = kwargs.get('fall_max_truncation_diff', 64)   # Falls: stricter
+        self.adl_max_truncation_diff = kwargs.get('adl_max_truncation_diff', 128)    # ADLs: more lenient
+
+        # Two-tier timestamp trim preprocessing (NEW)
+        # Tier 1: Try to trim start/end samples using timestamps to maximize overlap
+        # Tier 2: If resulting diff <= threshold, apply simple truncation
+        # If diff > threshold after trim, skip trial
+        self.enable_timestamp_trim_fallback = kwargs.get('enable_timestamp_trim_fallback', False)
+        self.timestamp_trim_max_stray = kwargs.get('timestamp_trim_max_stray', 10)  # Max samples to trim from start/end
+        self.timestamp_trim_threshold_ms = kwargs.get('timestamp_trim_threshold_ms', 500.0)  # Time threshold for trim
+
         # Conservative interpolation controls (prevent interpolation when timestamps drifted)
         self.max_duration_ratio = kwargs.get('max_duration_ratio', 1.2)  # Default: 20% duration diff max
         self.max_rate_divergence = kwargs.get('max_rate_divergence', 0.3)  # Default: 30% rate diff max
@@ -489,6 +514,12 @@ class DatasetBuilder:
         self.enable_class_aware_stride = kwargs.get('enable_class_aware_stride', False)
         self.fall_stride = kwargs.get('fall_stride', 32)  # Default: 75% overlap for falls
         self.adl_stride = kwargs.get('adl_stride', 10)    # Default: 92% overlap for ADLs (3x more samples)
+
+        # Test-specific stride (use same stride for both classes to balance test set)
+        # If not specified, defaults to fall_stride for both (balanced)
+        self.test_fall_stride = kwargs.get('test_fall_stride', None)  # None means use fall_stride
+        self.test_adl_stride = kwargs.get('test_adl_stride', None)    # None means use fall_stride (balanced)
+        self._is_test_mode = False  # Flag to indicate test split generation
 
         # Track modality validation per subject
         self.subject_modality_stats = defaultdict(lambda: {
@@ -511,6 +542,10 @@ class DatasetBuilder:
             # Simple truncation tracking
             'simple_truncation_applied': 0,
             'skipped_truncation_too_large': 0,
+            # Timestamp trim fallback tracking (NEW)
+            'timestamp_trim_applied': 0,
+            'timestamp_trim_then_truncate': 0,
+            'skipped_timestamp_trim_failed': 0,
             # File loading errors
             'skipped_file_load_error': 0,
             # No windows generated
@@ -604,6 +639,10 @@ class DatasetBuilder:
             # Simple truncation statistics
             'simple_truncation_applied': 0,
             'skipped_truncation_too_large': 0,
+            # Timestamp trim fallback statistics (NEW)
+            'timestamp_trim_applied': 0,
+            'timestamp_trim_then_truncate': 0,
+            'skipped_timestamp_trim_failed': 0,
             # File loading errors (previously untracked)
             'skipped_file_load_error': 0,
             # No windows generated after processing
@@ -627,6 +666,30 @@ class DatasetBuilder:
         # Skip file logging
         self.log_skipped_files = kwargs.get('log_skipped_files', False)
         self.skipped_files = []
+
+    def set_test_mode(self, enabled=True):
+        """Enable/disable test mode which uses test-specific strides for balanced test sets.
+
+        When test mode is enabled and test_fall_stride/test_adl_stride are set,
+        those strides will be used instead of the regular fall_stride/adl_stride.
+        Default test behavior: use fall_stride for both classes (balanced windows).
+        """
+        self._is_test_mode = enabled
+        if enabled:
+            eff_fall, eff_adl = self.get_effective_strides()
+            print(f"[DatasetBuilder] Test mode ENABLED - strides: fall={eff_fall}, adl={eff_adl}")
+        else:
+            print(f"[DatasetBuilder] Test mode DISABLED - strides: fall={self.fall_stride}, adl={self.adl_stride}")
+
+    def get_effective_strides(self):
+        """Get the effective fall and ADL strides based on current mode."""
+        if self._is_test_mode:
+            # In test mode, use test-specific strides or default to fall_stride for both (balanced)
+            eff_fall = self.test_fall_stride if self.test_fall_stride is not None else self.fall_stride
+            eff_adl = self.test_adl_stride if self.test_adl_stride is not None else self.fall_stride
+            return eff_fall, eff_adl
+        else:
+            return self.fall_stride, self.adl_stride
 
     def _get_reference_key(self, data: Dict[str, np.ndarray]) -> str:
         if self.use_skeleton and 'skeleton' in data:
@@ -833,8 +896,8 @@ class DatasetBuilder:
                 label,
                 reference_key=reference_key,
                 class_aware_stride=self.enable_class_aware_stride,
-                fall_stride=self.fall_stride,
-                adl_stride=self.adl_stride
+                fall_stride=self.get_effective_strides()[0],
+                adl_stride=self.get_effective_strides()[1]
             )
 
         # Motion filtering (match Android app behavior)
@@ -879,7 +942,9 @@ class DatasetBuilder:
             self.data[modality].append(modality_data)
     
     def _len_check(self, d):
-        return all(len(v) > 1 for v in d.values())
+        # Check if at least 1 window was generated for all modalities
+        # BUG FIX: Changed from '> 1' to '>= 1' to include trials with exactly 1 window
+        return all(len(v) >= 1 for v in d.values())
 
     def get_size_diff(self, trial_data):
         return trial_data['accelerometer'].shape[0]  - trial_data['skeleton'].shape[0]
@@ -1006,7 +1071,8 @@ class DatasetBuilder:
                         # os.remove(file_path)
 
                     # Per-trial alignment and length validation
-                    # Four modes (in order of precedence):
+                    # Five modes (in order of precedence):
+                    # 0. enable_timestamp_trim_fallback = True: Two-tier - trim timestamps, then truncate (NEW)
                     # 1. enable_simple_truncation = True: Just truncate to min length (RECOMMENDED)
                     # 2. enable_timestamp_alignment = True: Use timestamp-based interpolation
                     # 3. enable_gyro_alignment = True: Use DTW to align gyro to acc if diff < 10 (DEPRECATED)
@@ -1016,11 +1082,131 @@ class DatasetBuilder:
                         gyro_len = trial_data['gyroscope'].shape[0]
                         length_diff = abs(acc_len - gyro_len)
 
-                        if self.enable_simple_truncation:
+                        if self.enable_timestamp_trim_fallback:
+                            # Mode 0: Two-tier timestamp trim + truncation fallback (NEW)
+                            # Tier 1: Try to trim start/end using timestamps to maximize overlap
+                            # Tier 2: If resulting diff <= threshold, apply simple truncation
+                            # If diff > threshold after trim, skip trial
+                            from utils.alignment import parse_imu_csv_with_timestamps, trim_stray_initial_samples
+
+                            acc_path = trial.files.get('accelerometer')
+                            gyro_path = trial.files.get('gyroscope')
+
+                            trim_success = False
+                            trim_reason = "unknown"
+
+                            if acc_path and gyro_path:
+                                try:
+                                    # Parse timestamps from both files
+                                    acc_times, acc_data_parsed = parse_imu_csv_with_timestamps(acc_path)
+                                    gyro_times, gyro_data_parsed = parse_imu_csv_with_timestamps(gyro_path)
+
+                                    # Tier 1: Trim stray samples from start/end
+                                    acc_times_trim, acc_data_trim, gyro_times_trim, gyro_data_trim, acc_skip, gyro_skip = \
+                                        trim_stray_initial_samples(
+                                            acc_times, acc_data_parsed,
+                                            gyro_times, gyro_data_parsed,
+                                            max_stray=self.timestamp_trim_max_stray,
+                                            threshold_ms=self.timestamp_trim_threshold_ms
+                                        )
+
+                                    # Also trim from end if needed (find overlap region)
+                                    if len(acc_times_trim) > 0 and len(gyro_times_trim) > 0:
+                                        # Find overlap end
+                                        acc_end = acc_times_trim[-1]
+                                        gyro_end = gyro_times_trim[-1]
+
+                                        # Trim acc or gyro from end to match
+                                        if acc_end > gyro_end + self.timestamp_trim_threshold_ms:
+                                            # Trim acc from end
+                                            end_mask = acc_times_trim <= gyro_end + self.timestamp_trim_threshold_ms
+                                            acc_times_trim = acc_times_trim[end_mask]
+                                            acc_data_trim = acc_data_trim[end_mask]
+                                        elif gyro_end > acc_end + self.timestamp_trim_threshold_ms:
+                                            # Trim gyro from end
+                                            end_mask = gyro_times_trim <= acc_end + self.timestamp_trim_threshold_ms
+                                            gyro_times_trim = gyro_times_trim[end_mask]
+                                            gyro_data_trim = gyro_data_trim[end_mask]
+
+                                    # Check new length diff after trimming
+                                    new_acc_len = len(acc_data_trim)
+                                    new_gyro_len = len(gyro_data_trim)
+                                    new_diff = abs(new_acc_len - new_gyro_len)
+
+                                    # Determine max truncation diff based on activity type
+                                    action_id_int = int(action_id) if isinstance(action_id, str) else action_id
+                                    is_fall = action_id_int >= 10
+                                    current_max_truncation = self.fall_max_truncation_diff if is_fall else self.adl_max_truncation_diff
+
+                                    # Tier 2: Check if we can apply simple truncation now
+                                    if new_diff <= current_max_truncation:
+                                        # Success! Apply simple truncation to aligned data
+                                        min_len = min(new_acc_len, new_gyro_len)
+                                        trial_data['accelerometer'] = acc_data_trim[:min_len]
+                                        trial_data['gyroscope'] = gyro_data_trim[:min_len]
+                                        trim_success = True
+
+                                        # Track stats
+                                        if acc_skip > 0 or gyro_skip > 0 or new_diff != length_diff:
+                                            self.skip_stats['timestamp_trim_applied'] += 1
+                                            self.subject_modality_stats[subject_id]['timestamp_trim_applied'] += 1
+                                            if new_diff > 0:
+                                                self.skip_stats['timestamp_trim_then_truncate'] += 1
+                                                self.subject_modality_stats[subject_id]['timestamp_trim_then_truncate'] += 1
+
+                                        if self.debug:
+                                            print(f"S{subject_id}A{action_id}T{trial_id}: Timestamp trim "
+                                                  f"(acc={acc_len}→{new_acc_len}, gyro={gyro_len}→{new_gyro_len}, "
+                                                  f"skip_start: acc={acc_skip}, gyro={gyro_skip}) → {min_len}")
+                                    else:
+                                        trim_reason = f"diff_after_trim={new_diff} > {current_max_truncation}"
+                                        if self.debug:
+                                            print(f"S{subject_id}A{action_id}T{trial_id}: Timestamp trim failed - "
+                                                  f"{trim_reason} (orig: acc={acc_len}, gyro={gyro_len})")
+
+                                except Exception as e:
+                                    trim_reason = f"parse_error: {str(e)[:50]}"
+                                    if self.debug:
+                                        print(f"S{subject_id}A{action_id}T{trial_id}: Timestamp trim error - {e}")
+                            else:
+                                trim_reason = "missing_file_paths"
+
+                            if not trim_success:
+                                # Skip this trial
+                                self.skip_stats['skipped_timestamp_trim_failed'] += 1
+                                self.subject_modality_stats[subject_id]['skipped_timestamp_trim_failed'] += 1
+
+                                if self.log_skipped_files:
+                                    file_paths = [f for f in trial.files.values()]
+                                    self.skipped_files.append({
+                                        'subject': subject_id,
+                                        'action': action_id,
+                                        'trial': trial_id,
+                                        'reason': 'timestamp_trim_failed',
+                                        'details': trim_reason,
+                                        'acc_len': acc_len,
+                                        'gyro_len': gyro_len,
+                                        'files': file_paths
+                                    })
+                                continue
+
+                        elif self.enable_simple_truncation:
                             # Mode 1: Simple truncation (RECOMMENDED)
                             # Just truncate both modalities to the shorter length
                             # Much simpler and more robust than DTW or timestamp interpolation
-                            if length_diff <= self.max_truncation_diff:
+
+                            # Determine max truncation diff based on activity type
+                            # Falls (action_id >= 10): stricter limit (64)
+                            # ADLs (action_id < 10): more lenient (128)
+                            if self.enable_class_aware_truncation:
+                                # action_id may be string or int depending on data source
+                                action_id_int = int(action_id) if isinstance(action_id, str) else action_id
+                                is_fall = action_id_int >= 10
+                                current_max_truncation = self.fall_max_truncation_diff if is_fall else self.adl_max_truncation_diff
+                            else:
+                                current_max_truncation = self.max_truncation_diff
+
+                            if length_diff <= current_max_truncation:
                                 if length_diff > 0:
                                     min_len = min(acc_len, gyro_len)
                                     trial_data['accelerometer'] = trial_data['accelerometer'][:min_len]
@@ -1035,10 +1221,12 @@ class DatasetBuilder:
                                 # else: lengths already match, no truncation needed
                             else:
                                 # Difference too large - indicates data quality issue
+                                action_id_int = int(action_id) if isinstance(action_id, str) else action_id
+                                activity_type = "fall" if (self.enable_class_aware_truncation and action_id_int >= 10) else "ADL"
                                 if self.debug:
                                     print(f"Skipping S{subject_id}A{action_id}T{trial_id}: "
                                           f"Length diff too large for truncation (acc={acc_len}, gyro={gyro_len}, "
-                                          f"diff={length_diff} > {self.max_truncation_diff})")
+                                          f"diff={length_diff} > {current_max_truncation} [{activity_type}])")
                                 self.skip_stats['skipped_truncation_too_large'] += 1
                                 self.subject_modality_stats[subject_id]['skipped_truncation_too_large'] += 1
 
@@ -1052,7 +1240,8 @@ class DatasetBuilder:
                                         'acc_len': acc_len,
                                         'gyro_len': gyro_len,
                                         'diff': length_diff,
-                                        'max_allowed': self.max_truncation_diff,
+                                        'max_allowed': current_max_truncation,
+                                        'activity_type': activity_type,
                                         'files': file_paths
                                     })
                                 continue
@@ -1246,11 +1435,17 @@ class DatasetBuilder:
                     # Kalman filter fusion (replaces gyroscope with orientation features)
                     if self.enable_kalman_fusion and 'accelerometer' in trial_data and 'gyroscope' in trial_data:
                         try:
+                            # Save original gyro data before fusion (needed for yaw_replacement modes)
+                            original_gyro = trial_data['gyroscope'].copy()
                             trial_data = kalman_fusion_for_loader(trial_data, self.kalman_config)
                             # Assemble final features: [smv, ax, ay, az, roll, pitch, yaw, ...]
+                            # Support yaw_replacement modes: 'none', 'gyro_mag', 'gyro_z', 'relative'
+                            yaw_replacement = self.kalman_config.get('yaw_replacement', 'none')
                             kalman_features = assemble_kalman_features(
                                 trial_data,
-                                include_smv=self.kalman_config.get('kalman_include_smv', True)
+                                include_smv=self.kalman_config.get('kalman_include_smv', True),
+                                yaw_replacement=yaw_replacement,
+                                gyro_data=original_gyro
                             )
                             # Replace accelerometer with full Kalman features
                             trial_data['accelerometer'] = kalman_features
@@ -1372,11 +1567,23 @@ class DatasetBuilder:
         - 'acc_only': Only normalize accelerometer data
         - 'none': Skip normalization entirely (same as enable_normalization=False)
 
+        Kalman output normalization (via kalman_normalize_mode, when enable_kalman_fusion=True):
+        - 'all': Normalize all channels together (default, backward compatible but suboptimal)
+        - 'acc_only': Normalize only accelerometer channels [0:acc_ch], keep orientation raw (RECOMMENDED)
+        - 'separate': Normalize acc and orientation channels separately
+        - 'none': Skip normalization for Kalman output
+
         Robust gyroscope normalization rationale:
         - Gyroscope data often has different units/scales across devices (deg/s vs rad/s)
         - Normalizing gyro brings it to a standard scale for the model
         - Accelerometer already has a natural reference (gravity ~9.8 m/s^2)
         - Keeping acc unnormalized preserves physical interpretation
+
+        Kalman orientation normalization rationale:
+        - Kalman filter outputs orientation in radians (bounded ±π)
+        - These have physical meaning (roll=0 means level, pitch=90° means vertical)
+        - Normalizing orientation with acc destroys this meaning
+        - Orientation has different distribution than acc (bounded vs unbounded during falls)
         '''
         if not self.enable_normalization or self.normalize_modalities == 'none':
             return self.data
@@ -1385,7 +1592,56 @@ class DatasetBuilder:
             if key == 'labels':
                 continue
 
-            # Selective normalization based on modality
+            # Special handling for Kalman fusion output
+            if key == 'accelerometer' and self.enable_kalman_fusion:
+                num_samples, length, num_channels = value.shape
+                kalman_mode = getattr(self, 'kalman_normalize_mode', 'all')
+
+                # Determine number of accelerometer channels
+                # With SMV: [smv, ax, ay, az] = 4 channels
+                # Without SMV: [ax, ay, az] = 3 channels
+                include_smv = self.kalman_config.get('kalman_include_smv', True)
+                acc_channels = 4 if include_smv else 3
+
+                if kalman_mode == 'none':
+                    # Skip normalization entirely for Kalman output
+                    continue
+
+                elif kalman_mode == 'acc_only':
+                    # Normalize only accelerometer channels, keep orientation in radians
+                    acc_data = value[:, :, :acc_channels]
+                    ori_data = value[:, :, acc_channels:]
+
+                    # Normalize accelerometer
+                    acc_flat = acc_data.reshape(num_samples * length, -1)
+                    acc_norm = StandardScaler().fit_transform(acc_flat)
+                    acc_norm = acc_norm.reshape(num_samples, length, -1)
+
+                    # Keep orientation as-is (already bounded in radians)
+                    self.data[key] = np.concatenate([acc_norm, ori_data], axis=-1)
+                    continue
+
+                elif kalman_mode == 'separate':
+                    # Normalize acc and orientation separately
+                    acc_data = value[:, :, :acc_channels]
+                    ori_data = value[:, :, acc_channels:]
+
+                    # Normalize accelerometer
+                    acc_flat = acc_data.reshape(num_samples * length, -1)
+                    acc_norm = StandardScaler().fit_transform(acc_flat)
+                    acc_norm = acc_norm.reshape(num_samples, length, -1)
+
+                    # Normalize orientation separately (preserves relative relationships)
+                    ori_flat = ori_data.reshape(num_samples * length, -1)
+                    ori_norm = StandardScaler().fit_transform(ori_flat)
+                    ori_norm = ori_norm.reshape(num_samples, length, -1)
+
+                    self.data[key] = np.concatenate([acc_norm, ori_norm], axis=-1)
+                    continue
+
+                # Fall through to 'all' mode (default) - normalize all channels together
+
+            # Standard normalization for non-Kalman or 'all' mode
             should_normalize = False
             if self.normalize_modalities == 'all':
                 should_normalize = True
@@ -1479,7 +1735,10 @@ class DatasetBuilder:
             print(f"  - File load errors: {self.skip_stats['skipped_file_load_error']}")
             print(f"  - No windows generated: {self.skip_stats['skipped_no_windows']}")
             if self.enable_simple_truncation:
-                print(f"  - Truncation diff too large (> {self.max_truncation_diff}): {self.skip_stats['skipped_truncation_too_large']}")
+                if self.enable_class_aware_truncation:
+                    print(f"  - Truncation diff too large (falls > {self.fall_max_truncation_diff}, ADLs > {self.adl_max_truncation_diff}): {self.skip_stats['skipped_truncation_too_large']}")
+                else:
+                    print(f"  - Truncation diff too large (> {self.max_truncation_diff}): {self.skip_stats['skipped_truncation_too_large']}")
             if self.enable_timestamp_alignment:
                 print(f"  - Timestamp unsynchronized: {self.skip_stats['skipped_timestamp_unsync']}")
                 print(f"  - Insufficient overlap: {self.skip_stats['skipped_insufficient_overlap']}")
@@ -1497,7 +1756,11 @@ class DatasetBuilder:
             truncated_count = self.skip_stats['simple_truncation_applied']
             print(f"\nSimple truncation summary:")
             print(f"  - Trials truncated to align acc/gyro: {truncated_count}")
-            print(f"  - Max allowed difference: {self.max_truncation_diff} samples")
+            if self.enable_class_aware_truncation:
+                print(f"  - Max allowed difference (falls): {self.fall_max_truncation_diff} samples")
+                print(f"  - Max allowed difference (ADLs): {self.adl_max_truncation_diff} samples")
+            else:
+                print(f"  - Max allowed difference: {self.max_truncation_diff} samples")
 
         # Print timestamp alignment summary if enabled
         if self.enable_timestamp_alignment:

@@ -1,6 +1,5 @@
-# Kalman 7ch - SE+TAP - 75:25 embedding ratio (48:16)
-# Channels: SMV, acc_x, acc_y, acc_z, roll, pitch, yaw
-# Focal loss
+# Kalman 7ch Transformer - SE_TAP (no PosEnc)
+# SE: True, TAP: True, PosEnc: False
 
 model: Models.kalman_transformer_variants.KalmanBalancedFlexible
 dataset: smartfallmm
@@ -19,7 +18,7 @@ model_args:
   activation: relu
   norm_first: True
   se_reduction: 4
-  acc_ratio: 0.75
+  acc_ratio: 0.5
   use_se: true
   use_tap: true
   use_pos_encoding: false
@@ -46,7 +45,6 @@ dataset_args:
   kalman_filter_type: linear
   kalman_output_format: euler
   kalman_include_smv: True
-  include_gyro_mag: False  # CRITICAL: Must be False for 7ch format
   filter_fs: 30.0
   kalman_Q_orientation: 0.005
   kalman_Q_rate: 0.01
@@ -72,8 +70,3 @@ seed: 2
 optimizer: adamw
 base_lr: 0.001
 weight_decay: 0.001
-
-loss_type: focal
-loss_args:
-  alpha: 0.75
-  gamma: 2.0

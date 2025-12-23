@@ -1,2 +1,0 @@
-test_subject,train_loss,train_accuracy,train_f1_score,train_precision,train_recall,train_auc,val_loss,val_accuracy,val_f1_score,val_precision,val_recall,val_auc,test_loss,test_accuracy,test_f1_score,test_precision,test_recall,test_auc,overfitting_gap_accuracy,overfitting_gap_f1
-53,0.00,93.87,95.15,92.67,97.77,92.71,0.00,87.94,91.18,85.48,97.70,84.21,0.00,80.20,83.61,82.26,85.00,79.09,7.74,7.58

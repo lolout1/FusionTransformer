@@ -1,8 +1,7 @@
-# Kalman 7ch - SE+TAP - 75:25 embedding ratio (48:16)
-# Channels: SMV, acc_x, acc_y, acc_z, roll, pitch, yaw
-# Focal loss
+# Raw 6ch Transformer - TAP_ONLY (no PosEnc)
+# SE: False, TAP: True, PosEnc: False
 
-model: Models.kalman_transformer_variants.KalmanBalancedFlexible
+model: Models.dual_stream_base.DualStreamBaseTAP
 dataset: smartfallmm
 
 subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
@@ -11,17 +10,14 @@ train_only_subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29
 
 model_args:
   imu_frames: 128
-  imu_channels: 7
+  imu_channels: 6
+  acc_dim: 48
+  gyro_dim: 16
   num_heads: 4
   num_layers: 2
-  embed_dim: 64
   dropout: 0.5
-  activation: relu
+  activation: silu
   norm_first: True
-  se_reduction: 4
-  acc_ratio: 0.75
-  use_se: true
-  use_tap: true
   use_pos_encoding: false
 
 dataset_args:
@@ -42,18 +38,8 @@ dataset_args:
   convert_gyro_to_rad: True
   enable_simple_truncation: True
   max_truncation_diff: 50
-  enable_kalman_fusion: True
-  kalman_filter_type: linear
-  kalman_output_format: euler
-  kalman_include_smv: True
-  include_gyro_mag: False  # CRITICAL: Must be False for 7ch format
-  filter_fs: 30.0
-  kalman_Q_orientation: 0.005
-  kalman_Q_rate: 0.01
-  kalman_R_acc: 0.05
-  kalman_R_gyro: 0.1
-  enable_kalman_smoothing: False
-  include_smv: False
+  include_smv: false
+  include_gyro_mag: false
 
 batch_size: 64
 test_batch_size: 64
@@ -72,8 +58,3 @@ seed: 2
 optimizer: adamw
 base_lr: 0.001
 weight_decay: 0.001
-
-loss_type: focal
-loss_args:
-  alpha: 0.75
-  gamma: 2.0

@@ -151,6 +151,18 @@ class KalmanFilter:
         """Return [roll, pitch, yaw] in radians."""
         return self.x[:3].copy()
 
+    def get_gravity_vector(self) -> np.ndarray:
+        """Return expected gravity direction in body frame [gx, gy, gz].
+
+        Computed from roll and pitch angles (yaw doesn't affect gravity).
+        """
+        roll, pitch = self.x[0], self.x[1]
+        # Gravity in body frame from Euler angles
+        gx = -np.sin(pitch)
+        gy = np.cos(pitch) * np.sin(roll)
+        gz = np.cos(pitch) * np.cos(roll)
+        return np.array([gx, gy, gz])
+
     def get_uncertainty(self) -> np.ndarray:
         """Return orientation uncertainty (sqrt of P diagonal)."""
         return np.sqrt(np.diag(self.P)[:3])
@@ -346,6 +358,14 @@ class ExtendedKalmanFilter:
     def get_orientation_euler(self) -> np.ndarray:
         """Return [roll, pitch, yaw] in radians."""
         return quat_to_euler(self.x[:4])
+
+    def get_gravity_vector(self) -> np.ndarray:
+        """Return expected gravity direction in body frame [gx, gy, gz].
+
+        This is the unit gravity vector (pointing down) rotated by current orientation.
+        Useful as a drift-free alternative to raw orientation angles.
+        """
+        return self._rotate_gravity(self.x[:4])
 
     def get_gyro_bias(self) -> np.ndarray:
         """Return estimated [bias_gx, bias_gy, bias_gz]."""

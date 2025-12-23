@@ -3,7 +3,7 @@ Script to train the models
 '''
 import traceback
 from typing import List, Dict
-import random 
+import random
 import sys
 import os
 import time
@@ -11,6 +11,7 @@ import datetime
 import shutil
 import argparse
 import yaml
+import math
 from copy import deepcopy
 from collections import Counter
 #environmental import
@@ -61,6 +62,15 @@ def get_args():
     parser.add_argument('--base-lr', type = float, default = 0.001, metavar = 'LR',
                         help = 'learning rate (default: 0.001)')
     parser.add_argument('--weight-decay', type = float , default=0.001)
+
+    # LR Scheduler
+    parser.add_argument('--lr-scheduler', type=str, default='none',
+                        choices=['none', 'cosine', 'cosine_warmup'],
+                        help='Learning rate scheduler: none, cosine, or cosine_warmup')
+    parser.add_argument('--warmup-epochs', type=int, default=10,
+                        help='Number of warmup epochs for cosine_warmup scheduler')
+    parser.add_argument('--min-lr', type=float, default=1e-6,
+                        help='Minimum learning rate for cosine scheduler')
 
     #model
     parser.add_argument('--model' ,default= None, help = 'Name of Model to load')
@@ -205,6 +215,9 @@ class Trainer():
         self.fold_metrics = []
         self.epoch_logs = []
         self.best_val_metrics = None
+        # Store all folds' loss histories for averaged plotting
+        self.all_folds_train_loss = []
+        self.all_folds_val_loss = []
         self.current_fold_metrics = {'train': None, 'val': None, 'test': None}
         self.current_fold_index = None
         self.current_test_subject = None
@@ -212,11 +225,12 @@ class Trainer():
         self.val_subject = None
         self.test_subject = None
         self.optimizer = None
+        self.scheduler = None
         self.norm_train = None
         self.norm_val = None
         self.norm_test = None
         self.data_loader = dict()
-        self.early_stop = EarlyStopping(patience=15, min_delta=.001)
+        self.early_stop = EarlyStopping(patience=15, relative_delta=0.01)
         # Dataset statistics tracking for comprehensive CSV
         self.dataset_statistics = []
         self.builder = None  # Will store DatasetBuilder reference to access statistics
@@ -535,13 +549,60 @@ class Trainer():
             )
         elif self.arg.optimizer.lower() == "sgd":
             self.optimizer = optim.SGD(
-                parameters, 
+                parameters,
                 lr = self.arg.base_lr,
                 #weight_decay = self.arg.weight_decay
             )
-        
+
         else :
            raise ValueError()
+
+    def load_scheduler(self, num_epochs: int) -> None:
+        """
+        Load learning rate scheduler based on config.
+
+        Supported schedulers:
+            - none: No scheduling (constant LR)
+            - cosine: Cosine annealing from base_lr to min_lr
+            - cosine_warmup: Linear warmup + cosine annealing
+        """
+        scheduler_type = getattr(self.arg, 'lr_scheduler', 'none')
+
+        if scheduler_type == 'none':
+            self.scheduler = None
+            return
+
+        min_lr = getattr(self.arg, 'min_lr', 1e-6)
+        warmup_epochs = getattr(self.arg, 'warmup_epochs', 10)
+
+        if scheduler_type == 'cosine':
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer,
+                T_max=num_epochs,
+                eta_min=min_lr
+            )
+            self.print_log(f'Using CosineAnnealingLR scheduler (T_max={num_epochs}, eta_min={min_lr})')
+
+        elif scheduler_type == 'cosine_warmup':
+            # Create warmup + cosine scheduler
+            from torch.optim.lr_scheduler import LambdaLR
+
+            def warmup_cosine_lambda(epoch):
+                if epoch < warmup_epochs:
+                    # Linear warmup
+                    return (epoch + 1) / warmup_epochs
+                else:
+                    # Cosine annealing
+                    progress = (epoch - warmup_epochs) / max(1, num_epochs - warmup_epochs)
+                    cosine_decay = 0.5 * (1 + math.cos(math.pi * progress))
+                    # Scale to reach min_lr
+                    min_lr_ratio = min_lr / self.arg.base_lr
+                    return min_lr_ratio + (1 - min_lr_ratio) * cosine_decay
+
+            self.scheduler = LambdaLR(self.optimizer, lr_lambda=warmup_cosine_lambda)
+            self.print_log(f'Using Warmup+Cosine scheduler (warmup={warmup_epochs}, T_max={num_epochs}, eta_min={min_lr})')
+        else:
+            self.scheduler = None
     
     def distribution_viz( self,labels : np.array, work_dir : str, mode : str) -> None:
         '''
@@ -606,7 +667,10 @@ class Trainer():
                 shuffle=True,
                 num_workers=self.arg.num_worker)
             #self.distribution_viz(self.norm_val['labels'], self.arg.work_dir, 'val')
+            # Enable test mode for balanced strides (fall_stride for both classes)
+            self.builder.set_test_mode(True)
             self.norm_test = split_by_subjects(self.builder , self.test_subject, self.fuse, print_validation=False)
+            self.builder.set_test_mode(False)  # Reset for any future dataset creation
             # Handle both single and grouped test subjects
             test_subject_str = '_'.join(map(str, sorted(self.test_subject))) if self.test_subject else 'unknown'
             test_split_name = f'test subjects {test_subject_str}' if self.test_subject else 'test'
@@ -880,6 +944,64 @@ class Trainer():
         plt.ylabel('Loss')
         plt.savefig(self.arg.work_dir+'/'+f'trainvsval_{test_subject_str}.png')
         plt.close()
+
+    def plot_averaged_loss_curves(self) -> None:
+        '''
+        Plot averaged train and validation loss curves across all folds.
+        Shows mean ± std deviation as shaded region.
+        '''
+        if not self.all_folds_train_loss or not self.all_folds_val_loss:
+            self.print_log('No loss data available for averaged plot')
+            return
+
+        # Find max epochs across all folds
+        max_epochs = max(len(losses) for losses in self.all_folds_train_loss)
+
+        # Pad shorter sequences with NaN for proper averaging
+        train_padded = []
+        val_padded = []
+        for train_loss, val_loss in zip(self.all_folds_train_loss, self.all_folds_val_loss):
+            train_pad = train_loss + [np.nan] * (max_epochs - len(train_loss))
+            val_pad = val_loss + [np.nan] * (max_epochs - len(val_loss))
+            train_padded.append(train_pad)
+            val_padded.append(val_pad)
+
+        train_arr = np.array(train_padded)
+        val_arr = np.array(val_padded)
+
+        # Calculate mean and std (ignoring NaN)
+        train_mean = np.nanmean(train_arr, axis=0)
+        train_std = np.nanstd(train_arr, axis=0)
+        val_mean = np.nanmean(val_arr, axis=0)
+        val_std = np.nanstd(val_arr, axis=0)
+
+        epochs = np.arange(max_epochs)
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Plot mean lines
+        ax.plot(epochs, train_mean, 'b-', label='Train Loss (mean)', linewidth=2)
+        ax.plot(epochs, val_mean, 'r-', label='Val Loss (mean)', linewidth=2)
+
+        # Plot std as shaded region
+        ax.fill_between(epochs, train_mean - train_std, train_mean + train_std,
+                        alpha=0.2, color='blue', label='Train ±1 std')
+        ax.fill_between(epochs, val_mean - val_std, val_mean + val_std,
+                        alpha=0.2, color='red', label='Val ±1 std')
+
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Loss')
+        ax.set_title(f'Averaged Train vs Val Loss ({len(self.all_folds_train_loss)} folds)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        # Save figure
+        plt.tight_layout()
+        plt.savefig(f'{self.arg.work_dir}/trainvsval_averaged.png', dpi=150)
+        plt.close()
+
+        self.print_log(f'Averaged loss plot saved to: {self.arg.work_dir}/trainvsval_averaged.png')
     
     def cm_viz(self, y_pred : List[int], y_true : List[int]): 
         '''
@@ -1246,12 +1368,20 @@ class Trainer():
                         continue
 
                     self.load_optimizer(self.model.parameters())
+                    self.load_scheduler(self.arg.num_epoch)
                     self.load_loss()
                     self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
                     for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
                         self.train(epoch)
+                        # Step LR scheduler
+                        if self.scheduler is not None:
+                            current_lr = self.optimizer.param_groups[0]['lr']
+                            self.scheduler.step()
+                            new_lr = self.optimizer.param_groups[0]['lr']
+                            if epoch % 10 == 0 or epoch == self.arg.num_epoch - 1:
+                                self.print_log(f'  LR: {current_lr:.2e} -> {new_lr:.2e}')
                         if self.early_stop.early_stop:
-                            self.early_stop = EarlyStopping(min_delta=.001)
+                            self.early_stop = EarlyStopping(patience=15, relative_delta=0.01)
                             break
                     train_metrics = deepcopy(self.current_fold_metrics['train'])
                     val_metrics = deepcopy(self.best_val_metrics if self.best_val_metrics else self.current_fold_metrics['val'])
@@ -1265,6 +1395,9 @@ class Trainer():
                     self.print_log(f'Test accuracy for : {self.test_accuracy}')
                     self.print_log(f'Test F-Score: {self.test_f1}')
                     self.loss_viz(self.train_loss_summary, self.val_loss_summary)
+                    # Store fold loss history for averaged plotting
+                    self.all_folds_train_loss.append(self.train_loss_summary.copy())
+                    self.all_folds_val_loss.append(self.val_loss_summary.copy())
                     test_metrics = deepcopy(self.current_fold_metrics['test'])
                     if not all([train_metrics, val_metrics, test_metrics]):
                         self.print_log(f'Warning: Missing metrics for subjects {test_subjects_str}, skipping summary row.')
@@ -1313,6 +1446,9 @@ class Trainer():
 
                 # Save comprehensive statistics including class splits and motion filtering
                 self.save_comprehensive_statistics()
+
+                # Plot averaged train-val loss curves across all folds
+                self.plot_averaged_loss_curves()
     
     def viz_feature(self, teacher_features, student_features, epoch):
         teacher_features = torch.flatten(teacher_features, start_dim=1)

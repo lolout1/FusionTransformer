@@ -47,6 +47,7 @@ dataset_args:
   kalman_filter_type: linear
   kalman_output_format: euler
   kalman_include_smv: True
+  include_gyro_mag: False  # CRITICAL: Must be False for 7ch format
   filter_fs: 30.0
   kalman_Q_orientation: 0.005
   kalman_Q_rate: 0.01

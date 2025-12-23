@@ -94,7 +94,8 @@ class Bmhad_mm(torch.utils.data.Dataset):
 
 class UTD_mm(torch.utils.data.Dataset):
     def __init__(self, dataset, batch_size, include_smv=True, include_gyro_mag=True,
-                 gyro_magnitude_only=False):
+                 gyro_magnitude_only=False, augment=False, aug_jitter_sigma=0.03,
+                 aug_scale_sigma=0.1, aug_prob=0.5):
         """
         Initialize UTD_mm dataset.
 
@@ -111,10 +112,20 @@ class UTD_mm(torch.utils.data.Dataset):
             gyro_magnitude_only: If True, use only gyro magnitude instead of raw gyro channels
                         - 4ch: [ax, ay, az, gyro_mag] - collapses 3 noisy gyro channels to 1
                         - Overrides include_smv when True for IMU data
+            augment: If True, apply data augmentation (for training only)
+            aug_jitter_sigma: Std of Gaussian noise for jittering (default: 0.03)
+            aug_scale_sigma: Std for magnitude scaling (default: 0.1)
+            aug_prob: Probability of applying each augmentation (default: 0.5)
         """
         self.include_smv = include_smv
         self.include_gyro_mag = include_gyro_mag
         self.gyro_magnitude_only = gyro_magnitude_only
+
+        # Data augmentation parameters
+        self.augment = augment
+        self.aug_jitter_sigma = aug_jitter_sigma
+        self.aug_scale_sigma = aug_scale_sigma
+        self.aug_prob = aug_prob
 
         # Support both single modality (acc OR gyro) and multi-modal (acc AND gyro)
         self.has_accelerometer = 'accelerometer' in dataset

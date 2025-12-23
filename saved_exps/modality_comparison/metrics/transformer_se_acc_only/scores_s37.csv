@@ -1,3 +1,0 @@
-test_subject,train_loss,train_accuracy,train_f1_score,train_precision,train_recall,train_auc,val_loss,val_accuracy,val_f1_score,val_precision,val_recall,val_auc,test_loss,test_accuracy,test_f1_score,test_precision,test_recall,test_auc
-37,0.000373,88.53,90.73,85.58,96.53,86.98,0.000311,92.53,93.78,92.95,94.62,92.05,0.000346,86.62,90.91,83.33,100.0,79.79
-Average,0.000373,88.53,90.73,85.58,96.53,86.98,0.000311,92.53,93.78,92.95,94.62,92.05,0.000346,86.62,90.91,83.33,100.0,79.79
