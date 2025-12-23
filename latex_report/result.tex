@@ -280,6 +280,8 @@ We compared single-stream and dual-stream architectures with identical hyperpara
 
 Table~\ref{tab:stream_comparison} demonstrates that the dual-stream architecture with Kalman fusion achieves substantially better performance (+3.86\% F1) compared to single-stream alternatives. The improvement stems from two factors: (1) Kalman fusion provides semantically meaningful orientation features, and (2) separate processing of accelerometer and orientation streams allows the model to learn modality-specific patterns before fusion. Adding SE to single-stream raw input provides a modest improvement (+0.81\%, from 86.99\% to 87.80\%), but the full dual-stream Kalman configuration achieves the best results.
 
+\textbf{Embedding Dimension Ratio:} For single-stream raw transformer (without Kalman fusion), the optimal embedding configuration allocates 75\% capacity to accelerometer and 25\% to gyroscope: acc\_dim=48 and gyro\_dim=16 (total embed\_dim=64). This asymmetric allocation reflects the higher signal quality of accelerometer data compared to noisy gyroscope signals. For dual-stream with Kalman fusion, a balanced 50:50 ratio performs best since Kalman filtering produces clean orientation features comparable in quality to accelerometer data.
+
 \subsection{Channel-Aware Normalization}
 \label{sec:channel_aware_norm}
 
