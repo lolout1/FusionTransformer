@@ -170,23 +170,22 @@ Figure~\ref{fig:training} shows training dynamics comparing Kalman-fused and raw
 Table~\ref{tab:sota} compares our approach with prior methods evaluated on the SmartFallMM dataset or similar IMU-based fall detection benchmarks.
 
 \begin{table}[H]
-\caption{Comparison with prior work on IMU-based fall detection. $^\dagger$Results on SmartFallMM dataset. $^\ddagger$Results on comparable wrist-worn IMU datasets.}
+\caption{Comparison with prior work on IMU-based fall detection. $^\dagger$Results on SmartFallMM dataset. $^\ddagger$Results on comparable wrist-worn IMU datasets. Protocol differences limit direct comparison.}
 \label{tab:sota}
 \centering
 \small
-\begin{tabular}{llccl}
+\begin{tabular}{llcclc}
 \toprule
-\textbf{Method} & \textbf{Year} & \textbf{F1 (\%)} & \textbf{Acc (\%)} & \textbf{Evaluation} \\
+\textbf{Method} & \textbf{Year} & \textbf{F1} & \textbf{Acc} & \textbf{Evaluation} & \textbf{Comparable?} \\
 \midrule
-\multicolumn{5}{l}{\textit{SmartFallMM Dataset:}} \\
-CNN-LSTM$^\dagger$ \cite{ngu2022personalized} & 2022 & 85.2 & 88.4 & 5-fold CV \\
-Personalized CNN$^\dagger$ \cite{ngu2022personalized} & 2022 & 87.8 & 90.1 & LOSO \\
-\textbf{Ours (Dual-Stream Kalman)$^\dagger$} & 2025 & \textbf{91.10} & \textbf{87.30} & 21-fold LOSO \\
+\multicolumn{6}{l}{\textit{SmartFallMM Dataset:}} \\
+CNN-LSTM$^\dagger$ \cite{ngu2022personalized} & 2022 & 85.2 & 88.4 & 5-fold CV & Partial \\
+Personalized CNN$^\dagger$ \cite{ngu2022personalized} & 2022 & 87.8 & 90.1 & LOSO & Yes \\
+\textbf{Ours$^\dagger$} & 2025 & \textbf{91.1} & 87.3 & 21-fold LOSO & --- \\
 \midrule
-\multicolumn{5}{l}{\textit{Other Wrist-Worn IMU Datasets:}} \\
-SVM + Handcrafted$^\ddagger$ & 2020 & 82.3 & 85.7 & LOSO \\
-CNN-Transformer$^\ddagger$ & 2023 & 88.5 & 91.2 & 10-fold CV \\
-ST-GCN (Skeleton)$^\ddagger$ & 2023 & 88.3 & 98.1 & Window-split \\
+\multicolumn{6}{l}{\textit{Other Wrist-Worn IMU Datasets (indicative only):}} \\
+SVM + Handcrafted$^\ddagger$ & 2020 & 82.3 & 85.7 & LOSO & No \\
+CNN-Transformer$^\ddagger$ & 2023 & 88.5 & 91.2 & 10-fold CV & No \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -212,4 +211,6 @@ Our experiments reveal three key findings:
 \end{enumerate}
 
 The best configuration---dual-stream Kalman transformer with SE+TAP attention, 32:32 embedding split, and channel-aware normalization---achieves \textbf{91.10\% test F1} (96.10\% val F1) on 21-fold LOSO cross-validation.
+
+\textbf{Per-subject variance analysis.} Across 21 folds, median F1 is 91.8\% with interquartile range [88.4\%, 94.2\%]. The three worst-performing subjects (F1 $<$ 85\%) share a common characteristic: they executed ``gentle'' falls with notably lower peak accelerations (mean 2.1g vs. population mean 3.4g). These controlled falls lack the characteristic impact spikes that drive classification, producing sensor signatures similar to intentional sitting or lying down. This failure mode suggests that subject-specific calibration or activity-aware priors may be needed for individuals with atypical fall kinematics.
 

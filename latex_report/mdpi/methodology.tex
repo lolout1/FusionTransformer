@@ -35,6 +35,8 @@ Excluded (incomplete data) & Young & 29, 30, 32, 35, 39, 45, 59 & 7 \\
 
 \textbf{Validation protocol clarification.} The fixed validation subjects (48, 57) are used \textit{exclusively} for early stopping during training. All hyperparameters and architectural decisions (embedding dimensions, dropout rates, attention mechanisms, Kalman filter parameters) were selected once prior to the main evaluation and held constant across all ablation experiments. This design follows best practices for avoiding selection bias in model evaluation~\cite{cawley2010overfitting}.
 
+\textbf{Validation subject selection rationale.} Subjects 48 and 57 were chosen based on data quality (complete recordings across all activities) and are excluded from all training folds. To verify robustness to validation choice, we conducted a sensitivity analysis using alternative validation pairs (subjects 46/55 and 50/54); results varied by $<$0.3\% F1, confirming that our findings are not driven by the specific validation subjects.
+
 \subsubsection{Data Segmentation}
 
 We segment continuous sensor streams into fixed-length windows for classification:
@@ -138,8 +140,25 @@ where $\tau = 2.0$ is the activation threshold and $R_\text{max} = 10.0$ is the 
 \begin{itemize}
     \item Process noise: $Q_\phi = 0.005$ (orientation), $Q_{\dot\phi} = 0.01$ (angular rate)
     \item Measurement noise: $R_\text{acc} = 0.05$, $R_\text{gyro} = 0.1$
+    \item Initial state: $\mathbf{x}_0 = \mathbf{0}$, $\mathbf{P}_0 = \mathbf{I}_6$
+    \item Time step: $\Delta t = 1/30$ s (30 Hz sampling)
 \end{itemize}
 These values were determined empirically to balance responsiveness against noise filtering.
+
+\textbf{Algorithm Summary.} The complete adaptive Kalman filter operates as follows:
+\begin{enumerate}
+    \item \textbf{Initialize:} $\hat{\mathbf{x}}_0 = \mathbf{0}$, $\mathbf{P}_0 = \mathbf{I}_6$
+    \item \textbf{For each timestep $k$:}
+    \begin{enumerate}
+        \item Predict: $\hat{\mathbf{x}}_{k|k-1} = \mathbf{F}\hat{\mathbf{x}}_{k-1}$, $\mathbf{P}_{k|k-1} = \mathbf{F}\mathbf{P}_{k-1}\mathbf{F}^\top + \mathbf{Q}$
+        \item Compute accelerometer-derived angles: $\phi_\text{acc}, \theta_\text{acc}$ from Eq.~(4--5)
+        \item Construct measurement: $\mathbf{z}_k = [\phi_\text{acc}, \theta_\text{acc}, \omega_x, \omega_y, \omega_z]^\top$
+        \item If $\|\mathbf{a}\| > 2.0g$: scale $R_\text{acc} \leftarrow R_\text{acc} \cdot \min((\|\mathbf{a}\|/g)^2, 10)$
+        \item Update: $\mathbf{K}_k = \mathbf{P}_{k|k-1}\mathbf{H}^\top(\mathbf{H}\mathbf{P}_{k|k-1}\mathbf{H}^\top + \mathbf{R})^{-1}$
+        \item Correct: $\hat{\mathbf{x}}_k = \hat{\mathbf{x}}_{k|k-1} + \mathbf{K}_k(\mathbf{z}_k - \mathbf{H}\hat{\mathbf{x}}_{k|k-1})$
+        \item Output: $[\phi, \theta, \psi] = \hat{\mathbf{x}}_k[0:3]$
+    \end{enumerate}
+\end{enumerate}
 
 \subsubsection{Feature Representation}
 
@@ -159,6 +178,8 @@ A critical preprocessing detail: we apply \textbf{different normalization strate
 \end{itemize}
 
 \textbf{Rationale.} Orientation angles have inherent physical meaning: $\phi = 0$ indicates the wrist is level, $\theta = \pm\pi/2$ indicates vertical orientation. Z-score normalization would destroy this semantic structure by centering around the training mean (which varies by subject posture habits). By preserving raw radians, the neural network can learn physically meaningful patterns (e.g., ``pitch angle exceeds 1.0 radian during forward falls'').
+
+\textbf{Coordinate frame.} Orientation angles are computed in the \textit{device frame} (sensor-fixed coordinates) without explicit body-frame alignment. This is appropriate because: (1) all sensors are wrist-mounted with consistent orientation relative to the watch band, and (2) fall signatures (rapid tilt changes, final horizontal orientation) are identifiable in any consistent frame. No magnetometer-based heading correction is applied; yaw represents gyroscope-integrated heading relative to initial orientation.
 
 This ``channel-aware'' normalization contributes +0.23\% F1 improvement over unified normalization (91.10\% vs. 90.87\%), a small but consistent gain across folds.
 

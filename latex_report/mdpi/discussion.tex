@@ -69,7 +69,7 @@ Despite strong overall performance, our approach exhibits systematic failures fo
 
 \textbf{Vigorous ADLs.} Activities involving abrupt movements---sitting down quickly, stumbling during walking, picking up heavy objects---produce false positives. The sensor signatures of these events overlap with genuine falls in the feature space our model learns. Longer-horizon temporal context or activity-aware priors may help distinguish these cases.
 
-\textbf{Yaw ambiguity.} Our Kalman filter cannot observe yaw (rotation about the vertical axis) from gravity-referenced accelerometer measurements. While yaw contributes only 0.14\% F1 improvement in ablation studies, rotational falls that primarily involve yaw changes may be systematically harder to detect than pitch/roll-dominated falls.
+\textbf{Yaw observability and contribution.} Our Kalman filter cannot observe yaw (rotation about the vertical axis) from gravity-referenced accelerometer measurements; yaw is estimated via gyroscope integration only and accumulates drift over time. To quantify yaw's contribution, we conducted an ablation using only roll and pitch (5-channel input: SMV, $a_x$, $a_y$, $a_z$, $\phi$, $\theta$). Results show yaw contributes only +0.14\% F1 improvement (90.96\% $\rightarrow$ 91.10\%), suggesting that pitch and roll capture the dominant fall signatures for wrist-mounted sensors. Rotational falls that primarily involve yaw changes may be systematically harder to detect than pitch/roll-dominated falls, though such falls are rare in our dataset.
 
 \textbf{Sensor placement variability.} All training data was collected with sensors on the wrist. Deployment on other body locations (hip, chest, ankle) would require domain adaptation or location-specific models, as acceleration and orientation patterns differ substantially by placement.
 
@@ -95,7 +95,7 @@ Our work builds on and extends several research directions:
 
 For real-world deployment, several factors merit consideration:
 
-\textbf{Computational efficiency.} Our model requires approximately 73,400 parameters and achieves sub-10 ms inference time on representative smartwatch hardware (ARM Cortex-M4 at 64 MHz). This compact footprint enables continuous real-time monitoring with minimal battery impact, as the model runs during the sensor sampling period rather than requiring dedicated processing time.
+\textbf{Computational efficiency.} Our model requires approximately 73,400 parameters, a compact footprint suitable for resource-constrained wearable devices. The simple architecture (Conv1D projections, 2-layer transformer, linear classifier) avoids operations that are expensive on embedded hardware (e.g., recurrent layers, large attention spans). Quantization to INT8 precision would further reduce memory and latency for deployment.
 
 \textbf{Kalman filter initialization.} The Kalman filter requires brief initialization (approximately 0.5 seconds) to converge from arbitrary initial state estimates. During this period, classification reliability is reduced. Deployment systems should either use accelerometer-only fallback during initialization or delay classification until filter convergence.
 
