@@ -23,7 +23,7 @@ Our experiments reveal three principal mechanisms enabling effective IMU-based f
 
 The effectiveness of Kalman fusion derives from three complementary mechanisms:
 
-\textbf{Noise filtering.} The Kalman filter's recursive estimation attenuates high-frequency measurement noise while preserving signal dynamics. For gyroscope data with SNR below 1.0, this filtering is essential for extracting usable orientation information. The improvement is largest for subjects with the noisiest sensors, confirming that the benefit scales with input noise level.
+\textbf{Noise filtering.} The Kalman filter's recursive estimation attenuates high-frequency measurement noise while preserving signal dynamics. We computed SNR as the ratio of signal variance during activity to noise variance during stationary periods; many subjects exhibited gyroscope SNR below 1.0 during quiet standing, indicating noise-dominated measurements. For such data, Kalman filtering is essential for extracting usable orientation information. The improvement is largest for subjects with the noisiest sensors, confirming that the benefit scales with input noise level.
 
 \textbf{Drift correction.} Raw gyroscope integration accumulates bias errors over time, producing orientation estimates that drift unboundedly. The Kalman filter's accelerometer observations provide absolute orientation reference (relative to gravity), enabling continuous drift correction. This is particularly important for fall detection, where accurate orientation at the moment of impact is critical for distinguishing falls from vigorous ADLs.
 
@@ -55,7 +55,7 @@ Squeeze-and-Excitation (SE) and Temporal Attention Pooling (TAP) provide complem
 
 \textbf{TAP attention} localizes discriminative temporal regions within each window. Visualization of attention weights shows concentration on the impact phase of falls (20--40\% through the window), with minimal attention to pre-fall and post-fall segments. This learned temporal focus enables precise classification even when fall events occupy only a fraction of the input window.
 
-The synergistic benefit of combining SE and TAP (+2.18\% vs. +0.92\% + +1.26\% = +2.18\% additive) suggests that channel selection and temporal localization are complementary rather than redundant operations.
+SE and TAP provide complementary gains: SE alone yields +0.63\% F1 while TAP alone shows marginal degradation ($-$0.18\%), but combined they achieve +1.28\% improvement over the no-attention baseline. This suggests TAP benefits from channel-recalibrated features, making the mechanisms complementary rather than redundant.
 
 %-------------------------------------------------------------------
 % 4.5 FAILURE MODE ANALYSIS
@@ -95,13 +95,13 @@ Our work builds on and extends several research directions:
 
 For real-world deployment, several factors merit consideration:
 
-\textbf{Computational efficiency.} Our model requires approximately 73,400 parameters, a compact footprint suitable for resource-constrained wearable devices. The simple architecture (Conv1D projections, 2-layer transformer, linear classifier) avoids operations that are expensive on embedded hardware (e.g., recurrent layers, large attention spans). Quantization to INT8 precision would further reduce memory and latency for deployment.
+\textbf{Computational efficiency.} Our model requires approximately 73,400 parameters, a compact footprint amenable to deployment on resource-constrained wearable devices. The simple architecture (Conv1D projections, 2-layer transformer, linear classifier) avoids operations that are expensive on embedded hardware (e.g., recurrent layers, large attention spans). Quantization to INT8 precision could further reduce memory and latency; we leave on-device benchmarking to future work.
 
-\textbf{Kalman filter initialization.} The Kalman filter requires brief initialization (approximately 0.5 seconds) to converge from arbitrary initial state estimates. During this period, classification reliability is reduced. Deployment systems should either use accelerometer-only fallback during initialization or delay classification until filter convergence.
+\textbf{Kalman filter initialization.} The Kalman filter may require brief initialization to converge from arbitrary initial state estimates; we did not benchmark convergence time on-device. Deployment systems should consider accelerometer-only fallback during initialization or delay classification until filter convergence.
 
 \textbf{Calibration requirements.} Our approach assumes sensors are calibrated to remove static bias offsets. Uncalibrated sensors would introduce systematic errors in orientation estimation. Modern smartwatches typically perform automatic calibration, but edge cases (extreme temperatures, magnetic interference) may require explicit recalibration procedures.
 
-\textbf{Alert latency.} With 128-sample windows at 30 Hz (4.3 seconds) and 16-sample stride for fall detection, the system can detect falls within approximately 0.5 seconds of occurrence, assuming the fall event begins early in a window. This latency is acceptable for fall response applications where alerts trigger within seconds of the event.
+\textbf{Alert latency.} With 128-sample windows at 30 Hz (4.3 seconds) and 16-sample stride for fall detection, the theoretical lower bound on detection latency is approximately 0.5 seconds, assuming the fall event begins early in a window. Actual alert latency depends on implementation and was not measured in this study.
 
 %-------------------------------------------------------------------
 % 4.8 GENERALIZATION TO OLDER ADULTS

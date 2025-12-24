@@ -31,7 +31,7 @@ Excluded (incomplete data) & Young & 29, 30, 32, 35, 39, 45, 59 & 7 \\
 \end{tabular}
 \end{table}
 
-\textbf{Why older adults are excluded from test/validation.} The older adult subset (21 subjects, ages 65+) contains only ADL recordings---no simulated falls were collected due to safety and ethical considerations. Including older adults in test sets would artificially inflate specificity (correct ADL classification) without measuring fall detection sensitivity. Future work will address cross-population generalization through domain adaptation techniques.
+\textbf{Why older adults are excluded from test/validation.} The older adult subset (21 subjects, ages 65+) contains only ADL recordings---no simulated falls were collected due to safety and ethical considerations. Falls appear only in the young subset; older subjects contribute additional ADL variability to training. Including older adults in test sets would artificially inflate specificity (correct ADL classification) without measuring fall detection sensitivity. Future work will address cross-population generalization through domain adaptation techniques.
 
 \textbf{Validation protocol clarification.} The fixed validation subjects (48, 57) are used \textit{exclusively} for early stopping during training. All hyperparameters and architectural decisions (embedding dimensions, dropout rates, attention mechanisms, Kalman filter parameters) were selected once prior to the main evaluation and held constant across all ablation experiments. This design follows best practices for avoiding selection bias in model evaluation~\cite{cawley2010overfitting}.
 
@@ -47,7 +47,7 @@ We segment continuous sensor streams into fixed-length windows for classificatio
     \item \textbf{Rationale:} Smaller fall stride captures more training examples from the minority class, partially addressing class imbalance before loss-level weighting
 \end{itemize}
 
-The class-aware stride yields approximately 3,200 ADL windows and 1,800 fall windows per fold, with Focal Loss providing additional imbalance handling during training.
+The class-aware stride yields approximately 3,200 ADL windows and 1,800 fall windows per fold, with Focal Loss providing additional imbalance handling during training. Note that class-aware striding creates overlapping windows (especially for falls with stride 16), introducing correlation between samples. Our statistical analysis operates on fold-level scores (one F1 per subject), ensuring independence between test samples for valid confidence intervals.
 
 %-------------------------------------------------------------------
 % 2.2 SENSOR FUSION STRATEGY
@@ -122,13 +122,16 @@ Unlike raw gyroscope values that indicate \textit{how fast} the body rotates, or
 \phi_\text{acc} &= \text{atan2}(a_y, \sqrt{a_x^2 + a_z^2}) \\
 \theta_\text{acc} &= \text{atan2}(-a_x, a_z)
 \end{align}
-These formulas assume the accelerometer measures primarily gravity when stationary. During dynamic motion (falls, vigorous ADLs), linear acceleration contaminates these estimates.
+These formulas follow the smartwatch coordinate convention where +Z points outward from the watch face and +X points toward 3 o'clock. The pitch formula uses atan2($-a_x$, $a_z$) rather than the alternative sqrt-denominator form; both are valid for small tilts, and we empirically validated this choice for our wrist-mounted sensor orientation. These formulas assume the accelerometer measures primarily gravity when stationary; during dynamic motion (falls, vigorous ADLs), linear acceleration contaminates these estimates.
 
-\textbf{Adaptive Measurement Noise.} To handle high-dynamic events where accelerometer-derived orientation becomes unreliable, we scale $R_\text{acc}$ based on acceleration magnitude:
+\textbf{Adaptive Measurement Noise.} To handle high-dynamic events where accelerometer-derived orientation becomes unreliable, we scale $R_\text{acc}$ based on acceleration magnitude. At each timestep:
 \begin{equation}
-R'_\text{acc} = R_\text{acc} \cdot \min\left(\left(\frac{\|\mathbf{a}\|}{g}\right)^2, R_\text{max}\right) \quad \text{when } \|\mathbf{a}\| > \tau \cdot g
+R'_\text{acc} = \begin{cases}
+R_\text{acc} \cdot \min\left(\left(\frac{\|\mathbf{a}\|}{g}\right)^2, R_\text{max}\right) & \text{if } \|\mathbf{a}\| > \tau \cdot g \\
+R_\text{acc} & \text{otherwise}
+\end{cases}
 \end{equation}
-where $\tau = 2.0$ is the activation threshold and $R_\text{max} = 10.0$ is the maximum scale factor. This reduces filter reliance on accelerometer-derived orientation during impact events, where the sensor measures significant non-gravitational acceleration.
+where $\tau = 2.0$ is the activation threshold, $R_\text{max} = 10.0$ is the maximum scale factor, and $R_\text{acc} = 0.05$ is the baseline noise. The scaling is recomputed each timestep based on current $\|\mathbf{a}\|$, automatically resetting when acceleration returns to normal. This reduces filter reliance on accelerometer-derived orientation during impact events.
 
 \textbf{Measurement Model.} The observation vector and measurement matrix are:
 \begin{equation}
@@ -181,7 +184,7 @@ A critical preprocessing detail: we apply \textbf{different normalization strate
 
 \textbf{Coordinate frame.} Orientation angles are computed in the \textit{device frame} (sensor-fixed coordinates) without explicit body-frame alignment. This is appropriate because: (1) all sensors are wrist-mounted with consistent orientation relative to the watch band, and (2) fall signatures (rapid tilt changes, final horizontal orientation) are identifiable in any consistent frame. No magnetometer-based heading correction is applied; yaw represents gyroscope-integrated heading relative to initial orientation.
 
-This ``channel-aware'' normalization contributes +0.23\% F1 improvement over unified normalization (91.10\% vs. 90.87\%), a small but consistent gain across folds.
+This ``channel-aware'' normalization contributes +1.65\% F1 improvement over unified z-score normalization (91.10\% vs. 89.45\%), as detailed in Appendix Table~\ref{tab:norm_ablation}.
 
 %-------------------------------------------------------------------
 % 2.3 DUAL-STREAM ARCHITECTURE
@@ -218,7 +221,7 @@ We systematically compare four configurations along two axes:
 \end{itemize}
 
 \begin{table}[H]
-\caption{Architecture comparison: single-projection vs. dual-projection. The key difference is whether modalities share convolutional weights (single) or have dedicated weights (dual). Our method (d) combines dual-projection with Kalman-fused orientation input.}
+\caption{Architecture comparison: single-projection vs. dual-projection. The key difference is whether modalities share convolutional weights (single) or have dedicated weights (dual). Our method (d) combines dual-projection with Kalman-fused orientation input. Raw configurations use 6 channels (acc + gyro, no SMV); Kalman configurations use 7 channels (SMV + acc + orientation).}
 \label{tab:architecture_comparison}
 \centering
 \small
@@ -227,8 +230,8 @@ We systematically compare four configurations along two axes:
 \textbf{Architecture} & \textbf{Input Type} & \textbf{Projection} & \textbf{Key Property} \\
 \midrule
 \multicolumn{4}{l}{\textit{Single-Projection (shared input encoding):}} \\
-(a) Single + Raw & 6ch (acc + gyro) & Shared Conv1D & Noisy gyro corrupts acc features \\
-(b) Single + Kalman & 7ch (acc + ori) & Shared Conv1D & Cleaner, but features still mixed \\
+(a) Single + Raw & 6ch ($a_{xyz}$ + $\omega_{xyz}$) & Shared Conv1D & Noisy gyro corrupts acc features \\
+(b) Single + Kalman & 7ch (SMV + $a_{xyz}$ + $\phi\theta\psi$) & Shared Conv1D & Cleaner, but features still mixed \\
 \midrule
 \multicolumn{4}{l}{\textit{Dual-Projection (separate input encoding):}} \\
 (c) Dual + Raw & 3ch + 3ch & Separate Conv1D & Acc isolated, but gyro still noisy \\
@@ -243,7 +246,7 @@ We systematically compare four configurations along two axes:
 
 The key question is: \textit{at what stage should modalities be combined?} We compare two approaches:
 
-\textbf{Single-Projection (``Single-Stream'') Architecture} (Fig.~\ref{fig:architecture_comparison}a,b):
+\textbf{Single-Projection (``Single-Stream'') Architecture}:
 \begin{equation}
 \mathbf{h} = \text{Conv1D}([\mathbf{x}_\text{acc}; \mathbf{x}_\text{gyro}]) \in \mathbb{R}^{T \times 64}
 \end{equation}
@@ -253,7 +256,7 @@ The key question is: \textit{at what stage should modalities be combined?} We co
     \item \textbf{The problem}: Convolutional filters must simultaneously extract features from clean accelerometer signals and noisy gyroscope signals. The learned filters compromise between modalities. Mathematically, gradients from noisy channels affect all filter weights.
 \end{itemize}
 
-\textbf{Dual-Projection (``Dual-Stream'') Architecture} (Fig.~\ref{fig:architecture_comparison}c,d):
+\textbf{Dual-Projection (``Dual-Stream'') Architecture}:
 \begin{equation}
 \mathbf{h} = [\underbrace{\text{Conv1D}_\text{acc}(\mathbf{x}_\text{acc})}_{\text{32 dim}}; \underbrace{\text{Conv1D}_\text{ori}(\mathbf{x}_\text{ori})}_{\text{32 dim}}] \in \mathbb{R}^{T \times 64}
 \end{equation}
@@ -334,7 +337,7 @@ TAP typically assigns high attention to the impact phase of falls, where acceler
 \subsection{Training Configuration}
 \label{subsec:training}
 
-\textbf{Loss Function.} We use Focal Loss with $\alpha=0.75$, $\gamma=2.0$ to handle class imbalance, down-weighting well-classified examples to focus on hard cases.
+\textbf{Loss Function.} We use Focal Loss~\cite{lin2017focal} with $\alpha=0.75$, $\gamma=2.0$ to handle class imbalance, down-weighting well-classified examples to focus on hard cases. These hyperparameters were chosen via validation once and held fixed for all experiments.
 
 \textbf{Optimization.} AdamW optimizer with learning rate $10^{-3}$, weight decay $5 \times 10^{-4}$, batch size 64, trained for 80 epochs.
 
