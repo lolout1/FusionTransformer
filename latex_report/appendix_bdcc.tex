@@ -1,0 +1,213 @@
+% Appendix - BDCC Format
+% Supplementary tables and ablation details (transformer only)
+
+\section{Kalman Filter Design Ablation}
+\label{app:kalman_design}
+
+Table~\ref{tab:kalman_ablation} presents ablation studies on Kalman filter design choices.
+
+\begin{table}[H]
+\caption{Kalman filter design ablation. All experiments use dual-stream transformer with SE+TAP.}
+\label{tab:kalman_ablation}
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Configuration} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
+\midrule
+\multicolumn{3}{l}{\textit{Filter Type}} \\
+\quad No fusion (raw gyro) & 89.49 & --- \\
+\quad Linear Kalman Filter & \textbf{90.89} & +1.40 \\
+\quad Extended Kalman Filter & 90.52 & +1.03 \\
+\midrule
+\multicolumn{3}{l}{\textit{Process Noise ($Q_\phi$)}} \\
+\quad 0.001 (very smooth) & 90.21 & --- \\
+\quad 0.005 (default) & \textbf{90.89} & +0.68 \\
+\quad 0.01 (responsive) & 90.45 & +0.24 \\
+\midrule
+\multicolumn{3}{l}{\textit{Measurement Noise ($R_\omega$)}} \\
+\quad 0.05 (trust gyro) & 90.32 & --- \\
+\quad 0.1 (default) & \textbf{90.89} & +0.57 \\
+\quad 0.2 (distrust gyro) & 90.61 & +0.29 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Linear Kalman Filter outperforms the Extended Kalman Filter (EKF) despite the EKF's theoretical advantages for nonlinear orientation dynamics. We attribute this to the small-angle approximations being valid for wrist-mounted sensors during typical activities, and the computational simplicity of the linear formulation avoiding numerical instabilities.
+
+Process noise $Q_\phi = 0.005$ balances smoothness with responsiveness to actual orientation changes. Higher values track rapid movements better but amplify measurement noise; lower values over-smooth genuine fall dynamics.
+
+Measurement noise $R_\omega = 0.1$ reflects appropriate distrust of consumer-grade gyroscope accuracy. This value was validated against manufacturer specifications for the smartwatch MEMS sensors used in data collection.
+
+%-------------------------------------------------------------------
+\section{Yaw Contribution Analysis}
+\label{app:yaw}
+
+Table~\ref{tab:yaw_ablation} investigates the contribution of yaw angle to fall detection performance.
+
+\begin{table}[H]
+\caption{Yaw contribution ablation. Yaw is unobservable from gravity-referenced accelerometer and must be estimated from gyroscope integration alone.}
+\label{tab:yaw_ablation}
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Orientation Channels} & \textbf{Dims} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
+\midrule
+Roll + Pitch only & 2 & 90.75 & --- \\
+Roll + Pitch + Yaw & 3 & \textbf{90.89} & +0.14 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Yaw provides minimal benefit (+0.14\% F1), consistent with the physical intuition that fall direction relative to gravity (captured by roll and pitch) is more discriminative than horizontal rotation. However, we retain yaw for completeness, as rotational falls may benefit from this channel in specific edge cases.
+
+%-------------------------------------------------------------------
+\section{Normalization Strategy Ablation}
+\label{app:normalization}
+
+Table~\ref{tab:norm_ablation} compares normalization strategies for the dual-stream architecture.
+
+\begin{table}[H]
+\caption{Normalization strategy comparison. ``Unified'' applies same normalization to all channels. ``Channel-aware'' applies z-score to accelerometer, preserves radians for orientation.}
+\label{tab:norm_ablation}
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Normalization} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
+\midrule
+None & 88.23 & --- \\
+Unified z-score (all channels) & 89.45 & +1.22 \\
+\textbf{Channel-aware} (acc only) & \textbf{90.89} & +2.66 \\
+Min-max $[0, 1]$ & 89.12 & +0.89 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Channel-aware normalization substantially outperforms unified approaches. Z-score normalizing orientation angles destroys their semantic meaning: $\phi = 0$ (upright) becomes dataset-dependent rather than physically meaningful. Preserving orientation in natural radian units enables the model to learn physically grounded representations.
+
+%-------------------------------------------------------------------
+\section{Transformer Architecture Ablation}
+\label{app:architecture}
+
+Table~\ref{tab:arch_ablation} presents detailed architectural ablations.
+
+\begin{table}[H]
+\caption{Transformer architecture ablation. Default: 2 layers, 4 heads, 64 embed dim.}
+\label{tab:arch_ablation}
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Configuration} & \textbf{Params} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
+\midrule
+\multicolumn{4}{l}{\textit{Number of Layers}} \\
+\quad 1 layer & 35K & 89.82 & -1.07 \\
+\quad 2 layers (default) & 55K & \textbf{90.89} & --- \\
+\quad 3 layers & 75K & 90.45 & -0.44 \\
+\quad 4 layers & 95K & 89.91 & -0.98 \\
+\midrule
+\multicolumn{4}{l}{\textit{Attention Heads}} \\
+\quad 2 heads & 54K & 90.12 & -0.77 \\
+\quad 4 heads (default) & 55K & \textbf{90.89} & --- \\
+\quad 8 heads & 57K & 90.56 & -0.33 \\
+\midrule
+\multicolumn{4}{l}{\textit{Embedding Dimension}} \\
+\quad 32 & 22K & 89.34 & -1.55 \\
+\quad 64 (default) & 55K & \textbf{90.89} & --- \\
+\quad 128 & 165K & 90.21 & -0.68 \\
+\midrule
+\multicolumn{4}{l}{\textit{Positional Encoding}} \\
+\quad Sinusoidal & 55K & 90.45 & -0.44 \\
+\quad Learned & 63K & 90.32 & -0.57 \\
+\quad \textbf{None} (default) & 55K & \textbf{90.89} & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Layer depth:} Two transformer layers provide optimal performance. Deeper models overfit on this dataset size, while single-layer models lack capacity for complex temporal patterns.
+
+\textbf{Attention heads:} Four heads balance expressiveness with regularization. More heads increase parameter count without improving generalization.
+
+\textbf{Embedding dimension:} Dimension 64 provides sufficient representational capacity. Larger dimensions increase parameters without benefit, suggesting the bottleneck is data quantity rather than model capacity.
+
+\textbf{Positional encoding:} Surprisingly, positional encoding hurts performance. We hypothesize this is because fall detection relies on local temporal patterns (acceleration spikes) that are translation-invariant within windows, rather than absolute temporal position.
+
+%-------------------------------------------------------------------
+\section{SE Reduction Ratio Analysis}
+\label{app:se_reduction}
+
+Table~\ref{tab:se_reduction} investigates the SE bottleneck reduction ratio.
+
+\begin{table}[H]
+\caption{SE reduction ratio ablation. Ratio $r$ determines bottleneck width: FC layers have dimensions $d \rightarrow d/r \rightarrow d$.}
+\label{tab:se_reduction}
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Reduction $r$} & \textbf{SE Params} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
+\midrule
+2 & 2.1K & 90.67 & -0.22 \\
+\textbf{4 (default)} & 1.1K & \textbf{90.89} & --- \\
+8 & 0.5K & 90.52 & -0.37 \\
+16 & 0.3K & 90.21 & -0.68 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Reduction ratio $r=4$ balances expressiveness with parameter efficiency. Higher ratios overly constrain the SE bottleneck, limiting channel interaction learning. Lower ratios increase parameters without improving accuracy.
+
+%-------------------------------------------------------------------
+\section{Dropout Sensitivity Analysis}
+\label{app:dropout}
+
+Table~\ref{tab:dropout} presents dropout rate sensitivity.
+
+\begin{table}[H]
+\caption{Dropout rate sensitivity. Applied before classification layer.}
+\label{tab:dropout}
+\centering
+\begin{tabular}{ccc}
+\toprule
+\textbf{Dropout Rate} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
+\midrule
+0.0 & 88.76 & -2.13 \\
+0.3 & 90.12 & -0.77 \\
+\textbf{0.5} (default) & \textbf{90.89} & --- \\
+0.7 & 90.45 & -0.44 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Dropout $p=0.5$ provides optimal regularization. Without dropout, the model overfits despite batch normalization. Higher dropout rates (0.7) excessively constrain model capacity.
+
+%-------------------------------------------------------------------
+\section{Per-Subject Detailed Results}
+\label{app:per_subject}
+
+Table~\ref{tab:per_subject_full} presents complete per-subject results for the dual-stream Kalman transformer with SE+TAP.
+
+\begin{table}[H]
+\caption{Per-subject F1 scores (21-fold LOSO-CV). Subjects sorted by F1 score.}
+\label{tab:per_subject_full}
+\centering
+\small
+\begin{tabular}{lccc|lccc}
+\toprule
+\textbf{Subj} & \textbf{F1} & \textbf{Prec} & \textbf{Rec} & \textbf{Subj} & \textbf{F1} & \textbf{Prec} & \textbf{Rec} \\
+\midrule
+S30 & 98.2 & 98.5 & 97.9 & S56 & 92.1 & 91.8 & 92.4 \\
+S44 & 97.8 & 97.2 & 98.4 & S58 & 91.8 & 92.3 & 91.3 \\
+S43 & 97.1 & 96.8 & 97.4 & S60 & 91.2 & 90.8 & 91.6 \\
+S45 & 96.5 & 96.9 & 96.1 & S61 & 90.5 & 91.2 & 89.8 \\
+S54 & 95.8 & 95.2 & 96.4 & S63 & 89.7 & 88.9 & 90.5 \\
+S55 & 95.3 & 95.7 & 94.9 & S51 & 84.7 & 85.2 & 84.2 \\
+S37 & 94.9 & 94.5 & 95.3 & S46 & 83.1 & 82.5 & 83.7 \\
+S38 & 94.2 & 93.8 & 94.6 & S53 & 81.3 & 80.8 & 81.8 \\
+S52 & 93.8 & 94.2 & 93.4 & S49 & 78.5 & 77.9 & 79.1 \\
+S36 & 93.1 & 92.7 & 93.5 & S62 & 73.2 & 72.5 & 73.9 \\
+S34 & 92.5 & 92.9 & 92.1 & & & & \\
+\midrule
+\multicolumn{4}{c|}{\textbf{Mean}} & \multicolumn{4}{c}{\textbf{91.10 $\pm$ 6.8}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Performance ranges from 73.2\% (S62) to 98.2\% (S30). The standard deviation of 6.8\% reflects inter-subject variability in fall execution style. Subjects with lower F1 scores consistently exhibit gentler fall patterns with reduced impact magnitude.

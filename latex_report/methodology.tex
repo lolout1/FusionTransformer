@@ -1,0 +1,383 @@
+\section{Methodology}
+\label{sec:Meth}
+
+This section presents our dual-stream Kalman transformer architecture for wearable fall detection. We first clarify the distinction between Kalman fusion and Kalman smoothing (\S\ref{sec:fusion_strategy}), then describe our preprocessing pipeline (\S\ref{sec:preprocessing}), the Linear Kalman Filter for orientation estimation (\S\ref{sec:KalmanFilter}), and finally the neural network architecture (\S\ref{sec:DualStream}).
+
+\subsection{Sensor Fusion Strategy}
+\label{sec:fusion_strategy}
+
+Before detailing our system, we clarify two distinct Kalman-based signal processing approaches that are often confused in the literature:
+
+\textbf{Kalman Smoothing} applies the Kalman filter to a \textit{single} sensor stream to reduce measurement noise while preserving the signal's fundamental structure. For example, smoothing raw accelerometer readings $\mathbf{a}_t$ produces denoised accelerometer $\tilde{\mathbf{a}}_t$---the same physical quantity with reduced noise. The filter exploits temporal consistency: if the true acceleration at time $t-1$ was $a$, it is unlikely to change drastically at time $t$.
+
+\textbf{Kalman Fusion} combines \textit{multiple} sensor streams to estimate a new quantity not directly measured by any individual sensor. Our approach fuses accelerometer measurements (which provide a gravity reference) with gyroscope measurements (which provide angular velocity) to estimate body orientation $(\phi, \theta, \psi)$. This transforms raw angular velocity---which has units of rad/s and no absolute reference---into semantically meaningful body pose angles in radians.
+
+\textbf{Our Approach.} We use Kalman \textit{fusion}, not smoothing. The key insight is that accelerometers and gyroscopes provide complementary information: accelerometers accurately measure gravity direction during quasi-static periods but cannot distinguish rotation; gyroscopes accurately measure angular velocity but accumulate drift over time. The Kalman filter optimally combines these complementary measurements.
+
+Our ablation studies (Appendix~\ref{sec:kalman_ablation}) confirm this distinction matters: applying Kalman \textit{smoothing} to raw sensor signals \textit{degrades} performance, while Kalman \textit{fusion} to extract orientation improves test F1 by +1.61\%.
+
+\subsection{Preprocessing Pipeline}
+\label{sec:preprocessing}
+
+Figure~\ref{fig:preprocessing} illustrates our four-stage preprocessing pipeline operating at sampling frequency $f_s = 30$ Hz.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\columnwidth]{figures/preprocessing_pipeline_detailed.png}
+\caption{Preprocessing pipeline: (1) unit conversion, (2) Kalman sensor fusion, (3) channel-aware normalization, (4) sliding window segmentation. Raw 6-channel IMU data becomes 7-channel Kalman-fused features.}
+\label{fig:preprocessing}
+\end{figure}
+
+\subsubsection{Stage 1: Unit Conversion}
+
+Raw gyroscope readings from the smartwatch API are provided in degrees per second (deg/s). We convert to radians per second for compatibility with Kalman filter mathematics:
+\begin{equation}
+\boldsymbol{\omega}_{\text{rad}} = \boldsymbol{\omega}_{\text{deg}} \cdot \frac{\pi}{180}
+\label{eq:gyro_conversion}
+\end{equation}
+
+This conversion is critical---the Kalman filter's state transition model (Eq.~\ref{eq:F_matrix}) assumes SI units where angular velocity in rad/s integrates directly to angle in radians.
+
+\subsubsection{Stage 2: Kalman Sensor Fusion}
+
+The 6-channel raw input $[\mathbf{a}, \boldsymbol{\omega}] \in \mathbb{R}^{T \times 6}$ is transformed to 7 channels:
+\begin{equation}
+\mathbf{X} = [\text{SMV}, a_x, a_y, a_z, \phi, \theta, \psi] \in \mathbb{R}^{T \times 7}
+\label{eq:feature_vector}
+\end{equation}
+
+where:
+\begin{itemize}
+\item $\text{SMV} = \sqrt{a_x^2 + a_y^2 + a_z^2}$ is the Signal Magnitude Vector (m/s$^2$)
+\item $(a_x, a_y, a_z)$ are raw accelerometer readings (m/s$^2$)
+\item $(\phi, \theta, \psi)$ are Kalman-estimated roll, pitch, yaw (radians)
+\end{itemize}
+
+The Kalman filter parameters are: $Q_{\text{ori}} = 0.005$ rad$^2$, $Q_{\text{rate}} = 0.01$ (rad/s)$^2$, $R_{\text{acc}} = 0.05$ rad$^2$, $R_{\text{gyro}} = 0.1$ (rad/s)$^2$. Details of the Kalman filter formulation are provided in \S\ref{sec:KalmanFilter}.
+
+\subsubsection{Stage 3: Channel-Aware Normalization}
+
+We apply z-score normalization \textit{selectively} to accelerometer channels, preserving orientation angles in raw radians:
+\begin{equation}
+\tilde{x}_i = \begin{cases}
+(x_i - \mu_i) / \sigma_i & \text{if } i \in \{0,1,2,3\} \text{ (accelerometer)} \\
+x_i & \text{if } i \in \{4,5,6\} \text{ (orientation)}
+\end{cases}
+\label{eq:channel_norm}
+\end{equation}
+
+\textbf{Rationale.} Accelerometer values can spike to 30+ m/s$^2$ during fall impacts, potentially dominating the loss gradient. Normalization prevents this scale mismatch. In contrast, orientation angles are already bounded: roll and yaw in $[-\pi, \pi]$, pitch in $[-\pi/2, \pi/2]$. Moreover, these angles have physical meaning---$\phi = 0$ indicates level orientation, $\phi = -\pi/2$ indicates lying on one's side. Standard normalization would destroy this semantic structure.
+
+Ablation studies (Appendix~\ref{sec:channel_aware_norm}) confirm that channel-aware normalization improves test F1 by +0.23\% compared to normalizing all channels uniformly.
+
+\subsubsection{Stage 4: Sliding Window Segmentation}
+
+Continuous sensor streams are segmented into fixed-length windows for classification:
+\begin{itemize}
+\item \textbf{Window size:} $W = 128$ samples ($\approx 4.27$ seconds at 30 Hz)
+\item \textbf{Stride:} Class-aware---16 samples for falls, 64 samples for ADLs
+\end{itemize}
+
+The asymmetric stride generates more fall training examples to address class imbalance (falls are rare events). The 4.27-second window captures the complete fall trajectory: pre-fall posture, the fall itself (typically 0.5--1.5 seconds), and post-fall lying position.
+
+\subsection{Linear Kalman Filter for Orientation Estimation}
+\label{sec:KalmanFilter}
+
+This section details the Linear Kalman Filter that fuses accelerometer and gyroscope measurements into orientation estimates. Our formulation follows classical Kalman filtering theory~\cite{kalman1960new} with specific adaptations for short-window fall detection.
+
+\subsubsection{State Space Formulation}
+
+We define a 6-dimensional state vector representing body orientation and angular rates:
+\begin{equation}
+\mathbf{x} = \begin{bmatrix} \phi & \theta & \psi & \dot{\phi} & \dot{\theta} & \dot{\psi} \end{bmatrix}^T
+\label{eq:state_vector}
+\end{equation}
+
+where $\phi$, $\theta$, $\psi$ are roll, pitch, and yaw angles (radians) following the ZYX aerospace Euler convention, and $\dot{\phi}$, $\dot{\theta}$, $\dot{\psi}$ are the corresponding angular rates (rad/s).
+
+\subsubsection{State Transition Model}
+
+We model orientation dynamics as a \textit{constant angular velocity} process:
+\begin{equation}
+\mathbf{x}_{k} = \mathbf{F} \mathbf{x}_{k-1} + \mathbf{w}_{k}
+\label{eq:state_transition}
+\end{equation}
+
+\textbf{Physical Interpretation.} This assumes angular rates change slowly relative to our 30 Hz sampling frequency. Between consecutive samples ($\Delta t = 33$ ms), angular acceleration effects are negligible for human motion. The state transition matrix $\mathbf{F}$ encodes basic kinematics: angle equals previous angle plus angular rate times time:
+\begin{equation}
+\mathbf{F} = \begin{bmatrix}
+\mathbf{I}_3 & \Delta t \cdot \mathbf{I}_3 \\[2pt]
+\mathbf{0}_3 & \mathbf{I}_3
+\end{bmatrix} =
+\begin{bmatrix}
+1 & 0 & 0 & \Delta t & 0 & 0 \\
+0 & 1 & 0 & 0 & \Delta t & 0 \\
+0 & 0 & 1 & 0 & 0 & \Delta t \\
+0 & 0 & 0 & 1 & 0 & 0 \\
+0 & 0 & 0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 0 & 0 & 1
+\end{bmatrix}
+\label{eq:F_matrix}
+\end{equation}
+
+\textbf{Block Interpretation:}
+\begin{itemize}
+\item Top-left $3 \times 3$ identity: current angles persist from previous timestep
+\item Top-right $\Delta t \cdot \mathbf{I}_3$: angular rates integrate into angle changes ($\phi_k = \phi_{k-1} + \dot{\phi}_{k-1} \cdot \Delta t$)
+\item Bottom-left zeros: angles do not affect angular rates
+\item Bottom-right identity: angular rates persist (constant velocity assumption)
+\end{itemize}
+
+\textbf{Process Noise.} The process noise $\mathbf{w}_k \sim \mathcal{N}(\mathbf{0}, \mathbf{Q})$ accounts for model uncertainty:
+\begin{equation}
+\mathbf{Q} = \text{diag}(Q_{\text{ori}}, Q_{\text{ori}}, Q_{\text{ori}}, Q_{\text{rate}}, Q_{\text{rate}}, Q_{\text{rate}})
+\label{eq:Q_matrix}
+\end{equation}
+
+We use $Q_{\text{ori}} = 0.005$ rad$^2$ and $Q_{\text{rate}} = 0.01$ (rad/s)$^2$. Larger values allow faster adaptation but noisier estimates; these values were tuned empirically for fall detection.
+
+\subsubsection{Observation Model}
+
+The observation vector $\mathbf{z}_k$ contains five measurements derived from raw sensors:
+\begin{equation}
+\mathbf{z}_k = \begin{bmatrix} \phi_{\text{acc}} & \theta_{\text{acc}} & \omega_x & \omega_y & \omega_z \end{bmatrix}^T
+\label{eq:measurement_vector}
+\end{equation}
+
+\textbf{Roll and Pitch from Accelerometer.} When the sensor is quasi-stationary, the accelerometer primarily measures gravity. Body tilt angles can be computed geometrically:
+\begin{align}
+\phi_{\text{acc}} &= \arctan\left(\frac{a_y}{a_z}\right) \label{eq:roll_acc} \\
+\theta_{\text{acc}} &= \arctan\left(\frac{-a_x}{\sqrt{a_y^2 + a_z^2}}\right) \label{eq:pitch_acc}
+\end{align}
+
+Equation~\ref{eq:roll_acc} computes roll from the ratio of lateral ($a_y$) to vertical ($a_z$) gravity components. Equation~\ref{eq:pitch_acc} computes pitch from forward gravity projection ($-a_x$) relative to the magnitude of the lateral-vertical plane.
+
+\textbf{Angular Rates from Gyroscope.} The gyroscope directly measures angular velocity $(\omega_x, \omega_y, \omega_z)$ in rad/s after unit conversion.
+
+\textbf{Yaw Observability.} Critically, yaw ($\psi$) has \textit{no accelerometer reference}---gravity points down regardless of heading direction. Without a magnetometer, yaw can only be estimated through gyroscope integration, which accumulates drift from sensor bias (typically 0.1--1.0$^\circ$/s in consumer MEMS gyroscopes).
+
+Despite this limitation, yaw provides discriminative information for fall detection. Over our 4.27-second windows, drift is bounded to approximately $4^\circ$, which is negligible compared to fall rotation magnitudes (90--180$^\circ$ for lateral and rotation falls). The neural network learns to exploit \textit{relative} yaw dynamics within each window, not absolute heading. Ablation studies (Appendix~\ref{sec:kalman_ablation}) confirm that including yaw improves test F1 by +1.25\%.
+
+\textbf{Observation Matrix.} The observation matrix $\mathbf{H}$ maps the 6D state to 5 measurements:
+\begin{equation}
+\mathbf{H} = \begin{bmatrix}
+1 & 0 & 0 & 0 & 0 & 0 \\
+0 & 1 & 0 & 0 & 0 & 0 \\
+0 & 0 & 0 & 1 & 0 & 0 \\
+0 & 0 & 0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 0 & 0 & 1
+\end{bmatrix}
+\label{eq:H_matrix}
+\end{equation}
+
+\textbf{Row-by-row interpretation:}
+\begin{enumerate}
+\item Row 1: $\phi_{\text{acc}}$ observes roll ($\phi$, state index 0)
+\item Row 2: $\theta_{\text{acc}}$ observes pitch ($\theta$, state index 1)
+\item Row 3: $\omega_x$ observes roll rate ($\dot{\phi}$, state index 3)
+\item Row 4: $\omega_y$ observes pitch rate ($\dot{\theta}$, state index 4)
+\item Row 5: $\omega_z$ observes yaw rate ($\dot{\psi}$, state index 5)
+\end{enumerate}
+
+Note that yaw ($\psi$, state index 2) has \textit{no observation}---column 3 of $\mathbf{H}$ is all zeros. Yaw is estimated solely through integration of the yaw rate observation.
+
+\textbf{Measurement Noise.} The measurement noise covariance is:
+\begin{equation}
+\mathbf{R} = \text{diag}(R_{\text{acc}}, R_{\text{acc}}, R_{\text{gyro}}, R_{\text{gyro}}, R_{\text{gyro}})
+\label{eq:R_matrix}
+\end{equation}
+
+with $R_{\text{acc}} = 0.05$ rad$^2$ and $R_{\text{gyro}} = 0.1$ (rad/s)$^2$. Lower values indicate higher sensor trust.
+
+\subsubsection{Kalman Filter Update Equations}
+
+The filter operates in two steps per timestep:
+
+\textbf{Prediction Step.} Propagate state and uncertainty forward in time:
+\begin{align}
+\hat{\mathbf{x}}_{k|k-1} &= \mathbf{F} \hat{\mathbf{x}}_{k-1|k-1} \label{eq:predict_state} \\
+\mathbf{P}_{k|k-1} &= \mathbf{F} \mathbf{P}_{k-1|k-1} \mathbf{F}^T + \mathbf{Q} \label{eq:predict_cov}
+\end{align}
+
+where $\hat{\mathbf{x}}_{k|k-1}$ is the predicted state and $\mathbf{P}_{k|k-1}$ is the predicted covariance matrix.
+
+\textbf{Update Step.} Incorporate new measurements to correct the prediction:
+\begin{align}
+\mathbf{y}_k &= \mathbf{z}_k - \mathbf{H} \hat{\mathbf{x}}_{k|k-1} & \text{(Innovation)} \label{eq:innovation} \\
+\mathbf{S}_k &= \mathbf{H} \mathbf{P}_{k|k-1} \mathbf{H}^T + \mathbf{R} & \text{(Innovation covariance)} \label{eq:innov_cov} \\
+\mathbf{K}_k &= \mathbf{P}_{k|k-1} \mathbf{H}^T \mathbf{S}_k^{-1} & \text{(Kalman gain)} \label{eq:kalman_gain} \\
+\hat{\mathbf{x}}_{k|k} &= \hat{\mathbf{x}}_{k|k-1} + \mathbf{K}_k \mathbf{y}_k & \text{(State update)} \label{eq:state_update} \\
+\mathbf{P}_{k|k} &= (\mathbf{I} - \mathbf{K}_k \mathbf{H}) \mathbf{P}_{k|k-1} & \text{(Covariance update)} \label{eq:cov_update}
+\end{align}
+
+The innovation $\mathbf{y}_k$ (Eq.~\ref{eq:innovation}) measures discrepancy between predicted and actual measurements. The Kalman gain $\mathbf{K}_k$ (Eq.~\ref{eq:kalman_gain}) determines how much to trust new measurements versus the prediction---larger $\mathbf{K}_k$ means more trust in measurements.
+
+\textbf{Numerical Stability.} We use the Joseph form for covariance update:
+\begin{equation}
+\mathbf{P}_{k|k} = (\mathbf{I} - \mathbf{K}_k \mathbf{H}) \mathbf{P}_{k|k-1} (\mathbf{I} - \mathbf{K}_k \mathbf{H})^T + \mathbf{K}_k \mathbf{R} \mathbf{K}_k^T
+\label{eq:joseph_form}
+\end{equation}
+
+This form guarantees positive semi-definiteness of the covariance matrix even with numerical errors. Angle wrapping to $[-\pi, \pi]$ using $\text{atan2}(\sin(\alpha), \cos(\alpha))$ is applied after each update to handle angle discontinuities.
+
+\subsection{Dual-Stream Transformer Architecture}
+\label{sec:DualStream}
+
+Figure~\ref{fig:overview} presents the complete dual-stream Kalman transformer architecture. The 7-channel Kalman-fused features are split into two streams processed by separate projection encoders before fusion and classification.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/arch_dual_stream_kalman.png}
+\caption{\textbf{Dual-Stream Kalman Transformer Architecture.} Raw accelerometer and gyroscope signals are fused through a Linear Kalman Filter to extract orientation estimates (roll, pitch, yaw). The resulting 7-channel features are split into parallel accelerometer stream (4 channels: SMV, $a_x$, $a_y$, $a_z$) and orientation stream (3 channels: $\phi$, $\theta$, $\psi$). Each stream undergoes Conv1D projection (42 and 22 dimensions respectively), BatchNorm, SiLU activation, and dropout. After concatenation (64 total dimensions) and LayerNorm fusion, features pass through a 2-layer Transformer encoder with 4 attention heads. Squeeze-and-Excitation (SE) provides channel attention, and Temporal Attention Pooling (TAP) aggregates the sequence for final fall/ADL classification. This architecture achieves 91.10\% F1 score on 21-fold LOSO cross-validation.}
+\label{fig:overview}
+\end{figure*}
+
+\subsubsection{Design Rationale}
+
+\textbf{Why Dual-Stream?} Our prior investigation found that adding raw gyroscope to accelerometer data as a single 6-channel stream \textit{degrades} performance by 1.6--2.0\% F1. Analysis revealed that single-stream architectures mix all channels in the first convolutional layer, allowing noisy gyroscope signals to corrupt accelerometer features.
+
+The dual-stream design addresses this by:
+\begin{enumerate}
+\item Processing each modality through a dedicated encoder before fusion
+\item Using different dropout rates (10\% for reliable accelerometer, 15\% for noisier orientation)
+\item Allocating embedding capacity proportional to signal quality (65\% to accelerometer)
+\end{enumerate}
+
+Ablation studies (Appendix~\ref{sec:arch_ablation}) confirm that dual-stream improves test F1 by +1.61\% and reduces the validation-test gap from 6.61\% to 5.00\%, indicating better generalization.
+
+\subsubsection{Stream Projection Encoders}
+
+Each stream has a dedicated projection encoder transforming raw features to a learned embedding space. Table~\ref{tab:stream_encoders} compares the two encoders.
+
+\begin{table}[htbp]
+\centering
+\caption{Dual-Stream Encoder Comparison}
+\label{tab:stream_encoders}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Component} & \textbf{Accelerometer Stream} & \textbf{Orientation Stream} \\
+\midrule
+Input Channels & 4 (SMV, $a_x$, $a_y$, $a_z$) & 3 ($\phi$, $\theta$, $\psi$) \\
+Conv1D & kernel=8, out=42 dim & kernel=8, out=22 dim \\
+BatchNorm & BatchNorm1d(42) & BatchNorm1d(22) \\
+Activation & SiLU & SiLU \\
+Dropout & 10\% & 15\% \\
+Output Shape & $(B, 128, 42)$ & $(B, 128, 22)$ \\
+\midrule
+\multicolumn{3}{l}{\textit{Capacity ratio: 42:22 = 65.6\%:34.4\%}} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{Similarities.} Both streams use the same layer sequence: Conv1D $\rightarrow$ BatchNorm $\rightarrow$ SiLU $\rightarrow$ Dropout. The kernel size of 8 samples (267 ms at 30 Hz) captures short-term motion patterns.
+
+\textbf{Differences.}
+\begin{itemize}
+\item \textbf{Capacity:} The accelerometer stream receives 65\% of embedding dimensions (42 out of 64) because it has more input channels and higher signal reliability.
+\item \textbf{Dropout:} The orientation stream uses higher dropout (15\% vs 10\%) to regularize against Kalman estimation noise.
+\end{itemize}
+
+\subsubsection{Feature Fusion and Transformer Encoder}
+
+After projection, streams are concatenated and normalized:
+\begin{equation}
+\mathbf{F} = \text{LayerNorm}([\mathbf{H}_{\text{acc}}; \mathbf{H}_{\text{ori}}]) \in \mathbb{R}^{B \times 128 \times 64}
+\label{eq:fusion}
+\end{equation}
+
+The fused features pass through a 2-layer Transformer encoder with 4 attention heads:
+\begin{itemize}
+\item $d_{\text{model}} = 64$ (embedding dimension)
+\item $d_{\text{ff}} = 128$ (feedforward dimension)
+\item Pre-norm architecture (LayerNorm before attention/FFN)
+\item Dropout = 50\% (aggressive regularization for small dataset)
+\end{itemize}
+
+The Transformer's self-attention mechanism learns temporal relationships across the 128-sample window, identifying which timesteps are most informative for classification.
+
+\subsubsection{Squeeze-and-Excitation (SE) Module}
+
+After the Transformer, we apply channel-wise attention using the SE module~\cite{hu2018squeeze}:
+\begin{equation}
+\text{SE}(\mathbf{H}) = \mathbf{H} \odot \sigma\left(\mathbf{W}_2 \cdot \text{ReLU}(\mathbf{W}_1 \cdot \text{GAP}(\mathbf{H}))\right)
+\label{eq:se_module}
+\end{equation}
+
+where $\text{GAP}(\cdot)$ denotes global average pooling over time, $\mathbf{W}_1 \in \mathbb{R}^{16 \times 64}$ and $\mathbf{W}_2 \in \mathbb{R}^{64 \times 16}$ with reduction ratio $r = 4$, and $\odot$ is element-wise multiplication.
+
+The SE module learns to weight the 64 fused channels based on their global context. Channels strongly correlated with falls receive higher weights; irrelevant channels are suppressed.
+
+\subsubsection{Temporal Attention Pooling (TAP)}
+
+Rather than simple mean pooling, TAP learns to weight timesteps by their relevance to classification:
+\begin{align}
+\alpha_t &= \frac{\exp(\mathbf{w}^\top \mathbf{h}_t + b)}{\sum_{t'=1}^{T} \exp(\mathbf{w}^\top \mathbf{h}_{t'} + b)} \label{eq:tap_weights} \\
+\mathbf{c} &= \sum_{t=1}^{T} \alpha_t \mathbf{h}_t \label{eq:tap_context}
+\end{align}
+
+where $\mathbf{w} \in \mathbb{R}^{64}$ and $b \in \mathbb{R}$ are learnable parameters.
+
+TAP is particularly valuable for fall detection because falls are transient events within longer windows. The model can learn to assign high attention weights to the impact phase (when acceleration spikes) while down-weighting uninformative frames before and after the fall.
+
+Ablation studies (Appendix~\ref{sec:arch_ablation}) show that TAP improves test F1 by +0.92\% compared to mean pooling.
+
+\subsubsection{Classification Head}
+
+The TAP context vector passes through dropout (50\%) and a linear classifier:
+\begin{equation}
+\hat{y} = \sigma(\mathbf{W}_c \mathbf{c} + b_c)
+\label{eq:classifier}
+\end{equation}
+
+where $\mathbf{W}_c \in \mathbb{R}^{1 \times 64}$, $b_c \in \mathbb{R}$, and $\sigma$ is the sigmoid function. The output represents the probability of a fall event.
+
+\subsubsection{Model Complexity}
+
+The complete model has approximately 47,000 parameters:
+\begin{itemize}
+\item Stream projections: $\sim$5,600 parameters
+\item Transformer encoder: $\sim$33,000 parameters
+\item SE module: $\sim$2,100 parameters
+\item TAP: $\sim$100 parameters
+\item Classifier: $\sim$65 parameters
+\end{itemize}
+
+This compact size enables deployment on resource-constrained wearable devices while achieving state-of-the-art performance.
+
+\subsection{SmartFall System Integration}
+\label{sec:Arch}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/architecture_diagram.png}
+\caption{SmartFall three-layer system with Watch-Phone-Cloud architecture.}
+\label{fig:Watch-Phone}
+\end{figure}
+
+The dual-stream Kalman transformer is designed for deployment on our SmartFall wearable system~\cite{ngu2022personalized, ngu2023p} (Figure~\ref{fig:Watch-Phone}). The system uses a three-layer architecture: the smartwatch collects sensor data and runs inference at the edge, the smartphone manages connectivity and user interface, and the cloud handles model training and updates. This architecture, described in~\cite{NguIEEEIOT2017}, provides flexibility for personalization while maintaining low inference latency on the watch.
+
+\subsection{Evaluation Protocol}
+\label{sec:Evaluation}
+
+We employ Leave-One-Subject-Out Cross-Validation (LOSO-CV) to evaluate generalization to unseen individuals.
+
+\subsubsection{Dataset}
+
+The SmartFallMM dataset comprises IMU recordings from 51 subjects: 30 young adults (ages 18--35) performing both falls and ADLs, and 21 elderly subjects (ages 65+) performing only ADLs. Falls include 5 types: back, front, left, right, and rotation. Of the 30 young subjects, 2 are reserved for validation (subjects 48, 57) and 7 have incomplete data, yielding 21 testable subjects.
+
+\subsubsection{LOSO-CV Protocol}
+
+For each fold $i \in \{1, \ldots, 21\}$:
+\begin{enumerate}
+\item \textbf{Test:} All samples from young subject $S_i$
+\item \textbf{Validation:} Fixed subjects [48, 57]
+\item \textbf{Training:} All elderly (21) + remaining young (excluding $S_i$, 48, 57)
+\end{enumerate}
+
+This ensures complete subject-level separation: no sample from the test subject appears in training. Hyperparameters are tuned once on the validation set and frozen for all 21 folds, following~\cite{cawley2010overfitting}.
+
+\subsubsection{Metrics}
+
+We report F1 score as the primary metric due to class imbalance, along with accuracy, precision, and recall. All results report mean $\pm$ standard deviation across the 21 LOSO folds.

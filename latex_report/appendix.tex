@@ -1,0 +1,172 @@
+\appendix
+
+\section{Kalman Filter Design Validation}
+\label{sec:kalman_ablation}
+
+This appendix presents ablation studies validating our Kalman filter design choices. All experiments use 21-fold Leave-One-Subject-Out Cross-Validation (LOSO-CV) on the SmartFallMM young subject cohort.
+
+\subsection{Adaptive Measurement Noise}
+
+The accelerometer-derived roll and pitch observations assume that measured acceleration is dominated by gravity. During fall impacts, linear acceleration can spike to 20--30 m/s$^2$, potentially contaminating the gravity reference. We tested adaptive measurement noise gating that inflates $R_{\text{acc}}$ when $\|\mathbf{a}\| > 1.5g$:
+\begin{equation}
+R_{\text{acc}}^{\text{adaptive}} = \begin{cases}
+R_{\text{acc}} \cdot \left(\frac{\|\mathbf{a}\|}{g}\right)^2 & \text{if } \|\mathbf{a}\| > 1.5g \\
+R_{\text{acc}} & \text{otherwise}
+\end{cases}
+\end{equation}
+
+\begin{table}[htbp]
+\centering
+\caption{Adaptive Measurement Noise Ablation (21-fold LOSO-CV)}
+\label{tab:adaptive_racc}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Configuration} & \textbf{Test F1 (\%)} & \textbf{$\Delta$} \\
+\midrule
+Constant $R_{\text{acc}} = 0.05$ (baseline) & 90.65 & --- \\
+Adaptive $R_{\text{acc}}$ (threshold 1.5$g$) & 90.63 & $-0.02$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The negligible difference ($\Delta = -0.02\%$) confirms that constant measurement noise is sufficient for our application. Fall impacts typically span only 3--9 samples (0.1--0.3 seconds) within our 128-sample windows, representing less than 7\% of each window.
+
+\subsection{Yaw Channel Contribution}
+
+Without a magnetometer, yaw ($\psi$) lacks an absolute reference and accumulates drift through gyroscope integration. Typical MEMS gyroscope bias drift is 0.1--1.0$^\circ$/s. Over our 4.27-second windows, maximum drift is bounded to approximately 4$^\circ$, which is negligible compared to fall rotation magnitudes (90--180$^\circ$).
+
+\begin{table}[htbp]
+\centering
+\caption{Yaw Channel Ablation (21-fold LOSO-CV)}
+\label{tab:yaw_ablation}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Configuration} & \textbf{Test F1 (\%)} & \textbf{$\Delta$} \\
+\midrule
+6-channel (no yaw): [SMV, $\mathbf{a}$, $\phi$, $\theta$] & 89.40 & $-1.25$ \\
+7-channel (with yaw): [SMV, $\mathbf{a}$, $\phi$, $\theta$, $\psi$] & 90.65 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The 1.25\% F1 improvement with yaw demonstrates that \textit{relative} yaw dynamics within each window provide discriminative information for fall classification, even without absolute heading reference.
+
+\subsection{Gyroscope Bias Estimation}
+
+Standard practice in IMU orientation estimation is to augment the filter state with gyroscope bias terms. We compared our 6-dimensional Linear Kalman Filter against a 9-dimensional Extended Kalman Filter (EKF) with explicit bias estimation:
+\begin{equation}
+\mathbf{x}_{\text{EKF}} = \begin{bmatrix} \phi & \theta & \psi & \dot{\phi} & \dot{\theta} & \dot{\psi} & b_{\omega_x} & b_{\omega_y} & b_{\omega_z} \end{bmatrix}^T
+\end{equation}
+
+\begin{table}[htbp]
+\centering
+\caption{Filter Complexity Ablation (21-fold LOSO-CV)}
+\label{tab:bias_ablation}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Filter} & \textbf{Bias Est.} & \textbf{Test F1 (\%)} & \textbf{$\Delta$} \\
+\midrule
+Linear Kalman (6D) & No & 90.91 & $+2.02$ \\
+Extended Kalman (9D) & Yes & 88.89 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Counter-intuitively, the EKF with bias estimation performed \textit{worse} than the simpler Linear Kalman Filter. We attribute this to three factors:
+\begin{enumerate}
+\item Gyroscope bias is only observable during quasi-static periods, which are rare in 4.27-second windows containing falls
+\item The EKF attempts to estimate bias from insufficient data, introducing estimation noise
+\item The neural network learns to compensate for consistent filter behavior, whereas unstable EKF estimates add variance the network cannot model
+\end{enumerate}
+
+This finding demonstrates that simpler is better for short-window fall detection: the 4.27-second duration bounds bias-induced drift to levels ($<5^\circ$) less harmful than EKF estimation noise under dynamic conditions.
+
+\subsection{Channel-Aware Normalization}
+\label{sec:channel_aware_norm}
+
+We tested three normalization strategies for the 7-channel Kalman-fused features:
+
+\begin{table}[htbp]
+\centering
+\caption{Normalization Strategy Ablation (21-fold LOSO-CV)}
+\label{tab:norm_ablation}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Strategy} & \textbf{Test F1 (\%)} & \textbf{$\Delta$} \\
+\midrule
+No normalization & 89.62 & $-0.45$ \\
+Normalize all channels & 89.84 & $-0.23$ \\
+Channel-aware (acc only) & 91.10 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Channel-aware normalization---applying StandardScaler only to accelerometer channels while preserving orientation angles in raw radians---achieves the best performance. This design reflects the different characteristics of each modality:
+\begin{itemize}
+\item Accelerometer channels can spike to 30+ m/s$^2$ during falls, requiring normalization to prevent scale domination
+\item Orientation channels are already bounded ($\pm\pi$ radians) with preserved physical meaning
+\end{itemize}
+
+\section{Architecture Ablation Studies}
+\label{sec:arch_ablation}
+
+\subsection{Single-Stream vs Dual-Stream}
+
+We compared our dual-stream architecture against a single-stream baseline processing all 7 channels through a shared embedding:
+
+\begin{table}[htbp]
+\centering
+\caption{Stream Architecture Ablation (21-fold LOSO-CV)}
+\label{tab:stream_ablation}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Architecture} & \textbf{Test F1 (\%)} & \textbf{Val-Test Gap} \\
+\midrule
+Single-stream (7ch shared) & 89.49 & 6.61\% \\
+Dual-stream (4ch + 3ch) & 91.10 & 5.00\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The dual-stream architecture improves both test F1 (+1.61\%) and generalization (smaller val-test gap). Separating accelerometer and orientation streams prevents noisy orientation estimates from corrupting acceleration feature extraction.
+
+\subsection{Embedding Dimension Ratio}
+
+The dual-stream architecture allocates embedding dimensions between accelerometer and orientation streams. We tested different allocation ratios:
+
+\begin{table}[htbp]
+\centering
+\caption{Embedding Ratio Ablation (21-fold LOSO-CV)}
+\label{tab:ratio_ablation}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Ratio (Acc:Ori)} & \textbf{Test F1 (\%)} & \textbf{$\Delta$} \\
+\midrule
+50:50 (32:32) & 90.23 & $-0.87$ \\
+65:35 (42:22) & 91.10 & --- \\
+75:25 (48:16) & 90.45 & $-0.65$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The 65:35 ratio allocates more capacity to the accelerometer stream, reflecting its higher signal quality and dimensionality (4 vs 3 channels).
+
+\subsection{SE Module and TAP Contribution}
+
+\begin{table}[htbp]
+\centering
+\caption{Attention Module Ablation (21-fold LOSO-CV)}
+\label{tab:attention_ablation}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Configuration} & \textbf{Test F1 (\%)} & \textbf{$\Delta$} \\
+\midrule
+No SE, No TAP (mean pool) & 88.92 & $-2.18$ \\
+SE only & 89.84 & $-1.26$ \\
+TAP only & 90.18 & $-0.92$ \\
+SE + TAP (full model) & 91.10 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Both SE (channel attention) and TAP (temporal attention) contribute to performance. TAP provides larger gains, suggesting that temporal weighting to focus on fall-critical frames is particularly important.

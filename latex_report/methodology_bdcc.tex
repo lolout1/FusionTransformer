@@ -1,0 +1,181 @@
+% Materials and Methods - BDCC Format
+% Combines dataset, preprocessing, architecture, and experimental setup
+
+%-------------------------------------------------------------------
+% 2.1 DATASET
+%-------------------------------------------------------------------
+\subsection{Dataset}
+\label{subsec:dataset}
+
+We evaluate our approach on the SmartFallMM dataset~\cite{ngu2022personalized}, a comprehensive multimodal benchmark for wearable fall detection. The dataset comprises recordings from 51 participants: 30 young adults (ages 18--35) and 21 older adults (ages 65+). Participants performed 14 activities including 9 activities of daily living (ADLs) and 5 fall types (forward, backward, left, right, and rotational falls).
+
+Inertial data was collected using commodity smartwatches at approximately 30~Hz sampling rate. Each recording captures triaxial accelerometer measurements ($a_x$, $a_y$, $a_z$) in m/s$^2$ and triaxial gyroscope measurements ($\omega_x$, $\omega_y$, $\omega_z$) in rad/s. All data was manually labeled by trained annotators who identified activity boundaries through visual inspection of sensor traces.
+
+For evaluation, we use 21 young adult subjects who performed both ADLs and fall activities, enabling balanced binary classification. Four subjects (29, 32, 35, 39) exhibit significant gyroscope sensor degradation and are excluded from the test set but retained for training, following established practices for handling noisy sensor data in wearable computing.
+
+%-------------------------------------------------------------------
+% 2.2 PREPROCESSING
+%-------------------------------------------------------------------
+\subsection{Preprocessing Pipeline}
+\label{subsec:preprocessing}
+
+Our preprocessing pipeline transforms raw sensor recordings into fixed-length windows suitable for neural network input. The pipeline consists of four stages: temporal alignment, normalization, windowing, and optional Kalman fusion.
+
+\subsubsection{Temporal Alignment}
+Raw accelerometer and gyroscope streams exhibit minor timestamp discrepancies due to independent sensor polling. We align streams using nearest-neighbor interpolation when timestamp differences exceed 10~ms, with simple truncation applied when stream lengths differ by fewer than 50 samples.
+
+\subsubsection{Normalization}
+We apply channel-aware normalization that respects the semantic meaning of different signal types. Accelerometer channels are standardized using z-score normalization ($\mu=0$, $\sigma=1$) computed across training subjects. Orientation angles from Kalman fusion are preserved in radians without normalization, as their natural range ($\pm\pi$) provides meaningful physical interpretation.
+
+\subsubsection{Sliding Window Segmentation}
+We segment continuous recordings into 128-sample windows (approximately 4.3 seconds at 30~Hz). To address class imbalance between falls (rare, brief events) and ADLs (frequent, extended activities), we employ class-aware stride: 16 samples for fall windows and 64 samples for ADL windows. This yields approximately balanced class distributions while preserving temporal context.
+
+\subsubsection{Signal Vector Magnitude}
+We compute the Signal Vector Magnitude (SMV) as an additional feature:
+\begin{equation}
+\text{SMV} = \sqrt{a_x^2 + a_y^2 + a_z^2}
+\label{eq:smv}
+\end{equation}
+SMV provides orientation-invariant impact magnitude, which is particularly discriminative for fall detection regardless of sensor mounting orientation.
+
+%-------------------------------------------------------------------
+% 2.3 KALMAN SENSOR FUSION
+%-------------------------------------------------------------------
+\subsection{Kalman Sensor Fusion}
+\label{subsec:kalman}
+
+The core innovation of our approach is transforming noisy gyroscope angular velocities into stable orientation estimates through Linear Kalman Filtering. This sensor fusion step addresses the fundamental challenge that raw gyroscope signals---while containing valuable rotational information---exhibit measurement noise and bias drift that corrupt accelerometer features when processed jointly.
+
+\subsubsection{State Representation}
+We model body orientation using a 6-dimensional state vector:
+\begin{equation}
+\vect{x} = \begin{bmatrix} \phi & \theta & \psi & \dot{\phi} & \dot{\theta} & \dot{\psi} \end{bmatrix}^\top
+\label{eq:state}
+\end{equation}
+where $\phi$, $\theta$, $\psi$ represent roll, pitch, and yaw angles in radians, and $\dot{\phi}$, $\dot{\theta}$, $\dot{\psi}$ represent their corresponding angular rates.
+
+\subsubsection{System Dynamics}
+The state transition follows constant-velocity kinematics:
+\begin{equation}
+\mat{F} = \begin{bmatrix} \mat{I}_3 & \Delta t \cdot \mat{I}_3 \\ \mat{0}_3 & \mat{I}_3 \end{bmatrix}
+\label{eq:transition}
+\end{equation}
+where $\Delta t = 1/30$~s corresponds to the sensor sampling period. This model assumes orientations evolve according to current angular rates, with the rate estimates providing predictive capability between measurements.
+
+\subsubsection{Observation Model}
+We fuse accelerometer and gyroscope measurements through a composite observation model:
+\begin{equation}
+\mat{H} = \begin{bmatrix} \mat{H}_\text{acc} \\ \mat{H}_\text{gyro} \end{bmatrix}
+\label{eq:observation}
+\end{equation}
+
+The accelerometer observation matrix $\mat{H}_\text{acc}$ relates gravity vector measurements to roll and pitch angles (yaw is unobservable from gravity alone). The gyroscope observation matrix $\mat{H}_\text{gyro}$ directly measures angular rates. This complementary fusion leverages accelerometer stability for absolute orientation reference while utilizing gyroscope responsiveness for dynamic motion tracking.
+
+\subsubsection{Noise Covariances}
+Process noise covariance $\mat{Q}$ and measurement noise covariance $\mat{R}$ are tuned empirically:
+\begin{align}
+\mat{Q} &= \text{diag}(0.005 \cdot \mat{I}_3, 0.01 \cdot \mat{I}_3) \\
+\mat{R} &= \text{diag}(0.05 \cdot \mat{I}_3, 0.1 \cdot \mat{I}_3)
+\end{align}
+Lower process noise for orientation ($Q_\phi = 0.005$) reflects our prior that body pose changes smoothly. Higher measurement noise for gyroscope ($R_\omega = 0.1$) accounts for MEMS sensor characteristics.
+
+\subsubsection{Output Representation}
+The Kalman filter outputs a 7-channel fused representation:
+\begin{equation}
+\vect{z}_\text{Kalman} = [\text{SMV}, a_x, a_y, a_z, \phi, \theta, \psi]
+\end{equation}
+This representation separates acceleration (capturing impact dynamics) from orientation (capturing body pose), enabling the dual-stream architecture to process each modality with appropriate inductive biases.
+
+%-------------------------------------------------------------------
+% 2.4 PROPOSED ARCHITECTURE
+%-------------------------------------------------------------------
+\subsection{Dual-Stream Transformer Architecture}
+\label{subsec:architecture}
+
+Our architecture processes accelerometer and orientation streams through separate encoder pathways before fusion, preventing cross-modal interference while enabling joint temporal pattern learning. Figure~\ref{fig:architecture} illustrates the complete model.
+
+\subsubsection{Input Projection}
+Each modality is projected to a shared embedding dimension through dedicated convolutional layers:
+\begin{align}
+\vect{h}_\text{acc} &= \text{BN}(\text{Conv1D}_{k=8}([\text{SMV}, a_x, a_y, a_z])) \in \mathbb{R}^{T \times d_\text{acc}} \\
+\vect{h}_\text{ori} &= \text{BN}(\text{Conv1D}_{k=8}([\phi, \theta, \psi])) \in \mathbb{R}^{T \times d_\text{ori}}
+\end{align}
+where $d_\text{acc} = d_\text{ori} = 32$ for balanced capacity allocation, and $k=8$ provides receptive field spanning approximately 0.27 seconds.
+
+\subsubsection{Stream Fusion}
+Projected streams are concatenated along the channel dimension:
+\begin{equation}
+\vect{h}_\text{fused} = \text{LayerNorm}([\vect{h}_\text{acc}; \vect{h}_\text{ori}]) \in \mathbb{R}^{T \times 64}
+\end{equation}
+
+\subsubsection{Transformer Encoder}
+The fused representation is processed by a 2-layer transformer encoder:
+\begin{equation}
+\vect{h}_\text{enc} = \text{TransformerEncoder}(\vect{h}_\text{fused})
+\end{equation}
+with configuration: $d_\text{model}=64$, $n_\text{heads}=4$, $d_\text{ff}=128$, and pre-norm residual connections. Multi-head self-attention enables the model to capture long-range temporal dependencies characteristic of fall events.
+
+\subsubsection{Squeeze-and-Excitation Attention}
+Following the transformer encoder, we apply Squeeze-and-Excitation (SE) channel attention~\cite{hu2018squeeze} to recalibrate feature channel importance:
+\begin{align}
+\vect{s} &= \text{GlobalAvgPool}(\vect{h}_\text{enc}) \in \mathbb{R}^{64} \\
+\vect{e} &= \sigma(\mat{W}_2 \cdot \text{ReLU}(\mat{W}_1 \cdot \vect{s})) \\
+\hat{\vect{h}} &= \vect{e} \odot \vect{h}_\text{enc}
+\end{align}
+where $\mat{W}_1 \in \mathbb{R}^{16 \times 64}$ and $\mat{W}_2 \in \mathbb{R}^{64 \times 16}$ implement a bottleneck with reduction ratio $r=4$. SE attention learns to emphasize channels most discriminative for fall detection.
+
+\subsubsection{Temporal Attention Pooling}
+Rather than mean pooling across time, we employ learned temporal attention to focus on the most discriminative timesteps:
+\begin{align}
+\alpha_t &= \frac{\exp(\vect{w}^\top \tanh(\mat{W}_a \vect{h}_t))}{\sum_{t'} \exp(\vect{w}^\top \tanh(\mat{W}_a \vect{h}_{t'}))} \\
+\vect{c} &= \sum_t \alpha_t \vect{h}_t
+\end{align}
+This attention mechanism typically assigns high weights to the impact phase of falls, where acceleration spikes and orientation changes are most pronounced.
+
+\subsubsection{Classification Head}
+The attended representation is classified through a dropout-regularized linear layer:
+\begin{equation}
+\hat{y} = \sigma(\mat{W}_c \cdot \text{Dropout}_{0.5}(\vect{c}))
+\end{equation}
+
+%-------------------------------------------------------------------
+% 2.5 TRAINING
+%-------------------------------------------------------------------
+\subsection{Training Configuration}
+\label{subsec:training}
+
+\subsubsection{Loss Function}
+We optimize using Focal Loss~\cite{lin2017focal} to address residual class imbalance:
+\begin{equation}
+\mathcal{L}_\text{focal} = -\alpha (1 - p_t)^\gamma \log(p_t)
+\end{equation}
+with $\alpha = 0.75$ and $\gamma = 2.0$. Focal loss down-weights well-classified examples, focusing optimization on hard cases near the decision boundary.
+
+\subsubsection{Optimization}
+Models are trained using AdamW optimizer with learning rate $\eta = 10^{-3}$ and weight decay $\lambda = 10^{-3}$. Training proceeds for 80 epochs with batch size 64. No learning rate scheduling is applied.
+
+\subsubsection{Regularization}
+Dropout ($p=0.5$) is applied before the classification layer. Batch normalization after input projections provides implicit regularization and training stability.
+
+%-------------------------------------------------------------------
+% 2.6 EVALUATION PROTOCOL
+%-------------------------------------------------------------------
+\subsection{Evaluation Protocol}
+\label{subsec:evaluation}
+
+\subsubsection{Leave-One-Subject-Out Cross-Validation}
+We employ 21-fold Leave-One-Subject-Out Cross-Validation (LOSO-CV), where each fold holds out one subject for testing while training on the remaining 20 subjects. This protocol evaluates generalization to unseen individuals, which is critical for real-world deployment where the system must recognize falls from users not present during training.
+
+Two subjects (48, 57) are reserved for validation and hyperparameter selection across all folds, ensuring no data leakage. Final reported metrics are computed by aggregating predictions across all 21 test subjects.
+
+\subsubsection{Metrics}
+We report F1 score as the primary metric, computed as:
+\begin{equation}
+\text{F1} = \frac{2 \cdot \text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}}
+\end{equation}
+F1 score balances precision (minimizing false alarms) and recall (detecting all falls), which is appropriate for safety-critical applications where both missed detections and false alerts have significant costs.
+
+We additionally report accuracy, precision, recall, and area under the ROC curve (AUC) for comprehensive evaluation.
+
+\subsubsection{Statistical Analysis}
+To assess result reliability, we report 95\% confidence intervals computed via bootstrap resampling (1000 iterations) over subject-level F1 scores. We perform paired t-tests to evaluate statistical significance of performance differences between model variants.
