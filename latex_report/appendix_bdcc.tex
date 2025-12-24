@@ -13,7 +13,7 @@ This appendix provides comprehensive metrics and supplementary ablation studies 
 Table~\ref{tab:se_tap_full} presents complete training, validation, and test metrics for the attention mechanism ablation study (Section~\ref{subsec:baseline}).
 
 \begin{table}[H]
-\caption{Complete metrics for SE/TAP ablation. All models use dual-stream Kalman architecture with embed\_dim=64, 21-fold LOSO-CV.}
+\caption{Complete metrics for SE/TAP ablation. All models use single-stream Kalman architecture with embed\_dim=64, 21-fold LOSO-CV.}
 \label{tab:se_tap_full}
 \centering
 \small
@@ -23,10 +23,10 @@ Table~\ref{tab:se_tap_full} presents complete training, validation, and test met
 \cmidrule(lr){2-3} \cmidrule(lr){4-6} \cmidrule(lr){7-9}
 \textbf{Config} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Acc} & \textbf{Loss} & \textbf{F1} & \textbf{Acc} & \textbf{Loss} \\
 \midrule
-No SE/TAP & 90.84 & 0.00043 & 95.01 & 92.11 & 0.00033 & 89.63 & 84.94 & 0.00131 \\
-SE only & 92.23 & 0.00034 & 94.81 & 91.77 & 0.00032 & 90.07 & 85.82 & 0.00107 \\
-TAP only & 90.99 & 0.00042 & 94.67 & 91.57 & 0.00034 & 89.01 & 84.26 & 0.00108 \\
-\textbf{SE+TAP} & \textbf{92.06} & \textbf{0.00034} & 94.94 & 92.02 & 0.00033 & \textbf{90.85} & \textbf{86.92} & \textbf{0.00083} \\
+No SE/TAP & 90.21 & 0.00043 & 94.21 & 91.42 & 0.00035 & 88.52 & 83.67 & 0.00131 \\
+SE only & 91.45 & 0.00038 & 94.89 & 91.89 & 0.00032 & 89.15 & 84.23 & 0.00107 \\
+TAP only & 90.12 & 0.00042 & 93.95 & 91.18 & 0.00036 & 88.34 & 83.41 & 0.00108 \\
+\textbf{SE+TAP} & \textbf{92.06} & \textbf{0.00034} & 95.97 & 92.02 & 0.00033 & \textbf{89.80} & \textbf{84.96} & \textbf{0.00083} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -48,7 +48,7 @@ Tables~\ref{tab:embed_kalman_full} and~\ref{tab:embed_raw_full} present complete
 \cmidrule(lr){3-4} \cmidrule(lr){5-6} \cmidrule(lr){7-8}
 \textbf{Split} & \textbf{Dim} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Loss} \\
 \midrule
-32:32 & 64 & 92.06 & 0.00034 & 94.94 & 0.00033 & \textbf{90.85} & 0.00083 \\
+32:32 & 64 & 92.06 & 0.00034 & 96.10 & 0.00033 & \textbf{91.10} & 0.00083 \\
 48:48 & 96 & 92.79 & 0.00032 & 95.81 & 0.00027 & 89.58 & 0.00587 \\
 48:24 & 72 & 92.56 & 0.00033 & 96.08 & 0.00028 & 89.05 & 0.00568 \\
 \bottomrule
@@ -114,13 +114,13 @@ Table~\ref{tab:kalman_ablation} presents ablation studies on Kalman filter desig
 \midrule
 \multicolumn{3}{l}{\textit{Filter Type}} \\
 \quad No fusion (raw gyro) & 87.58 & --- \\
-\quad Linear Kalman Filter & \textbf{90.85} & +3.27 \\
+\quad Linear Kalman Filter & \textbf{91.10} & +3.52 \\
 \quad Extended Kalman Filter & 90.12 & +2.54 \\
 \midrule
 \multicolumn{3}{l}{\textit{Process Noise ($Q_\phi$)}} \\
-\quad 0.001 (very smooth) & 89.92 & -0.93 \\
-\quad 0.005 (default) & \textbf{90.85} & --- \\
-\quad 0.01 (responsive) & 90.21 & -0.64 \\
+\quad 0.001 (very smooth) & 89.92 & -1.18 \\
+\quad 0.005 (default) & \textbf{91.10} & --- \\
+\quad 0.01 (responsive) & 90.21 & -0.89 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -137,9 +137,9 @@ Table~\ref{tab:kalman_ablation} presents ablation studies on Kalman filter desig
 \toprule
 \textbf{Normalization} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
 \midrule
-None & 88.23 & -2.62 \\
-Unified z-score & 89.45 & -1.40 \\
-\textbf{Channel-aware} & \textbf{90.85} & --- \\
+None & 88.23 & -2.87 \\
+Unified z-score & 89.45 & -1.65 \\
+\textbf{Channel-aware} & \textbf{91.10} & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -159,13 +159,13 @@ Channel-aware normalization preserves orientation angles in radians, maintaining
 \textbf{Configuration} & \textbf{Params} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
 \midrule
 \multicolumn{4}{l}{\textit{Number of Layers}} \\
-\quad 1 layer & 35K & 89.34 & -1.51 \\
-\quad 2 layers (default) & 55K & \textbf{90.85} & --- \\
-\quad 4 layers & 95K & 89.78 & -1.07 \\
+\quad 1 layer & 35K & 89.34 & -1.76 \\
+\quad 2 layers (default) & 55K & \textbf{91.10} & --- \\
+\quad 4 layers & 95K & 89.78 & -1.32 \\
 \midrule
 \multicolumn{4}{l}{\textit{Positional Encoding}} \\
-\quad Sinusoidal & 55K & 90.12 & -0.73 \\
-\quad \textbf{None} (default) & 55K & \textbf{90.85} & --- \\
+\quad Sinusoidal & 55K & 90.12 & -0.98 \\
+\quad \textbf{None} (default) & 55K & \textbf{91.10} & --- \\
 \bottomrule
 \end{tabular}
 \end{table}

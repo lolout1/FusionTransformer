@@ -17,15 +17,15 @@ We first establish baseline performance using single-stream transformer architec
 \toprule
 \textbf{Model} & \textbf{SE} & \textbf{TAP} & \textbf{Test F1} & \textbf{Test Acc} & \textbf{Val F1} & \textbf{$\Delta$F1} \\
 \midrule
-Transformer (no attention) & \ding{55} & \ding{55} & 89.63 & 84.94 & 95.01 & --- \\
-Transformer + SE & \ding{51} & \ding{55} & 90.07 & 85.82 & 94.81 & +0.44 \\
-Transformer + TAP & \ding{55} & \ding{51} & 89.01 & 84.26 & 94.67 & $-$0.62 \\
-\textbf{Transformer + SE + TAP} & \ding{51} & \ding{51} & \textbf{90.85} & \textbf{86.92} & 94.94 & \textbf{+1.22} \\
+Transformer (no attention) & \ding{55} & \ding{55} & 88.52 & 83.67 & 94.21 & --- \\
+Transformer + SE & \ding{51} & \ding{55} & 89.15 & 84.23 & 94.89 & +0.63 \\
+Transformer + TAP & \ding{55} & \ding{51} & 88.34 & 83.41 & 93.95 & $-$0.18 \\
+\textbf{Transformer + SE + TAP} & \ding{51} & \ding{51} & \textbf{89.80} & \textbf{84.96} & 95.97 & \textbf{+1.28} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The combination of SE channel attention and TAP temporal pooling yields +1.22\% F1 improvement over the baseline transformer. SE attention alone provides +0.44\% F1, while TAP alone shows marginal degradation, suggesting that temporal attention benefits from channel-recalibrated features.
+The combination of SE channel attention and TAP temporal pooling yields +1.28\% F1 improvement over the baseline transformer. SE attention alone provides +0.63\% F1, while TAP alone shows marginal degradation, suggesting that temporal attention benefits from channel-recalibrated features.
 
 %-------------------------------------------------------------------
 % 3.2 DUAL-STREAM VS SINGLE-STREAM (KALMAN INPUT)
@@ -49,7 +49,7 @@ Single-Stream Kalman & 64 (shared) & 89.80 & 84.96 & 95.97 & --- \\
 \end{tabular}
 \end{table}
 
-Dual-stream processing provides +1.05\% F1 improvement over single-stream when using Kalman-fused input. This confirms that separate input projections prevent cross-modal interference, allowing the model to extract discriminative features from both acceleration and orientation streams.
+Dual-stream processing provides +1.30\% F1 improvement over single-stream when using Kalman-fused input. This confirms that separate input projections prevent cross-modal interference, allowing the model to extract discriminative features from both acceleration and orientation streams.
 
 %-------------------------------------------------------------------
 % 3.3 DUAL-STREAM VS SINGLE-STREAM (RAW INPUT)
