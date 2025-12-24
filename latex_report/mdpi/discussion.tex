@@ -4,16 +4,16 @@
 %-------------------------------------------------------------------
 % 4.1 KEY FINDINGS
 %-------------------------------------------------------------------
-\subsection{Summary of Findings}
+\subsection{Principal Mechanisms}
 \label{subsec:findings}
 
-This work establishes three principal findings regarding IMU-based fall detection with commodity wearable sensors:
+Our experiments reveal three principal mechanisms enabling effective IMU-based fall detection with commodity sensors:
 
-\textbf{(1) Raw gyroscope data degrades performance in single-stream architectures.} Our preliminary analysis revealed that adding raw gyroscope channels to accelerometer-only models reduces F1 score by 1.6--2.0\%, contradicting the intuitive expectation that additional sensor modalities should improve classification. This degradation occurs because consumer-grade MEMS gyroscopes exhibit substantial measurement noise. When processed jointly with accelerometer signals through shared convolutional layers, this noise propagates through the network and corrupts discriminative acceleration features.
+\textbf{(1) Signal transformation outperforms noise filtering.} Rather than attempting to denoise raw gyroscope signals---a challenging task given the low signal-to-noise ratio of consumer MEMS sensors---we transform them into orientation estimates via Kalman fusion. This produces semantically meaningful features (body pose angles) that enable discriminative learning. The key insight is that \textit{what position the body is in} matters more for fall classification than \textit{how fast it is rotating}.
 
-\textbf{(2) Kalman sensor fusion transforms gyroscope liabilities into assets.} By applying Linear Kalman Filtering to fuse accelerometer and gyroscope measurements, we transform noisy angular velocities into stable orientation estimates. The resulting roll, pitch, and yaw angles provide semantically meaningful body pose information that captures \textit{what position the body is in} rather than \textit{how fast it is rotating}. This transformation enables effective multi-modal learning, improving F1 score by +0.84\% in single-stream architectures (88.96\% $\rightarrow$ 89.80\%) and enabling the full +3.52\% improvement in dual-stream architectures (87.58\% $\rightarrow$ 91.10\%).
+\textbf{(2) Modality isolation during feature extraction.} Dual-stream architecture prevents gradient flow from orientation channels from affecting accelerometer representations during early network layers. This isolation is critical because acceleration features (impact magnitude, trajectory) are highly discriminative but susceptible to corruption when jointly processed with noisier orientation estimates. By dedicating separate Conv1D weights to each modality, the accelerometer stream learns specialized impact detection filters.
 
-\textbf{(3) Dual-stream architecture prevents cross-modal interference.} Processing accelerometer and orientation streams through separate encoder pathways before fusion yields +1.30\% F1 improvement over single-stream Kalman alternatives (89.80\% $\rightarrow$ 91.10\%). This architectural choice is particularly important when modalities exhibit different noise characteristics: the dual-stream design prevents noisy channels from corrupting clean channels during early feature extraction.
+\textbf{(3) Quality-gated fusion benefits.} The benefit of dual-stream processing depends critically on input quality. With raw gyroscope input, dedicating separate capacity to the orientation stream allows the network to learn noise patterns rather than useful features, actually \textit{degrading} performance ($-$1.38\% F1). With Kalman-fused orientation, the high-quality pose features justify dedicated encoding capacity, yielding +1.30\% F1 improvement. This interaction effect suggests that multi-stream architectures require preprocessing strategies matched to input signal quality.
 
 %-------------------------------------------------------------------
 % 4.2 WHY KALMAN FUSION WORKS
