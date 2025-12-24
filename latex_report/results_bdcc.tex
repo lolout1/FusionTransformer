@@ -44,7 +44,7 @@ Having established baseline performance, we now compare single-stream and dual-s
 \textbf{Architecture} & \textbf{Embed Split} & \textbf{Test F1} & \textbf{Test Acc} & \textbf{Val F1} & \textbf{$\Delta$F1} \\
 \midrule
 Single-Stream Kalman & 64 (shared) & 89.80 & 84.96 & 95.97 & --- \\
-\textbf{Dual-Stream Kalman} & 32:32 & \textbf{90.85} & \textbf{86.92} & 94.94 & \textbf{+1.05} \\
+\textbf{Dual-Stream Kalman} & 32:32 & \textbf{91.10} & \textbf{87.30} & 96.10 & \textbf{+1.30} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -97,7 +97,7 @@ Raw Gyroscope & Single-Stream & 88.96 & 92.83 & --- \\
 Kalman Fusion & Single-Stream & 89.80 & 95.97 & +0.84 \\
 \midrule
 Raw Gyroscope & Dual-Stream & 87.58 & 92.47 & --- \\
-\textbf{Kalman Fusion} & \textbf{Dual-Stream} & \textbf{90.85} & 94.94 & \textbf{+3.27} \\
+\textbf{Kalman Fusion} & \textbf{Dual-Stream} & \textbf{91.10} & 96.10 & \textbf{+3.52} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -127,7 +127,7 @@ We investigate how capacity allocation between streams affects performance. Tabl
 \textbf{Input} & \textbf{Embed (acc:ori/gyro)} & \textbf{Total Dim} & \textbf{Test F1} & \textbf{Val F1} \\
 \midrule
 \multicolumn{5}{l}{\textit{Kalman-fused orientation:}} \\
-Kalman & 32:32 (balanced) & 64 & \textbf{90.85} & 94.94 \\
+Kalman & 32:32 (balanced) & 64 & \textbf{91.10} & 96.10 \\
 Kalman & 48:48 (balanced) & 96 & 89.58 & 95.81 \\
 Kalman & 48:24 (acc-heavy) & 72 & 89.05 & 96.08 \\
 \midrule
@@ -139,7 +139,7 @@ Raw & 24:48 (gyro-heavy) & 72 & 88.06 & 92.33 \\
 \end{tabular}
 \end{table}
 
-For Kalman-fused input, balanced allocation (32:32) with total dimension 64 achieves the best test F1 (90.85\%). Increasing total capacity to 96 dimensions does not improve performance, suggesting the model is not capacity-limited but rather benefits from the regularization effect of smaller embeddings.
+For Kalman-fused input, balanced allocation (32:32) with total dimension 64 and channel-aware normalization (acc\_only) achieves the best test F1 (91.10\%). Increasing total capacity to 96 dimensions does not improve performance, suggesting the model is not capacity-limited but rather benefits from the regularization effect of smaller embeddings.
 
 For raw gyroscope input, allocating more capacity to the gyroscope stream (24:48) slightly improves performance, but all raw configurations underperform Kalman-fused variants.
 
@@ -152,12 +152,12 @@ For raw gyroscope input, allocating more capacity to the gyroscope stream (24:48
 Our experiments reveal three key findings:
 
 \begin{enumerate}
-    \item \textbf{Kalman fusion is essential}: Raw gyroscope input degrades performance due to noise contamination. Kalman fusion transforms this noisy signal into stable orientation estimates, enabling +3.27\% F1 improvement in dual-stream architectures.
+    \item \textbf{Kalman fusion is essential}: Raw gyroscope input degrades performance due to noise contamination. Kalman fusion transforms this noisy signal into stable orientation estimates, enabling +3.52\% F1 improvement in dual-stream architectures.
 
-    \item \textbf{Dual-stream requires quality input}: Dual-stream architecture only provides benefit when input streams are high-quality. With raw gyroscope, dual-stream hurts performance ($-$1.38\% F1); with Kalman fusion, it helps (+1.05\% F1).
+    \item \textbf{Dual-stream requires quality input}: Dual-stream architecture only provides benefit when input streams are high-quality. With raw gyroscope, dual-stream hurts performance ($-$1.38\% F1); with Kalman fusion, it helps (+1.30\% F1).
 
-    \item \textbf{Attention mechanisms complement architecture}: SE+TAP attention provides +1.22\% F1 on top of architectural improvements, with SE and TAP exhibiting synergy rather than independent contributions.
+    \item \textbf{Channel-aware normalization matters}: Applying z-score normalization only to accelerometer channels while preserving orientation in radians improves performance by maintaining the physical meaning of orientation angles ($\phi = 0$ means upright).
 \end{enumerate}
 
-The best configuration---dual-stream Kalman transformer with SE+TAP attention and 32:32 embedding split---achieves \textbf{90.85\% test F1} on 21-fold LOSO cross-validation.
+The best configuration---dual-stream Kalman transformer with SE+TAP attention, 32:32 embedding split, and channel-aware normalization---achieves \textbf{91.10\% test F1} (96.10\% val F1) on 21-fold LOSO cross-validation.
 
