@@ -8,7 +8,43 @@
 \subsection{Dataset}
 \label{subsec:dataset}
 
-We evaluate on the SmartFallMM dataset~\cite{ngu2022personalized}, comprising 51 participants (30 young adults ages 18--35, 21 older adults ages 65+) performing 14 activities: 9 ADLs and 5 fall types. Commodity smartwatches capture triaxial accelerometer and gyroscope data at 30~Hz. We use 21 young subjects for evaluation via Leave-One-Subject-Out cross-validation, with subjects 48 and 57 held for validation.
+We evaluate on the SmartFallMM dataset~\cite{ngu2022personalized}, comprising 51 participants (30 young adults ages 18--35, 21 older adults ages 65+) performing 14 activities: 9 ADLs (drinking water, picking up objects, putting on jacket, sweeping, hand washing, waving, walking, sitting, standing) and 5 fall types (forward, backward, left, right, rotational). Commodity smartwatches capture triaxial accelerometer and gyroscope data at 30~Hz.
+
+\subsubsection{Subject Selection and Data Splits}
+
+Table~\ref{tab:subjects} presents our subject selection criteria. Of the 30 young subjects with multimodal-ready data (complete accelerometer and gyroscope recordings), we use 21 for Leave-One-Subject-Out cross-validation testing, with 2 subjects (48 and 57) held as a fixed validation set across all folds.
+
+\begin{table}[H]
+\caption{Subject selection for evaluation. All subjects are young adults (ages 18--35) with complete IMU recordings from smartwatch.}
+\label{tab:subjects}
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Role} & \textbf{Subject IDs} & \textbf{Count} \\
+\midrule
+Test (LOSO-CV rotation) & 31, 34, 36--38, 43--44, 46, 49--56, 58, 60--63 & 21 \\
+Validation (fixed) & 48, 57 & 2 \\
+Excluded (incomplete data) & 29, 30, 32, 35, 39, 45, 59 & 7 \\
+\midrule
+\textbf{Total multimodal-ready} & & \textbf{30} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Validation protocol clarification.} The fixed validation subjects (48, 57) are used \textit{exclusively} for early stopping during training. No hyperparameter tuning is performed using validation data---all architectural decisions (embedding dimensions, dropout rates, attention mechanisms) were fixed prior to evaluation. This design prevents information leakage and ensures reported test metrics reflect true generalization.
+
+\subsubsection{Data Segmentation}
+
+We segment continuous sensor streams into fixed-length windows for classification:
+
+\begin{itemize}
+    \item \textbf{Window size:} 128 frames ($\approx$4.27 seconds at 30 Hz)
+    \item \textbf{Stride:} Class-aware---64 frames for ADLs, 16 frames for falls
+    \item \textbf{Rationale:} Smaller fall stride captures more training examples from the minority class, partially addressing class imbalance before loss-level weighting
+\end{itemize}
+
+The class-aware stride yields approximately 3,200 ADL windows and 1,800 fall windows per fold, with Focal Loss providing additional imbalance handling during training.
 
 %-------------------------------------------------------------------
 % 2.2 SENSOR FUSION STRATEGY
@@ -31,8 +67,8 @@ Rather than discarding gyroscope data, we propose \textit{fusing} both sensors t
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.9\textwidth]{preprocessing_pipeline.png}
-\caption{Preprocessing pipeline for IMU data. Raw accelerometer and gyroscope signals are fused through a Linear Kalman Filter to produce stable orientation estimates (roll, pitch, yaw). The output 7-channel representation combines acceleration features with body pose information.}
+\includegraphics[width=\textwidth]{preprocessing_pipeline.png}
+\caption{\textbf{Preprocessing pipeline for IMU-based fall detection.} Raw triaxial accelerometer ($a_x, a_y, a_z$) and gyroscope ($\omega_x, \omega_y, \omega_z$) signals from a smartwatch are processed through a Linear Kalman Filter. The filter fuses both modalities to produce stable orientation estimates (roll $\phi$, pitch $\theta$, yaw $\psi$) while filtering gyroscope noise and correcting drift. The final 7-channel representation [SMV, $a_x$, $a_y$, $a_z$, $\phi$, $\theta$, $\psi$] combines impact dynamics (acceleration) with body pose information (orientation), enabling the neural network to learn both \textit{how hard} and \textit{in what direction} a fall occurs.}
 \label{fig:preprocessing}
 \end{figure}
 
@@ -69,18 +105,51 @@ where $\mathbf{z}_k$ contains both accelerometer-derived angles and gyroscope ra
 \begin{itemize}
     \item $\phi$ (roll): Left/right tilt. Increases during lateral falls.
     \item $\theta$ (pitch): Forward/backward tilt. Increases during forward falls.
-    \item $\psi$ (yaw): Horizontal heading. Less informative (no gravity reference).
+    \item $\psi$ (yaw): Horizontal heading. \textit{Note:} Yaw is unobservable from gravity alone; we integrate gyroscope angular velocity without accelerometer correction, acknowledging potential drift for long sequences.
 \end{itemize}
 
 Unlike raw gyroscope values that indicate \textit{how fast} the body rotates, orientation angles indicate \textit{what position} the body is in---a semantically richer representation for fall classification.
+
+\textbf{Accelerometer-Derived Reference Angles.} To update the Kalman filter, we compute reference roll and pitch from accelerometer readings:
+\begin{align}
+\phi_\text{acc} &= \text{atan2}(a_y, \sqrt{a_x^2 + a_z^2}) \\
+\theta_\text{acc} &= \text{atan2}(-a_x, a_z)
+\end{align}
+These formulas assume the accelerometer measures primarily gravity when stationary. During dynamic motion (falls, vigorous ADLs), linear acceleration contaminates these estimates, which the Kalman filter handles by adjusting measurement noise.
+
+\textbf{Measurement Model.} The observation vector and measurement matrix are:
+\begin{equation}
+\mathbf{z}_k = [\phi_\text{acc}, \theta_\text{acc}, \omega_x, \omega_y, \omega_z]^\top, \quad
+\mathbf{H} = \begin{bmatrix} 1 & 0 & 0 & 0 & 0 & 0 \\ 0 & 1 & 0 & 0 & 0 & 0 \\ 0 & 0 & 0 & 1 & 0 & 0 \\ 0 & 0 & 0 & 0 & 1 & 0 \\ 0 & 0 & 0 & 0 & 0 & 1 \end{bmatrix}
+\end{equation}
+
+\textbf{Filter Parameters.} Process and measurement noise covariances:
+\begin{itemize}
+    \item Process noise: $Q_\phi = 0.005$ (orientation), $Q_{\dot\phi} = 0.01$ (angular rate)
+    \item Measurement noise: $R_\text{acc} = 0.05$, $R_\text{gyro} = 0.1$
+\end{itemize}
+These values were determined empirically to balance responsiveness against noise filtering.
 
 \subsubsection{Feature Representation}
 
 After Kalman fusion, we construct a 7-channel feature vector per timestep:
 \begin{equation}
-\mathbf{z} = [\underbrace{\text{SMV}, a_x, a_y, a_z}_{\text{acceleration (4ch)}}, \underbrace{\phi, \theta, \psi}_{\text{orientation (3ch)}}]
+\mathbf{f} = [\underbrace{\text{SMV}, a_x, a_y, a_z}_{\text{acceleration (4ch)}}, \underbrace{\phi, \theta, \psi}_{\text{orientation (3ch)}}]
 \end{equation}
-where $\text{SMV} = \sqrt{a_x^2 + a_y^2 + a_z^2}$ is the signal vector magnitude. This representation cleanly separates impact dynamics (acceleration) from body pose (orientation).
+where $\text{SMV} = \sqrt{a_x^2 + a_y^2 + a_z^2}$ is the signal magnitude vector. This representation cleanly separates impact dynamics (acceleration) from body pose (orientation).
+
+\subsubsection{Channel-Aware Normalization}
+
+A critical preprocessing detail: we apply \textbf{different normalization strategies} to acceleration and orientation channels:
+
+\begin{itemize}
+    \item \textbf{Acceleration channels} (SMV, $a_x$, $a_y$, $a_z$): Standard z-score normalization using training set statistics (mean=0, std=1)
+    \item \textbf{Orientation channels} ($\phi$, $\theta$, $\psi$): \textbf{No normalization}---kept in raw radians
+\end{itemize}
+
+\textbf{Rationale.} Orientation angles have inherent physical meaning: $\phi = 0$ indicates the wrist is level, $\theta = \pm\pi/2$ indicates vertical orientation. Z-score normalization would destroy this semantic structure by centering around the training mean (which varies by subject posture habits). By preserving raw radians, the neural network can learn physically meaningful patterns (e.g., ``pitch angle exceeds 1.0 radian during forward falls'').
+
+This ``channel-aware'' normalization contributes +0.23\% F1 improvement over unified normalization (91.10\% vs. 90.87\%), a small but consistent gain across folds.
 
 %-------------------------------------------------------------------
 % 2.3 DUAL-STREAM ARCHITECTURE
@@ -92,8 +161,8 @@ With our 7-channel Kalman-fused representation, we now describe the neural archi
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.85\textwidth]{arch_dual_stream_kalman.png}
-\caption{Dual-stream Kalman transformer architecture. The accelerometer stream (SMV, $a_x$, $a_y$, $a_z$) and orientation stream ($\phi$, $\theta$, $\psi$) are processed through separate Conv1D projections with modality-specific normalization. Features are concatenated and passed through a transformer encoder with Squeeze-and-Excitation (SE) channel attention and Temporal Attention Pooling (TAP) for classification.}
+\includegraphics[width=\textwidth]{arch_dual_stream_kalman.png}
+\caption{\textbf{Dual-stream Kalman transformer architecture.} \textbf{Left:} The accelerometer stream (4 channels: SMV, $a_x$, $a_y$, $a_z$) and orientation stream (3 channels: $\phi$, $\theta$, $\psi$) are processed through \textit{separate} Conv1D projection layers (kernel size 8, stride 1, same padding), each with dedicated batch normalization and dropout. This separation prevents noisy orientation features from corrupting acceleration representations. \textbf{Center:} Projected features are concatenated (64 dimensions total, 32:32 split) and processed by a 2-layer transformer encoder with 4 attention heads, enabling cross-modal temporal pattern learning. \textbf{Right:} Squeeze-and-Excitation (SE) attention recalibrates channel importance, followed by Temporal Attention Pooling (TAP) which focuses on discriminative timesteps (typically the impact phase). Final classification uses a single linear layer with sigmoid activation. Total parameters: $\sim$73K.}
 \label{fig:architecture}
 \end{figure}
 
@@ -274,15 +343,17 @@ TAP typically assigns high attention to the impact phase of falls, where acceler
 
 \textbf{Loss Function.} We use Focal Loss with $\alpha=0.75$, $\gamma=2.0$ to handle class imbalance, down-weighting well-classified examples to focus on hard cases.
 
-\textbf{Optimization.} AdamW optimizer with learning rate $10^{-3}$, weight decay $10^{-3}$, batch size 64, trained for 80 epochs.
+\textbf{Optimization.} AdamW optimizer with learning rate $10^{-3}$, weight decay $5 \times 10^{-4}$, batch size 64, trained for 80 epochs.
 
 \textbf{Regularization.} Dropout ($p=0.5$) before classification; batch normalization in stream encoders.
 
 \subsection{Evaluation Protocol}
 \label{subsec:evaluation}
 
-\textbf{Cross-Validation.} 21-fold Leave-One-Subject-Out CV evaluates generalization to unseen individuals. Subjects 48 and 57 are held for validation across all folds.
+\textbf{Cross-Validation.} 21-fold Leave-One-Subject-Out CV evaluates generalization to unseen individuals. In each fold, one subject's data serves as test set, subjects 48 and 57 provide validation data for early stopping, and remaining subjects form the training set.
 
-\textbf{Metrics.} F1 score (primary), with precision, recall, accuracy, and AUC reported. 95\% confidence intervals via bootstrap resampling.
+\textbf{Metrics.} F1 score serves as the primary metric due to class imbalance (approximately 65\% ADL, 35\% fall windows). We also report precision, recall, accuracy, and AUC-ROC.
 
-\textbf{Statistical Testing.} Paired t-tests assess significance of performance differences between model variants.
+\textbf{Confidence Intervals.} 95\% CIs are computed over the 21 fold-level F1 scores (not window-level predictions), ensuring statistical independence between samples. Standard error is $\text{SE} = \sigma / \sqrt{21}$ where $\sigma$ is the standard deviation across folds.
+
+\textbf{Statistical Testing.} Paired t-tests ($n=21$ folds) assess significance of performance differences between model variants, with Holm-Bonferroni correction for multiple comparisons when comparing more than two configurations.

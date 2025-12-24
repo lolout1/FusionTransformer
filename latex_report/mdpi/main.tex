@@ -72,7 +72,7 @@ $^{2}$ \quad Affiliation 2, City, Country}
 % - Must be self-contained
 %=================================================================
 \abstract{
-Wearable fall detection systems face a fundamental challenge: while gyroscope data provides valuable orientation information, naively combining it with accelerometer data degrades performance due to noise contamination. We present a dual-stream transformer architecture addressing this through two innovations. First, we employ Kalman sensor fusion to transform noisy gyroscope angular velocities into stable orientation estimates (roll, pitch, yaw), producing semantically meaningful features capturing body pose during falls. Second, we process accelerometer and orientation streams through separate encoder pathways before fusion, preventing cross-modal interference. Our architecture incorporates Squeeze-and-Excitation channel attention and Temporal Attention Pooling to focus on fall-critical temporal patterns. Evaluated on the SmartFallMM dataset using 21-fold Leave-One-Subject-Out cross-validation, our dual-stream Kalman transformer achieves 91.10\% F1 score, outperforming single-stream transformers (89.80\% F1) by 1.30\%. Ablation studies confirm that Kalman fusion contributes 1.61\% F1 improvement and dual-stream processing contributes 1.30\% F1 improvement. These results establish a new state-of-the-art for inertial measurement unit-based fall detection on commodity wearable devices.
+Wearable fall detection systems face a fundamental challenge: while gyroscope data provides valuable orientation information, naively combining it with accelerometer data degrades performance due to noise contamination. We present a dual-stream transformer architecture addressing this through two innovations. First, we employ Kalman sensor fusion to transform noisy gyroscope angular velocities into stable orientation estimates (roll, pitch, yaw), producing semantically meaningful features capturing body pose during falls. Second, we process accelerometer and orientation streams through separate encoder pathways before fusion, preventing cross-modal interference. Our architecture incorporates Squeeze-and-Excitation channel attention and Temporal Attention Pooling to focus on fall-critical temporal patterns. Evaluated on the SmartFallMM dataset using 21-fold Leave-One-Subject-Out cross-validation, our dual-stream Kalman transformer achieves 91.10\% F1 score, outperforming single-stream Kalman transformers (89.80\% F1) by 1.30\% and single-stream raw transformers (88.96\% F1) by 2.14\%. Critically, Kalman fusion enables a +3.52\% F1 improvement in dual-stream architectures by transforming noisy gyroscope signals into usable orientation features. These results establish a new state-of-the-art for inertial measurement unit-based fall detection on commodity wearable devices.
 }
 
 %=================================================================
@@ -115,8 +115,8 @@ We evaluate our approach on the SmartFallMM dataset~\cite{ngu2022personalized}, 
 The main contributions of this paper are:
 \begin{enumerate}
     \item We demonstrate that raw gyroscope data hurts fall detection performance when processed in a single-stream architecture, but \textit{improves} performance when transformed through Kalman sensor fusion and processed in a dual-stream architecture.
-    \item We present a dual-stream transformer architecture that processes accelerometer and orientation streams separately, achieving 1.30\% F1 improvement over single-stream baselines.
-    \item We provide comprehensive ablation studies quantifying the contribution of each architectural component: Kalman fusion (+1.61\%), dual-stream processing (+1.30\%), SE attention (+0.63\%), and TAP (+1.28\%).
+    \item We present a dual-stream transformer architecture that processes accelerometer and orientation streams separately, achieving +1.30\% F1 improvement over single-stream Kalman baselines (89.80\% $\rightarrow$ 91.10\%).
+    \item We provide comprehensive ablation studies quantifying the contribution of each architectural component: Kalman fusion enables +3.52\% F1 improvement in dual-stream context (87.58\% $\rightarrow$ 91.10\%), dual-stream processing contributes +1.30\% F1, and SE+TAP attention mechanisms contribute +1.28\% F1.
     \item We characterize failure modes, finding that subjects with gentle falls (20\% lower impact force) account for the majority of misclassifications, suggesting directions for future improvement.
 \end{enumerate}
 
@@ -157,11 +157,11 @@ The remainder of this paper is organized as follows. Section~\ref{sec:materials}
 
 This paper presented a dual-stream Kalman transformer architecture for wearable fall detection that achieves state-of-the-art performance on the SmartFallMM dataset. Our key finding is that gyroscope data, which degrades performance when added as raw signals in single-stream architectures, substantially improves detection when transformed through Kalman sensor fusion and processed in a dual-stream architecture.
 
-The proposed approach achieves 91.10\% F1 score on rigorous 21-fold LOSO-CV evaluation, representing a 1.30\% improvement over single-stream Kalman transformer baselines. Ablation studies confirm the contribution of each component: Kalman fusion (+1.61\% F1), dual-stream processing (+1.30\% F1), and attention mechanisms (+2.18\% F1).
+The proposed approach achieves 91.10\% F1 score on rigorous 21-fold LOSO-CV evaluation, representing a +2.14\% improvement over single-stream raw transformer baselines (88.96\%) and +1.30\% over single-stream Kalman baselines (89.80\%). Ablation studies confirm the contribution of each component: Kalman fusion enables +3.52\% F1 improvement in dual-stream architectures, dual-stream processing contributes +1.30\% F1, and SE+TAP attention mechanisms contribute +1.28\% F1.
 
 Analysis of failure modes reveals that subjects exhibiting gentle falls with 20\% lower impact forces account for the majority of misclassifications. Future work will address this through targeted data augmentation for gentle falls, subject-specific calibration, and multi-modal fusion incorporating contextual information such as activity history.
 
-The compact model size (approximately 47,000 parameters) enables deployment on resource-constrained wearable devices, making this approach suitable for real-world fall detection applications in elder care and health monitoring.
+The compact model size (approximately 73,400 parameters) enables deployment on resource-constrained wearable devices, making this approach suitable for real-world fall detection applications in elder care and health monitoring.
 
 %=================================================================
 % BACK MATTER (Section 8)

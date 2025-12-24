@@ -11,9 +11,9 @@ This work establishes three principal findings regarding IMU-based fall detectio
 
 \textbf{(1) Raw gyroscope data degrades performance in single-stream architectures.} Our preliminary analysis revealed that adding raw gyroscope channels to accelerometer-only models reduces F1 score by 1.6--2.0\%, contradicting the intuitive expectation that additional sensor modalities should improve classification. This degradation occurs because consumer-grade MEMS gyroscopes exhibit substantial measurement noise, with signal-to-noise ratios below 1.0 for over 75\% of subjects. When processed jointly with accelerometer signals through shared convolutional layers, this noise propagates through the network and corrupts discriminative acceleration features.
 
-\textbf{(2) Kalman sensor fusion transforms gyroscope liabilities into assets.} By applying Linear Kalman Filtering to fuse accelerometer and gyroscope measurements, we transform noisy angular velocities into stable orientation estimates. The resulting roll, pitch, and yaw angles provide semantically meaningful body pose information that captures \textit{what position the body is in} rather than \textit{how fast it is rotating}. This transformation enables effective multi-modal learning, improving F1 score by +1.40\% when combined with dual-stream processing.
+\textbf{(2) Kalman sensor fusion transforms gyroscope liabilities into assets.} By applying Linear Kalman Filtering to fuse accelerometer and gyroscope measurements, we transform noisy angular velocities into stable orientation estimates. The resulting roll, pitch, and yaw angles provide semantically meaningful body pose information that captures \textit{what position the body is in} rather than \textit{how fast it is rotating}. This transformation enables effective multi-modal learning, improving F1 score by +0.84\% in single-stream architectures (88.96\% $\rightarrow$ 89.80\%) and enabling the full +3.52\% improvement in dual-stream architectures (87.58\% $\rightarrow$ 91.10\%).
 
-\textbf{(3) Dual-stream architecture prevents cross-modal interference.} Processing accelerometer and orientation streams through separate encoder pathways before fusion yields +2.50\% F1 improvement over single-stream alternatives. This architectural choice is particularly important when modalities exhibit different noise characteristics: the dual-stream design prevents noisy channels from corrupting clean channels during early feature extraction.
+\textbf{(3) Dual-stream architecture prevents cross-modal interference.} Processing accelerometer and orientation streams through separate encoder pathways before fusion yields +1.30\% F1 improvement over single-stream Kalman alternatives (89.80\% $\rightarrow$ 91.10\%). This architectural choice is particularly important when modalities exhibit different noise characteristics: the dual-stream design prevents noisy channels from corrupting clean channels during early feature extraction.
 
 %-------------------------------------------------------------------
 % 4.2 WHY KALMAN FUSION WORKS
@@ -95,10 +95,26 @@ Our work builds on and extends several research directions:
 
 For real-world deployment, several factors merit consideration:
 
-\textbf{Computational efficiency.} Our model requires 55K parameters and 10.2 ms inference time on representative smartwatch hardware. This enables continuous real-time monitoring with minimal battery impact, as the model runs during the sensor sampling period rather than requiring dedicated processing time.
+\textbf{Computational efficiency.} Our model requires approximately 73,400 parameters and achieves sub-10 ms inference time on representative smartwatch hardware (ARM Cortex-M4 at 64 MHz). This compact footprint enables continuous real-time monitoring with minimal battery impact, as the model runs during the sensor sampling period rather than requiring dedicated processing time.
 
 \textbf{Kalman filter initialization.} The Kalman filter requires brief initialization (approximately 0.5 seconds) to converge from arbitrary initial state estimates. During this period, classification reliability is reduced. Deployment systems should either use accelerometer-only fallback during initialization or delay classification until filter convergence.
 
 \textbf{Calibration requirements.} Our approach assumes sensors are calibrated to remove static bias offsets. Uncalibrated sensors would introduce systematic errors in orientation estimation. Modern smartwatches typically perform automatic calibration, but edge cases (extreme temperatures, magnetic interference) may require explicit recalibration procedures.
 
 \textbf{Alert latency.} With 128-sample windows at 30 Hz (4.3 seconds) and 16-sample stride for fall detection, the system can detect falls within approximately 0.5 seconds of occurrence, assuming the fall event begins early in a window. This latency is acceptable for fall response applications where alerts trigger within seconds of the event.
+
+%-------------------------------------------------------------------
+% 4.8 GENERALIZATION TO OLDER ADULTS
+%-------------------------------------------------------------------
+\subsection{Generalization to Older Adults}
+\label{subsec:older_adults}
+
+Our evaluation focuses on young adult subjects (ages 18--35) performing simulated falls, which represents a limitation for real-world deployment targeting older adults. Several considerations affect cross-population generalization:
+
+\textbf{Biomechanical differences.} Older adults typically exhibit slower gait velocities, reduced balance recovery capabilities, and different fall kinematics compared to young adults. Our ``gentle fall'' failure mode analysis (Section~\ref{subsec:limitations}) suggests that falls with 20\% lower peak acceleration are systematically harder to detect---a pattern that may be more prevalent in older populations.
+
+\textbf{Activity pattern differences.} The activities of daily living in our dataset (walking, sitting, reaching) may not fully represent the activity profiles of older adults, who may exhibit more cautious movement patterns and different transition dynamics.
+
+\textbf{Sensor placement considerations.} All training data was collected with wrist-worn sensors. While smartwatches are increasingly popular among older adults, hip-worn or pendant-style devices may be preferred in some care settings, requiring location-specific model adaptation.
+
+Future work will address these limitations through: (1) evaluation on older adult fall datasets when ethically collected data becomes available, (2) domain adaptation techniques to transfer from young to older populations, and (3) targeted data augmentation to simulate the biomechanical characteristics of older adult falls.
