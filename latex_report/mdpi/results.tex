@@ -49,7 +49,14 @@ Single-Stream Kalman & 64 (shared) & 89.80 & 84.96 & 95.97 & --- \\
 \end{tabular}
 \end{table}
 
-Dual-stream processing provides +1.30\% F1 improvement over single-stream when using Kalman-fused input. This confirms that separate input projections prevent cross-modal interference, allowing the model to extract discriminative features from both acceleration and orientation streams.
+Dual-stream processing provides +1.30\% F1 improvement over single-stream when using Kalman-fused input. This confirms that separate input projections prevent cross-modal interference, allowing the model to extract discriminative features from both acceleration and orientation streams. Figure~\ref{fig:comparison} visualizes the performance comparison across architectures.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{f1_bar_comparison.png}
+\caption{F1 score comparison across architectures. Dual-stream Kalman transformer achieves the highest performance (91.10\%), outperforming single-stream variants. Error bars indicate standard deviation across 21 LOSO-CV folds.}
+\label{fig:comparison}
+\end{figure}
 
 %-------------------------------------------------------------------
 % 3.3 DUAL-STREAM VS SINGLE-STREAM (RAW INPUT)
@@ -142,6 +149,15 @@ Raw & 24:48 (gyro-heavy) & 72 & 88.06 & 92.33 \\
 For Kalman-fused input, balanced allocation (32:32) with total dimension 64 and channel-aware normalization (acc\_only) achieves the best test F1 (91.10\%). Increasing total capacity to 96 dimensions does not improve performance, suggesting the model is not capacity-limited but rather benefits from the regularization effect of smaller embeddings.
 
 For raw gyroscope input, allocating more capacity to the gyroscope stream (24:48) slightly improves performance, but all raw configurations underperform Kalman-fused variants.
+
+Figure~\ref{fig:training} shows training dynamics comparing Kalman-fused and raw input configurations.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{training_curves_kalman_comparison.png}
+\caption{Training and validation curves comparing Kalman-fused vs. raw input architectures. Kalman-fused models exhibit more stable training dynamics and achieve higher validation F1 scores with smaller generalization gaps.}
+\label{fig:training}
+\end{figure}
 
 %-------------------------------------------------------------------
 % 3.6 SUMMARY OF KEY FINDINGS

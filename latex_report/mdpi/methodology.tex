@@ -27,7 +27,14 @@ A natural approach to IMU-based fall detection is concatenating accelerometer an
     \item \textbf{Semantic ambiguity}: Raw angular velocity ($\omega_x, \omega_y, \omega_z$) lacks absolute reference---the same rotation rate can occur in vastly different body orientations.
 \end{enumerate}
 
-Rather than discarding gyroscope data, we propose \textit{fusing} both sensors to estimate body orientation---a derived quantity that is both stable and semantically meaningful.
+Rather than discarding gyroscope data, we propose \textit{fusing} both sensors to estimate body orientation---a derived quantity that is both stable and semantically meaningful. Figure~\ref{fig:preprocessing} illustrates our preprocessing pipeline.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{preprocessing_pipeline.png}
+\caption{Preprocessing pipeline for IMU data. Raw accelerometer and gyroscope signals are fused through a Linear Kalman Filter to produce stable orientation estimates (roll, pitch, yaw). The output 7-channel representation combines acceleration features with body pose information.}
+\label{fig:preprocessing}
+\end{figure}
 
 \subsubsection{Linear Kalman Filter for Orientation Estimation}
 
@@ -81,7 +88,14 @@ where $\text{SMV} = \sqrt{a_x^2 + a_y^2 + a_z^2}$ is the signal vector magnitude
 \subsection{Dual-Stream Input Projection Architecture}
 \label{subsec:architecture}
 
-With our 7-channel Kalman-fused representation, we now describe the neural architecture. A key design question is: \textit{how should multi-modal input be processed?} We compare architectures that differ in whether accelerometer and orientation channels share or have separate early processing layers.
+With our 7-channel Kalman-fused representation, we now describe the neural architecture. A key design question is: \textit{how should multi-modal input be processed?} We compare architectures that differ in whether accelerometer and orientation channels share or have separate early processing layers. Figure~\ref{fig:architecture} presents our dual-stream architecture.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{arch_dual_stream_kalman.png}
+\caption{Dual-stream Kalman transformer architecture. The accelerometer stream (SMV, $a_x$, $a_y$, $a_z$) and orientation stream ($\phi$, $\theta$, $\psi$) are processed through separate Conv1D projections with modality-specific normalization. Features are concatenated and passed through a transformer encoder with Squeeze-and-Excitation (SE) channel attention and Temporal Attention Pooling (TAP) for classification.}
+\label{fig:architecture}
+\end{figure}
 
 \subsubsection{What We Mean by ``Dual-Stream''}
 
