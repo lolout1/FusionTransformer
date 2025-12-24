@@ -1,0 +1,20 @@
+
+\begin{table}[htbp]
+\centering
+\caption{Transformer vs CNN Performance Comparison (21-fold LOSO-CV)}
+\label{tab:main_comparison}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\textbf{Model} & \textbf{Acc (\%)} & \textbf{F1 (\%)} & \textbf{Prec (\%)} & \textbf{Recall (\%)} \\
+\midrule
+Transformer (Kalman) & 87.30 & \textbf{91.10} & 88.54 & 94.57 \\
+CNN (Focal) & 84.22 & 88.86 & 86.79 & 92.11 \\
+\midrule
+$\Delta$ (Trans - CNN) & +3.08 & \textbf{+2.23}* & +1.75 & +2.46 \\
+
+\bottomrule
+\end{tabular}
+\vspace{1mm}
+\scriptsize
+\textit{* p=0.019, Cohen's d=0.56 (medium effect size)}
+\end{table}

@@ -1,0 +1,28 @@
+======================================================================
+OUTLIER ANALYSIS
+======================================================================
+
+Top 5 Best Subjects (Test F1):
+  Subject 58: 98.91%
+  Subject 43: 97.01%
+  Subject 50: 96.88%
+  Subject 37: 96.70%
+  Subject 56: 96.12%
+
+Top 5 Worst Subjects (Test F1):
+  Subject 36: 34.29%
+  Subject 38: 62.60%
+  Subject 31: 76.67%
+  Subject 60: 87.91%
+  Subject 49: 88.24%
+
+======================================================================
+OVERFITTING GAP ANALYSIS (Val - Test)
+======================================================================
+
+Subjects with Highest Overfitting (Top 5):
+  Subject 36: Gap = 63.45%
+  Subject 38: Gap = 34.46%
+  Subject 31: Gap = 18.68%
+  Subject 60: Gap = 8.02%
+  Subject 61: Gap = 6.67%

@@ -1,0 +1,25 @@
+======================================================================
+KALMANBALANCEDFLEXIBLE MODEL - Results Summary
+======================================================================
+
+Average Performance:
+  Test F1:       91.10 ± 6.13%
+  Test Accuracy: 87.30 ± 7.99%
+  Val F1:        96.10%
+  Val Accuracy:  93.82%
+
+Overfitting Analysis:
+  Gap (Val-Test) F1:  5.00%
+  Gap (Val-Test) Acc: 6.52%
+
+Per-Subject Performance (Test F1):
+  Best subjects:
+    Subject 50: 98.41%
+    Subject 58: 98.38%
+    Subject 55: 97.90%
+  Worst subjects:
+    Subject 31: 78.79%
+    Subject 38: 78.82%
+    Subject 51: 85.25%
+
+======================================================================
