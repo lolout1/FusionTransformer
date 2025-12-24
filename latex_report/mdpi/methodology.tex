@@ -88,7 +88,7 @@ The Kalman filter optimally combines these signals: using accelerometer for drif
 
 \textbf{State Representation.} We model orientation as a 6D state vector:
 \begin{equation}
-\mathbf{x} = [\phi, \theta, \psi, \dot{\phi}, \dot{\theta}, \dot{\psi}]^\top
+\mathbf{x} = [\phi, \theta, \psi, \dot{\phi}, \dot{\theta}, \dot{\psi}]^{\T}
 \end{equation}
 where $\phi$ (roll), $\theta$ (pitch), $\psi$ (yaw) are Euler angles in radians, and $\dot{\phi}, \dot{\theta}, \dot{\psi}$ are angular rates.
 
@@ -108,7 +108,7 @@ where $\mathbf{z}_k$ contains both accelerometer-derived angles and gyroscope ra
 \begin{itemize}
     \item $\phi$ (roll): Left/right tilt. Increases during lateral falls.
     \item $\theta$ (pitch): Forward/backward tilt. Increases during forward falls.
-    \item $\psi$ (yaw): Horizontal heading. \textit{Note:} Yaw is unobservable from gravity alone; we integrate gyroscope angular velocity without accelerometer correction, acknowledging potential drift for long sequences.
+    \item $\psi$ (yaw): Horizontal heading. \textit{Note:} Yaw is unobservable from gravity alone; we integrate gyroscope angular velocity without accelerometer correction. For our 4.3-second windows, typical MEMS gyroscope bias ($\sim$0.1$^\circ$/s) produces drift of only $\sim$0.4$^\circ$ per window---negligible compared to the large orientation changes ($>$30$^\circ$) characteristic of falls.
 \end{itemize}
 
 \textbf{Angle Representation.} We output Euler angles wrapped to $[-\pi, \pi]$ for roll and yaw, and $[-\pi/2, \pi/2]$ for pitch. This standard representation avoids discontinuities for typical fall motions, which rarely involve full rotations. Quaternion output is considered for future work requiring singularity-free representation.
@@ -135,7 +135,7 @@ where $\tau = 2.0$ is the activation threshold, $R_\text{max} = 10.0$ is the max
 
 \textbf{Measurement Model.} The observation vector and measurement matrix are:
 \begin{equation}
-\mathbf{z}_k = [\phi_\text{acc}, \theta_\text{acc}, \omega_x, \omega_y, \omega_z]^\top, \quad
+\mathbf{z}_k = [\phi_\text{acc}, \theta_\text{acc}, \omega_x, \omega_y, \omega_z]^{\T}, \quad
 \mathbf{H} = \begin{bmatrix} 1 & 0 & 0 & 0 & 0 & 0 \\ 0 & 1 & 0 & 0 & 0 & 0 \\ 0 & 0 & 0 & 1 & 0 & 0 \\ 0 & 0 & 0 & 0 & 1 & 0 \\ 0 & 0 & 0 & 0 & 0 & 1 \end{bmatrix}
 \end{equation}
 
@@ -153,11 +153,11 @@ These values were determined empirically to balance responsiveness against noise
     \item \textbf{Initialize:} $\hat{\mathbf{x}}_0 = \mathbf{0}$, $\mathbf{P}_0 = \mathbf{I}_6$
     \item \textbf{For each timestep $k$:}
     \begin{enumerate}
-        \item Predict: $\hat{\mathbf{x}}_{k|k-1} = \mathbf{F}\hat{\mathbf{x}}_{k-1}$, $\mathbf{P}_{k|k-1} = \mathbf{F}\mathbf{P}_{k-1}\mathbf{F}^\top + \mathbf{Q}$
+        \item Predict: $\hat{\mathbf{x}}_{k|k-1} = \mathbf{F}\hat{\mathbf{x}}_{k-1}$, $\mathbf{P}_{k|k-1} = \mathbf{F}\mathbf{P}_{k-1}\mathbf{F}^{\T} + \mathbf{Q}$
         \item Compute accelerometer-derived angles: $\phi_\text{acc}, \theta_\text{acc}$ from Eq.~(4--5)
-        \item Construct measurement: $\mathbf{z}_k = [\phi_\text{acc}, \theta_\text{acc}, \omega_x, \omega_y, \omega_z]^\top$
+        \item Construct measurement: $\mathbf{z}_k = [\phi_\text{acc}, \theta_\text{acc}, \omega_x, \omega_y, \omega_z]^{\T}$
         \item If $\|\mathbf{a}\| > 2.0g$: scale $R_\text{acc} \leftarrow R_\text{acc} \cdot \min((\|\mathbf{a}\|/g)^2, 10)$
-        \item Update: $\mathbf{K}_k = \mathbf{P}_{k|k-1}\mathbf{H}^\top(\mathbf{H}\mathbf{P}_{k|k-1}\mathbf{H}^\top + \mathbf{R})^{-1}$
+        \item Update: $\mathbf{K}_k = \mathbf{P}_{k|k-1}\mathbf{H}^{\T}(\mathbf{H}\mathbf{P}_{k|k-1}\mathbf{H}^{\T} + \mathbf{R})^{-1}$
         \item Correct: $\hat{\mathbf{x}}_k = \hat{\mathbf{x}}_{k|k-1} + \mathbf{K}_k(\mathbf{z}_k - \mathbf{H}\hat{\mathbf{x}}_{k|k-1})$
         \item Output: $[\phi, \theta, \psi] = \hat{\mathbf{x}}_k[0:3]$
     \end{enumerate}
@@ -326,7 +326,7 @@ The bottleneck ($r=4$) prevents overfitting while enabling channel interaction l
 
 Rather than mean-pooling, TAP learns to focus on discriminative timesteps:
 \begin{align}
-\alpha_t &= \frac{\exp(\mathbf{w}^\top \tanh(\mathbf{W}_a \mathbf{h}_t))}{\sum_{t'} \exp(\mathbf{w}^\top \tanh(\mathbf{W}_a \mathbf{h}_{t'}))} \\
+\alpha_t &= \frac{\exp(\mathbf{w}^{\T} \tanh(\mathbf{W}_a \mathbf{h}_t))}{\sum_{t'} \exp(\mathbf{w}^{\T} \tanh(\mathbf{W}_a \mathbf{h}_{t'}))} \\
 \mathbf{c} &= \sum_t \alpha_t \hat{\mathbf{h}}_t
 \end{align}
 TAP typically assigns high attention to the impact phase of falls, where acceleration spikes and orientation changes are most pronounced.

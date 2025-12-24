@@ -9,7 +9,8 @@
 %=================================================================
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage{lmodern}  % Latin Modern fonts - prevents soft-hyphen artifacts
+\usepackage{lmodern}  % Latin Modern fonts - cleaner rendering
+\usepackage{microtype}  % Improved typography, prevents bad hyphenation
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -27,6 +28,7 @@
 % Custom commands
 \newcommand{\vect}[1]{\mathbf{#1}}
 \newcommand{\mat}[1]{\mathbf{#1}}
+\newcommand{\T}{\mathsf{T}}  % Robust transpose symbol
 
 %=================================================================
 % JOURNAL AND ARTICLE INFO (Section 2.7)
@@ -186,7 +188,7 @@ The compact model size (approximately 73,400 parameters) enables deployment on r
 \informedconsent{Informed consent was obtained from all subjects involved in the original data collection.}
 
 %--- Data Availability Statement (Section 8.6) ---
-\dataavailability{The SmartFallMM dataset is publicly available at \url{https://github.com/txst-smartfall}. Code for reproducing experiments will be released upon publication.}
+\dataavailability{The SmartFallMM dataset is publicly available at \mbox{\url{https://github.com/txst-smartfall}}. Code for reproducing experiments is available upon request during review and will be publicly released upon publication.}
 
 %--- Acknowledgments (Section 8.7) ---
 \acknowledgments{The authors thank the SmartFall research group at Texas State University for data collection and annotation efforts.}
