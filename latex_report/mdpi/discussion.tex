@@ -9,7 +9,7 @@
 
 This work establishes three principal findings regarding IMU-based fall detection with commodity wearable sensors:
 
-\textbf{(1) Raw gyroscope data degrades performance in single-stream architectures.} Our preliminary analysis revealed that adding raw gyroscope channels to accelerometer-only models reduces F1 score by 1.6--2.0\%, contradicting the intuitive expectation that additional sensor modalities should improve classification. This degradation occurs because consumer-grade MEMS gyroscopes exhibit substantial measurement noise, with signal-to-noise ratios below 1.0 for over 75\% of subjects. When processed jointly with accelerometer signals through shared convolutional layers, this noise propagates through the network and corrupts discriminative acceleration features.
+\textbf{(1) Raw gyroscope data degrades performance in single-stream architectures.} Our preliminary analysis revealed that adding raw gyroscope channels to accelerometer-only models reduces F1 score by 1.6--2.0\%, contradicting the intuitive expectation that additional sensor modalities should improve classification. This degradation occurs because consumer-grade MEMS gyroscopes exhibit substantial measurement noise. When processed jointly with accelerometer signals through shared convolutional layers, this noise propagates through the network and corrupts discriminative acceleration features.
 
 \textbf{(2) Kalman sensor fusion transforms gyroscope liabilities into assets.} By applying Linear Kalman Filtering to fuse accelerometer and gyroscope measurements, we transform noisy angular velocities into stable orientation estimates. The resulting roll, pitch, and yaw angles provide semantically meaningful body pose information that captures \textit{what position the body is in} rather than \textit{how fast it is rotating}. This transformation enables effective multi-modal learning, improving F1 score by +0.84\% in single-stream architectures (88.96\% $\rightarrow$ 89.80\%) and enabling the full +3.52\% improvement in dual-stream architectures (87.58\% $\rightarrow$ 91.10\%).
 
@@ -65,7 +65,7 @@ The synergistic benefit of combining SE and TAP (+2.18\% vs. +0.92\% + +1.26\% =
 
 Despite strong overall performance, our approach exhibits systematic failures for specific fall types:
 
-\textbf{Gentle falls.} Subjects executing slow, controlled falls (20\% lower peak acceleration than population mean) account for the majority of false negatives. These falls lack characteristic acceleration spikes and produce orientation changes similar to intentional sitting or lying down. Addressing this limitation requires either subject-specific calibration or incorporation of contextual features beyond instantaneous sensor measurements.
+\textbf{Gentle falls.} Subjects executing slow, controlled falls with notably lower peak accelerations account for the majority of false negatives. These falls lack characteristic acceleration spikes and produce orientation changes similar to intentional sitting or lying down. Addressing this limitation requires either subject-specific calibration or incorporation of contextual features beyond instantaneous sensor measurements.
 
 \textbf{Vigorous ADLs.} Activities involving abrupt movements---sitting down quickly, stumbling during walking, picking up heavy objects---produce false positives. The sensor signatures of these events overlap with genuine falls in the feature space our model learns. Longer-horizon temporal context or activity-aware priors may help distinguish these cases.
 
@@ -111,7 +111,7 @@ For real-world deployment, several factors merit consideration:
 
 Our evaluation focuses on young adult subjects (ages 18--35) performing simulated falls, which represents a limitation for real-world deployment targeting older adults. Several considerations affect cross-population generalization:
 
-\textbf{Biomechanical differences.} Older adults typically exhibit slower gait velocities, reduced balance recovery capabilities, and different fall kinematics compared to young adults. Our ``gentle fall'' failure mode analysis (Section~\ref{subsec:limitations}) suggests that falls with 20\% lower peak acceleration are systematically harder to detect---a pattern that may be more prevalent in older populations.
+\textbf{Biomechanical differences.} Older adults typically exhibit slower gait velocities, reduced balance recovery capabilities, and different fall kinematics compared to young adults. Our ``gentle fall'' failure mode analysis (Section~\ref{subsec:limitations}) suggests that falls with lower peak accelerations are systematically harder to detect---a pattern that may be more prevalent in older populations.
 
 \textbf{Activity pattern differences.} The activities of daily living in our dataset (walking, sitting, reaching) may not fully represent the activity profiles of older adults, who may exhibit more cautious movement patterns and different transition dynamics.
 

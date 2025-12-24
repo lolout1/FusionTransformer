@@ -12,27 +12,28 @@ We evaluate on the SmartFallMM dataset~\cite{ngu2022personalized}, comprising 51
 
 \subsubsection{Subject Selection and Data Splits}
 
-Table~\ref{tab:subjects} presents our subject selection criteria. Of the 30 young subjects with multimodal-ready data (complete accelerometer and gyroscope recordings), we use 21 for Leave-One-Subject-Out cross-validation testing, with 2 subjects (48 and 57) held as a fixed validation set across all folds.
+Table~\ref{tab:subjects} presents our subject selection criteria. \textbf{Training uses data from all available subjects} (both young and older adults) to maximize training diversity. However, \textbf{validation and testing are restricted to young subjects} because older adults did not perform simulated falls for safety reasons---their data contains only ADL samples. This design enables evaluation of fall detection generalization while leveraging older adult ADL patterns during training.
 
 \begin{table}[H]
-\caption{Subject selection for evaluation. All subjects are young adults (ages 18--35) with complete IMU recordings from smartwatch.}
+\caption{Subject selection for evaluation. Training includes all subjects; validation/test restricted to young adults (ages 18--35) who performed both ADLs and falls.}
 \label{tab:subjects}
 \centering
 \small
-\begin{tabular}{lcc}
+\begin{tabular}{llcc}
 \toprule
-\textbf{Role} & \textbf{Subject IDs} & \textbf{Count} \\
+\textbf{Role} & \textbf{Population} & \textbf{Subject IDs} & \textbf{Count} \\
 \midrule
-Test (LOSO-CV rotation) & 31, 34, 36--38, 43--44, 46, 49--56, 58, 60--63 & 21 \\
-Validation (fixed) & 48, 57 & 2 \\
-Excluded (incomplete data) & 29, 30, 32, 35, 39, 45, 59 & 7 \\
-\midrule
-\textbf{Total multimodal-ready} & & \textbf{30} \\
+Training & Young + Older & All available & 51 \\
+Test (LOSO-CV rotation) & Young only & 31, 34, 36--38, 43--44, 46, 49--56, 58, 60--63 & 21 \\
+Validation (fixed) & Young only & 48, 57 & 2 \\
+Excluded (incomplete data) & Young & 29, 30, 32, 35, 39, 45, 59 & 7 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Validation protocol clarification.} The fixed validation subjects (48, 57) are used \textit{exclusively} for early stopping during training. No hyperparameter tuning is performed using validation data---all architectural decisions (embedding dimensions, dropout rates, attention mechanisms) were fixed prior to evaluation. This design prevents information leakage and ensures reported test metrics reflect true generalization.
+\textbf{Why older adults are excluded from test/validation.} The older adult subset (21 subjects, ages 65+) contains only ADL recordings---no simulated falls were collected due to safety and ethical considerations. Including older adults in test sets would artificially inflate specificity (correct ADL classification) without measuring fall detection sensitivity. Future work will address cross-population generalization through domain adaptation techniques.
+
+\textbf{Validation protocol clarification.} The fixed validation subjects (48, 57) are used \textit{exclusively} for early stopping during training. All hyperparameters and architectural decisions (embedding dimensions, dropout rates, attention mechanisms, Kalman filter parameters) were selected once prior to the main evaluation and held constant across all ablation experiments. This design follows best practices for avoiding selection bias in model evaluation~\cite{cawley2010overfitting}.
 
 \subsubsection{Data Segmentation}
 
@@ -59,7 +60,7 @@ We first present our sensor fusion approach, which transforms raw inertial measu
 A natural approach to IMU-based fall detection is concatenating accelerometer and gyroscope channels as input to a neural network. However, we observe that naively adding raw gyroscope data \textit{degrades} performance by 1.6--2.0\% F1. Analysis reveals two causes:
 
 \begin{enumerate}
-    \item \textbf{Noise contamination}: Consumer MEMS gyroscopes exhibit SNR $<$ 1.0 for 75\% of subjects. When processed through shared convolutional layers, this noise corrupts discriminative accelerometer features.
+    \item \textbf{Noise contamination}: Consumer MEMS gyroscopes exhibit substantial measurement noise, with many subjects showing signal-to-noise ratios below unity during quiet standing. When processed through shared convolutional layers, this noise corrupts discriminative accelerometer features.
     \item \textbf{Semantic ambiguity}: Raw angular velocity ($\omega_x, \omega_y, \omega_z$) lacks absolute reference---the same rotation rate can occur in vastly different body orientations.
 \end{enumerate}
 
