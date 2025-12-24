@@ -1,0 +1,274 @@
+% Materials and Methods - BDCC Format
+% Structure: Dataset → Sensor Fusion Strategy → Dual-Stream Architecture → Training → Evaluation
+% Written in top ML conference style (NeurIPS/ICML)
+
+%-------------------------------------------------------------------
+% 2.1 DATASET
+%-------------------------------------------------------------------
+\subsection{Dataset}
+\label{subsec:dataset}
+
+We evaluate on the SmartFallMM dataset~\cite{ngu2022personalized}, comprising 51 participants (30 young adults ages 18--35, 21 older adults ages 65+) performing 14 activities: 9 ADLs and 5 fall types. Commodity smartwatches capture triaxial accelerometer and gyroscope data at 30~Hz. We use 21 young subjects for evaluation via Leave-One-Subject-Out cross-validation, with subjects 48 and 57 held for validation.
+
+%-------------------------------------------------------------------
+% 2.2 SENSOR FUSION STRATEGY
+%-------------------------------------------------------------------
+\subsection{Sensor Fusion Strategy}
+\label{subsec:fusion}
+
+We first present our sensor fusion approach, which transforms raw inertial measurements into semantically meaningful orientation features. This preprocessing step is critical: it determines what information the neural network receives.
+
+\subsubsection{Motivation: The Gyroscope Problem}
+
+A natural approach to IMU-based fall detection is concatenating accelerometer and gyroscope channels as input to a neural network. However, we observe that naively adding raw gyroscope data \textit{degrades} performance by 1.6--2.0\% F1. Analysis reveals two causes:
+
+\begin{enumerate}
+    \item \textbf{Noise contamination}: Consumer MEMS gyroscopes exhibit SNR $<$ 1.0 for 75\% of subjects. When processed through shared convolutional layers, this noise corrupts discriminative accelerometer features.
+    \item \textbf{Semantic ambiguity}: Raw angular velocity ($\omega_x, \omega_y, \omega_z$) lacks absolute reference---the same rotation rate can occur in vastly different body orientations.
+\end{enumerate}
+
+Rather than discarding gyroscope data, we propose \textit{fusing} both sensors to estimate body orientation---a derived quantity that is both stable and semantically meaningful.
+
+\subsubsection{Linear Kalman Filter for Orientation Estimation}
+
+We employ a Linear Kalman Filter to fuse accelerometer and gyroscope measurements into orientation angles. The key insight is that each sensor provides complementary information:
+
+\begin{itemize}
+    \item \textbf{Accelerometer}: Measures gravity direction, providing absolute roll/pitch reference when stationary, but corrupted by body acceleration during motion.
+    \item \textbf{Gyroscope}: Measures angular velocity with high temporal resolution, enabling responsive motion tracking, but accumulates drift over time.
+\end{itemize}
+
+The Kalman filter optimally combines these signals: using accelerometer for drift correction and gyroscope for dynamic tracking.
+
+\textbf{State Representation.} We model orientation as a 6D state vector:
+\begin{equation}
+\mathbf{x} = [\phi, \theta, \psi, \dot{\phi}, \dot{\theta}, \dot{\psi}]^\top
+\end{equation}
+where $\phi$ (roll), $\theta$ (pitch), $\psi$ (yaw) are Euler angles in radians, and $\dot{\phi}, \dot{\theta}, \dot{\psi}$ are angular rates.
+
+\textbf{Predict Step.} At each timestep, we propagate the state using constant-velocity kinematics:
+\begin{equation}
+\hat{\mathbf{x}}_{k|k-1} = \mathbf{F} \hat{\mathbf{x}}_{k-1|k-1}, \quad \mathbf{F} = \begin{bmatrix} \mathbf{I}_3 & \Delta t \cdot \mathbf{I}_3 \\ \mathbf{0}_3 & \mathbf{I}_3 \end{bmatrix}
+\end{equation}
+This encodes the physical relationship: new angle = old angle + angular rate $\times$ time.
+
+\textbf{Update Step.} We correct the prediction using sensor measurements:
+\begin{equation}
+\hat{\mathbf{x}}_{k|k} = \hat{\mathbf{x}}_{k|k-1} + \mathbf{K}_k (\mathbf{z}_k - \mathbf{H}\hat{\mathbf{x}}_{k|k-1})
+\end{equation}
+where $\mathbf{z}_k$ contains both accelerometer-derived angles and gyroscope rates, and $\mathbf{K}_k$ is the Kalman gain weighting measurement trust against prediction trust.
+
+\textbf{Output.} The filter produces orientation angles $[\phi, \theta, \psi]$ that describe body pose:
+\begin{itemize}
+    \item $\phi$ (roll): Left/right tilt. Increases during lateral falls.
+    \item $\theta$ (pitch): Forward/backward tilt. Increases during forward falls.
+    \item $\psi$ (yaw): Horizontal heading. Less informative (no gravity reference).
+\end{itemize}
+
+Unlike raw gyroscope values that indicate \textit{how fast} the body rotates, orientation angles indicate \textit{what position} the body is in---a semantically richer representation for fall classification.
+
+\subsubsection{Feature Representation}
+
+After Kalman fusion, we construct a 7-channel feature vector per timestep:
+\begin{equation}
+\mathbf{z} = [\underbrace{\text{SMV}, a_x, a_y, a_z}_{\text{acceleration (4ch)}}, \underbrace{\phi, \theta, \psi}_{\text{orientation (3ch)}}]
+\end{equation}
+where $\text{SMV} = \sqrt{a_x^2 + a_y^2 + a_z^2}$ is the signal vector magnitude. This representation cleanly separates impact dynamics (acceleration) from body pose (orientation).
+
+%-------------------------------------------------------------------
+% 2.3 DUAL-STREAM ARCHITECTURE
+%-------------------------------------------------------------------
+\subsection{Dual-Stream Input Projection Architecture}
+\label{subsec:architecture}
+
+With our 7-channel Kalman-fused representation, we now describe the neural architecture. A key design question is: \textit{how should multi-modal input be processed?} We compare architectures that differ in whether accelerometer and orientation channels share or have separate early processing layers.
+
+\subsubsection{What We Mean by ``Dual-Stream''}
+
+We use ``dual-stream'' to describe architectures with \textbf{separate input projection layers} for each modality, followed by a shared transformer encoder. This is distinct from fully-separate dual-backbone architectures where each modality has its own transformer. Our design choice is deliberate:
+
+\begin{itemize}
+    \item \textbf{Separate input projections}: Each modality (acceleration, orientation) has dedicated Conv1D + BatchNorm layers. This prevents cross-modal interference during the critical initial feature extraction stage.
+    \item \textbf{Shared transformer}: After projection, features are concatenated and processed by a single transformer. This enables cross-modal attention---the model can learn relationships \textit{between} acceleration and orientation patterns.
+\end{itemize}
+
+The separation occurs at the \textit{input encoding stage}, where the risk of noise contamination is highest. The shared transformer then learns joint temporal representations.
+
+\subsubsection{Architecture Variants}
+
+We systematically compare four configurations along two axes:
+\begin{itemize}
+    \item \textbf{Input type}: Raw (6ch: acc + gyro) vs. Kalman (7ch: acc + orientation)
+    \item \textbf{Input projection}: Single (shared Conv1D) vs. Dual (separate Conv1D per modality)
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\framebox[\textwidth]{%
+\begin{minipage}{0.95\textwidth}
+\small
+\textbf{Architecture Comparison---Where Does Separation Happen?}
+
+\vspace{0.3em}
+\hrule
+\vspace{0.3em}
+\textbf{SINGLE-PROJECTION ARCHITECTURES} (shared input encoding)
+\vspace{0.3em}
+
+\textbf{(a) Single-Projection + Raw Input:}
+Input $[a_x, a_y, a_z, \omega_x, \omega_y, \omega_z]$ (6ch) $\rightarrow$ SHARED Conv1D (6$\rightarrow$64) $\rightarrow$ Transformer $\rightarrow$ Classification
+
+\textit{Problem: ONE set of filters for ALL channels. Noisy gyro corrupts acc features.}
+
+\vspace{0.5em}
+\textbf{(b) Single-Projection + Kalman Input:}
+Input $[\text{SMV}, a_x, a_y, a_z, \phi, \theta, \psi]$ (7ch) $\rightarrow$ SHARED Conv1D (7$\rightarrow$64) $\rightarrow$ Transformer $\rightarrow$ Classification
+
+\textit{Orientation is cleaner, but features still mixed in shared Conv1D.}
+
+\vspace{0.3em}
+\hrule
+\vspace{0.3em}
+\textbf{DUAL-PROJECTION ARCHITECTURES} (separate input encoding)
+\vspace{0.3em}
+
+\textbf{(c) Dual-Projection + Raw Input:}
+\begin{center}
+\begin{tabular}{c@{\hspace{2em}}c}
+$[a_x, a_y, a_z]$ & $[\omega_x, \omega_y, \omega_z]$ \\
+$\downarrow$ & $\downarrow$ \\
+Conv1D$_\text{acc}$ (3$\rightarrow$32) & Conv1D$_\text{gyro}$ (3$\rightarrow$32)
+\end{tabular}
+\end{center}
+$\rightarrow$ Concatenate (64 dim) $\rightarrow$ Transformer $\rightarrow$ Classification
+
+\textit{TWO separate filter sets: acc features NEVER see gyro noise.}
+
+\vspace{0.5em}
+\textbf{(d) Dual-Projection + Kalman Input (OURS):}
+
+\fbox{Preprocessing: Kalman Fusion [$a_x,a_y,a_z,\omega_x,\omega_y,\omega_z$] $\rightarrow$ $[\phi, \theta, \psi]$}
+
+\begin{center}
+\begin{tabular}{c@{\hspace{2em}}c}
+$[\text{SMV}, a_x, a_y, a_z]$ & $[\phi, \theta, \psi]$ \\
+$\downarrow$ & $\downarrow$ \\
+Conv1D$_\text{acc}$ + BN (4$\rightarrow$32) & Conv1D$_\text{ori}$ + BN (3$\rightarrow$32)
+\end{tabular}
+\end{center}
+$\rightarrow$ Concatenate (64 dim) $\rightarrow$ LayerNorm $\rightarrow$ Transformer (2 layers, 4 heads) $\rightarrow$ SE Attention $\rightarrow$ TAP Pooling $\rightarrow$ Classification
+\end{minipage}%
+}
+\caption{\textbf{Architecture comparison: single-projection vs. dual-projection.} The key architectural difference is whether modalities share convolutional weights (single) or have dedicated weights (dual). In single-projection, noisy gyroscope channels corrupt accelerometer feature extraction. In dual-projection, each modality has isolated feature learning. Both use the same shared transformer encoder---the separation is specifically at the input projection stage where cross-modal interference would otherwise occur. Our method (d) combines dual-projection with Kalman-fused orientation input.}
+\label{fig:architecture_comparison}
+\end{figure}
+
+\subsubsection{The Architectural Difference: Where Separation Matters}
+
+The key question is: \textit{at what stage should modalities be combined?} We compare two approaches:
+
+\textbf{Single-Projection (``Single-Stream'') Architecture} (Fig.~\ref{fig:architecture_comparison}a,b):
+\begin{equation}
+\mathbf{h} = \text{Conv1D}([\mathbf{x}_\text{acc}; \mathbf{x}_\text{gyro}]) \in \mathbb{R}^{T \times 64}
+\end{equation}
+\begin{itemize}
+    \item All input channels are concatenated \textit{before} any processing.
+    \item A single Conv1D layer with shared weights operates across all channels.
+    \item \textbf{The problem}: Convolutional filters must simultaneously extract features from clean accelerometer signals and noisy gyroscope signals. The learned filters compromise between modalities. Mathematically, gradients from noisy channels affect all filter weights.
+\end{itemize}
+
+\textbf{Dual-Projection (``Dual-Stream'') Architecture} (Fig.~\ref{fig:architecture_comparison}c,d):
+\begin{equation}
+\mathbf{h} = [\underbrace{\text{Conv1D}_\text{acc}(\mathbf{x}_\text{acc})}_{\text{32 dim}}; \underbrace{\text{Conv1D}_\text{ori}(\mathbf{x}_\text{ori})}_{\text{32 dim}}] \in \mathbb{R}^{T \times 64}
+\end{equation}
+\begin{itemize}
+    \item Input is split by modality \textit{before} convolution.
+    \item Each modality has dedicated Conv1D weights optimized for its signal characteristics.
+    \item Concatenation occurs \textit{after} initial projection, feeding into the shared transformer.
+    \item \textbf{The benefit}: Accelerometer features are extracted by filters that never see gyroscope noise. Each projection layer can specialize: $\text{Conv1D}_\text{acc}$ learns acceleration patterns, $\text{Conv1D}_\text{ori}$ learns orientation patterns.
+\end{itemize}
+
+\textbf{Important clarification}: Both architectures use the \textit{same} transformer encoder after projection. The separation is specifically at the input encoding stage---where noisy signals would otherwise contaminate clean features through shared convolutional weights. The shared transformer is beneficial because it enables cross-modal attention (relating acceleration patterns to orientation patterns).
+
+\subsubsection{Why Dual-Stream Matters More with Kalman Fusion}
+
+An important interaction effect emerges: dual-stream processing provides larger benefits with Kalman input than with raw input.
+
+With \textbf{raw gyroscope input}, the gyroscope stream is inherently noisy. Even with separate processing, the gyroscope encoder extracts limited useful information, constraining the potential benefit of dual-stream design.
+
+With \textbf{Kalman-fused orientation input}, the orientation stream contains high-quality, semantically meaningful features (body pose angles). Dual-stream processing allows the model to fully leverage these features with dedicated capacity, while maintaining clean accelerometer representations.
+
+This synergy motivates our combined approach: Kalman fusion produces high-quality orientation features, and dual-stream processing ensures these features are not corrupted during early network layers.
+
+\subsubsection{Stream Encoder Details}
+
+Each stream encoder consists of:
+\begin{align}
+\mathbf{h}_\text{acc} &= \text{Dropout}_{0.1}(\text{SiLU}(\text{BN}(\text{Conv1D}_{k=8}(\mathbf{x}_\text{acc})))) \in \mathbb{R}^{T \times 32} \\
+\mathbf{h}_\text{ori} &= \text{Dropout}_{0.15}(\text{SiLU}(\text{BN}(\text{Conv1D}_{k=8}(\mathbf{x}_\text{ori})))) \in \mathbb{R}^{T \times 32}
+\end{align}
+
+Design choices:
+\begin{itemize}
+    \item \textbf{Kernel size $k=8$}: Captures ~0.27s of temporal context, sufficient for local motion patterns.
+    \item \textbf{Equal dimensions (32 each)}: Balanced capacity, appropriate since Kalman fusion produces orientation features of comparable discriminative value to acceleration.
+    \item \textbf{Higher dropout for orientation (15\% vs 10\%)}: Slight additional regularization for the orientation stream, which has fewer input channels.
+\end{itemize}
+
+\subsubsection{Transformer Encoder}
+
+After concatenation and layer normalization, the fused representation is processed by a standard transformer encoder:
+\begin{equation}
+\mathbf{h}_\text{enc} = \text{TransformerEncoder}(\text{LayerNorm}([\mathbf{h}_\text{acc}; \mathbf{h}_\text{ori}]))
+\end{equation}
+Configuration: $d_\text{model}=64$, $n_\text{heads}=4$, $d_\text{ff}=128$, $n_\text{layers}=2$, pre-norm residual connections.
+
+Multi-head self-attention enables the model to relate distant timesteps---for example, connecting pre-fall motion patterns to impact events occurring seconds later.
+
+%-------------------------------------------------------------------
+% 2.4 ATTENTION MECHANISMS
+%-------------------------------------------------------------------
+\subsection{Attention Mechanisms}
+\label{subsec:attention}
+
+We augment the transformer with two attention mechanisms that provide complementary benefits.
+
+\subsubsection{Squeeze-and-Excitation (SE) Channel Attention}
+
+SE attention~\cite{hu2018squeeze} recalibrates channel importance by learning which feature dimensions are most discriminative:
+\begin{align}
+\mathbf{s} &= \text{GlobalAvgPool}(\mathbf{h}_\text{enc}) \in \mathbb{R}^{64} \\
+\mathbf{e} &= \sigma(\mathbf{W}_2 \cdot \text{ReLU}(\mathbf{W}_1 \cdot \mathbf{s})) \in \mathbb{R}^{64} \\
+\hat{\mathbf{h}} &= \mathbf{e} \odot \mathbf{h}_\text{enc}
+\end{align}
+The bottleneck ($r=4$) prevents overfitting while enabling channel interaction learning.
+
+\subsubsection{Temporal Attention Pooling (TAP)}
+
+Rather than mean-pooling, TAP learns to focus on discriminative timesteps:
+\begin{align}
+\alpha_t &= \frac{\exp(\mathbf{w}^\top \tanh(\mathbf{W}_a \mathbf{h}_t))}{\sum_{t'} \exp(\mathbf{w}^\top \tanh(\mathbf{W}_a \mathbf{h}_{t'}))} \\
+\mathbf{c} &= \sum_t \alpha_t \hat{\mathbf{h}}_t
+\end{align}
+TAP typically assigns high attention to the impact phase of falls, where acceleration spikes and orientation changes are most pronounced.
+
+%-------------------------------------------------------------------
+% 2.5 TRAINING AND EVALUATION
+%-------------------------------------------------------------------
+\subsection{Training Configuration}
+\label{subsec:training}
+
+\textbf{Loss Function.} We use Focal Loss with $\alpha=0.75$, $\gamma=2.0$ to handle class imbalance, down-weighting well-classified examples to focus on hard cases.
+
+\textbf{Optimization.} AdamW optimizer with learning rate $10^{-3}$, weight decay $10^{-3}$, batch size 64, trained for 80 epochs.
+
+\textbf{Regularization.} Dropout ($p=0.5$) before classification; batch normalization in stream encoders.
+
+\subsection{Evaluation Protocol}
+\label{subsec:evaluation}
+
+\textbf{Cross-Validation.} 21-fold Leave-One-Subject-Out CV evaluates generalization to unseen individuals. Subjects 48 and 57 are held for validation across all folds.
+
+\textbf{Metrics.} F1 score (primary), with precision, recall, accuracy, and AUC reported. 95\% confidence intervals via bootstrap resampling.
+
+\textbf{Statistical Testing.} Paired t-tests assess significance of performance differences between model variants.

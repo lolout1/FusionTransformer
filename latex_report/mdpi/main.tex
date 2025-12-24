@@ -1,0 +1,262 @@
+% MDPI Big Data and Cognitive Computing (BDCC) Journal
+% Follows MDPI Style Guide Third Edition
+% https://www.mdpi.com/authors/style-guide
+
+\documentclass[journal,article,submit,pdftex,moreauthors]{../Definitions/mdpi}
+
+%=================================================================
+% PACKAGES
+%=================================================================
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+% Optional packages - use if available
+\IfFileExists{multirow.sty}{\usepackage{multirow}}{}
+\IfFileExists{hyperref.sty}{\usepackage{hyperref}}{\newcommand{\url}[1]{\texttt{#1}}}
+\IfFileExists{algorithm.sty}{\usepackage{algorithm}}{}
+\IfFileExists{algorithmic.sty}{\usepackage{algorithmic}}{}
+\IfFileExists{pifont.sty}{\usepackage{pifont}}{}
+
+% Graphics path
+\graphicspath{{figures/}}
+
+% Custom commands
+\newcommand{\vect}[1]{\mathbf{#1}}
+\newcommand{\mat}[1]{\mathbf{#1}}
+
+%=================================================================
+% JOURNAL AND ARTICLE INFO (Section 2.7)
+%=================================================================
+\journal{Big Data Cogn. Comput.}
+\volume{1}
+\issue{1}
+\articlenumber{1}
+\pubvolume{1}
+\pubyear{2025}
+\copyrightyear{2025}
+\datereceived{}
+\dateaccepted{}
+\datepublished{}
+\hreflink{https://doi.org/}
+
+%=================================================================
+% TITLE (Section 2.2)
+% - Concise, descriptive, grammatically correct
+% - No periods; use colons or en dashes
+% - No abbreviations/jargon
+%=================================================================
+\Title{Dual-Stream Transformer with Kalman Sensor Fusion for Wearable Fall Detection}
+
+%=================================================================
+% AUTHORS (Section 2.3)
+% - Format: "Firstname Lastname"
+% - No titles (Dr., Prof.) or academic suffixes (PhD, MSc)
+% - Use superscript numbers for affiliations
+%=================================================================
+\Author{Author One $^{1,\dagger}$, Author Two $^{2}$ and Author Three $^{1,*}$}
+
+\address{%
+$^{1}$ \quad Department of Computer Science, Texas State University, San Marcos, TX 78666, USA\\
+$^{2}$ \quad Affiliation 2, City, Country}
+
+\corres{Correspondence: corresponding@txstate.edu}
+
+\firstnote{Current address: Affiliation.}
+
+%=================================================================
+% ABSTRACT (Section 2.4)
+% - Up to 200 words, single paragraph
+% - Follow IMRAD structure without headings
+% - No images, tables, citations, or abbreviations not defined
+% - Must be self-contained
+%=================================================================
+\abstract{
+Wearable fall detection systems face a fundamental challenge: while gyroscope data provides valuable orientation information, naively combining it with accelerometer data degrades performance due to noise contamination. We present a dual-stream transformer architecture addressing this through two innovations. First, we employ Kalman sensor fusion to transform noisy gyroscope angular velocities into stable orientation estimates (roll, pitch, yaw), producing semantically meaningful features capturing body pose during falls. Second, we process accelerometer and orientation streams through separate encoder pathways before fusion, preventing cross-modal interference. Our architecture incorporates Squeeze-and-Excitation channel attention and Temporal Attention Pooling to focus on fall-critical temporal patterns. Evaluated on the SmartFallMM dataset using 21-fold Leave-One-Subject-Out cross-validation, our dual-stream Kalman transformer achieves 91.10\% F1 score, outperforming single-stream transformers (89.80\% F1) by 1.30\%. Ablation studies confirm that Kalman fusion contributes 1.61\% F1 improvement and dual-stream processing contributes 1.30\% F1 improvement. These results establish a new state-of-the-art for inertial measurement unit-based fall detection on commodity wearable devices.
+}
+
+%=================================================================
+% KEYWORDS (Section 3.5)
+% - 3-8 keywords, semicolon-separated
+% - Define abbreviations if used
+%=================================================================
+\keyword{fall detection; wearable sensors; Kalman filter; sensor fusion; transformer; dual-stream architecture; attention mechanism; inertial measurement unit}
+
+%=================================================================
+% DOCUMENT
+%=================================================================
+\begin{document}
+
+%=================================================================
+% 1. INTRODUCTION (Section 3.1, 4.1.1)
+% - Present tense for current problems
+% - Past/present for prior work
+% - Present for results being presented
+%=================================================================
+\section{Introduction}
+\label{sec:introduction}
+
+Falls represent a critical health concern for older adults, accounting for over 38 million medically treated injuries annually worldwide~\cite{who2021falls}. Wearable fall detection systems offer a promising solution for continuous, non-intrusive monitoring using commodity devices such as smartwatches. However, developing accurate fall detection models that operate within the computational and power constraints of wearable devices remains challenging.
+
+Modern smartwatches contain inertial measurement units (IMUs) comprising triaxial accelerometers and gyroscopes. While accelerometers measure linear acceleration and provide reliable impact detection, gyroscopes measure angular velocity and capture rotational motion patterns characteristic of falls. Intuitively, combining both modalities should improve detection performance. However, our preliminary investigation revealed a counterintuitive finding: adding raw gyroscope data to accelerometer-only models \textit{degraded} performance by 1.6--2.0\% F1 score.
+
+Analysis revealed that single-stream architectures, which process concatenated accelerometer and gyroscope channels through shared convolutional layers, allow noisy gyroscope signals to corrupt discriminative accelerometer features. Consumer-grade micro-electro-mechanical systems (MEMS) gyroscopes exhibit substantial measurement noise and bias drift, with signal-to-noise ratios below 1.0 for over 75\% of subjects in our dataset. When mixed with clean accelerometer signals in early network layers, this noise propagates through the network and degrades classification accuracy.
+
+This paper presents a dual-stream transformer architecture that effectively leverages both accelerometer and gyroscope data through two key innovations:
+
+\textbf{(1) Kalman Sensor Fusion.} Rather than using raw gyroscope angular velocities, we apply a Linear Kalman Filter~\cite{kalman1960new} to fuse accelerometer and gyroscope measurements, estimating body orientation angles (roll, pitch, yaw) in radians. This transforms noisy angular velocity signals---which lack absolute reference and accumulate drift---into semantically meaningful body pose features. The resulting orientation representation captures \textit{what position the body is in} rather than \textit{how fast it is rotating}, providing more interpretable features for fall classification.
+
+\textbf{(2) Dual-Stream Architecture.} We process accelerometer and Kalman-fused orientation streams through separate encoder pathways before fusion. Each stream has dedicated Conv1D projection layers, batch normalization, and dropout rates tuned to the signal characteristics of that modality. This separation prevents cross-modal interference while allowing the subsequent transformer encoder to learn joint temporal patterns across both streams.
+
+Our architecture further incorporates Squeeze-and-Excitation (SE) channel attention~\cite{hu2018squeeze} to weight the importance of fused feature channels, and Temporal Attention Pooling (TAP) to focus classification on the most discriminative timesteps within each window---typically the impact phase of falls.
+
+We evaluate our approach on the SmartFallMM dataset~\cite{ngu2022personalized}, a comprehensive multimodal fall detection benchmark comprising 30 young adult subjects performing 14 activities (9 activities of daily living and 5 fall types). Using rigorous 21-fold Leave-One-Subject-Out Cross-Validation (LOSO-CV), our dual-stream Kalman transformer achieves 91.10\% F1 score, establishing a new state-of-the-art for IMU-based fall detection on this dataset.
+
+The main contributions of this paper are:
+\begin{enumerate}
+    \item We demonstrate that raw gyroscope data hurts fall detection performance when processed in a single-stream architecture, but \textit{improves} performance when transformed through Kalman sensor fusion and processed in a dual-stream architecture.
+    \item We present a dual-stream transformer architecture that processes accelerometer and orientation streams separately, achieving 1.30\% F1 improvement over single-stream baselines.
+    \item We provide comprehensive ablation studies quantifying the contribution of each architectural component: Kalman fusion (+1.61\%), dual-stream processing (+1.30\%), SE attention (+0.63\%), and TAP (+1.28\%).
+    \item We characterize failure modes, finding that subjects with gentle falls (20\% lower impact force) account for the majority of misclassifications, suggesting directions for future improvement.
+\end{enumerate}
+
+The remainder of this paper is organized as follows. Section~\ref{sec:materials} describes the SmartFallMM dataset, our preprocessing pipeline, the proposed dual-stream Kalman transformer architecture, and experimental setup. Section~\ref{sec:results} presents experimental results including ablation studies. Section~\ref{sec:discussion} discusses implications and limitations. Section~\ref{sec:conclusions} concludes with future directions.
+
+%=================================================================
+% 2. MATERIALS AND METHODS (Section 4.1.2)
+% - Past tense for methods description
+%=================================================================
+\section{Materials and Methods}
+\label{sec:materials}
+
+\input{methodology}
+
+%=================================================================
+% 3. RESULTS (Section 4.1.3)
+% - Past tense for what happened
+% - Present for established facts
+%=================================================================
+\section{Results}
+\label{sec:results}
+
+\input{results}
+
+%=================================================================
+% 4. DISCUSSION
+%=================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\input{discussion}
+
+%=================================================================
+% 5. CONCLUSIONS
+%=================================================================
+\section{Conclusions}
+\label{sec:conclusions}
+
+This paper presented a dual-stream Kalman transformer architecture for wearable fall detection that achieves state-of-the-art performance on the SmartFallMM dataset. Our key finding is that gyroscope data, which degrades performance when added as raw signals in single-stream architectures, substantially improves detection when transformed through Kalman sensor fusion and processed in a dual-stream architecture.
+
+The proposed approach achieves 91.10\% F1 score on rigorous 21-fold LOSO-CV evaluation, representing a 1.30\% improvement over single-stream Kalman transformer baselines. Ablation studies confirm the contribution of each component: Kalman fusion (+1.61\% F1), dual-stream processing (+1.30\% F1), and attention mechanisms (+2.18\% F1).
+
+Analysis of failure modes reveals that subjects exhibiting gentle falls with 20\% lower impact forces account for the majority of misclassifications. Future work will address this through targeted data augmentation for gentle falls, subject-specific calibration, and multi-modal fusion incorporating contextual information such as activity history.
+
+The compact model size (approximately 47,000 parameters) enables deployment on resource-constrained wearable devices, making this approach suitable for real-world fall detection applications in elder care and health monitoring.
+
+%=================================================================
+% BACK MATTER (Section 8)
+% Order: Supplementary, Author Contributions, Funding, IRB,
+%        Informed Consent, Data Availability, Acknowledgments,
+%        Conflicts of Interest, Abbreviations, Appendix, References
+%=================================================================
+
+%--- Author Contributions (Section 8.2) ---
+\authorcontributions{Conceptualization, A.O. and A.T.; methodology, A.O.; software, A.O.; validation, A.O. and A.T.; formal analysis, A.O.; investigation, A.O.; resources, A.T.; data curation, A.O.; writing---original draft preparation, A.O.; writing---review and editing, A.T.; visualization, A.O.; supervision, A.T.; project administration, A.T.; funding acquisition, A.T. All authors have read and agreed to the published version of the manuscript.}
+
+%--- Funding (Section 8.3) ---
+\funding{This research was funded by [Funding Agency], grant number [Grant Number].}
+
+%--- Institutional Review Board Statement (Section 8.4) ---
+\institutionalreview{The study was conducted in accordance with the Declaration of Helsinki, and approved by the Institutional Review Board of Texas State University (Protocol Code XXXX, approved DD Month YYYY).}
+
+%--- Informed Consent Statement (Section 8.5) ---
+\informedconsent{Informed consent was obtained from all subjects involved in the study.}
+
+%--- Data Availability Statement (Section 8.6) ---
+\dataavailability{The SmartFallMM dataset used in this study is available at [repository URL]. Code for reproducing experiments is available at [GitHub URL].}
+
+%--- Acknowledgments (Section 8.7) ---
+\acknowledgments{The authors thank the SmartFall research group at Texas State University for data collection and annotation efforts.}
+
+%--- Conflicts of Interest (Section 8.8) ---
+\conflictsofinterest{The authors declare no conflict of interest.}
+
+%--- Abbreviations (Section 8.9) ---
+\abbreviations{The following abbreviations are used in this manuscript:\\
+
+\noindent
+\begin{tabular}{@{}ll}
+ADL & Activities of Daily Living\\
+CNN & Convolutional Neural Network\\
+IMU & Inertial Measurement Unit\\
+LOSO-CV & Leave-One-Subject-Out Cross-Validation\\
+MEMS & Micro-Electro-Mechanical Systems\\
+SE & Squeeze-and-Excitation\\
+SMV & Signal Magnitude Vector\\
+TAP & Temporal Attention Pooling\\
+\end{tabular}}
+
+%=================================================================
+% APPENDIX (Section 8.10)
+%=================================================================
+\appendix
+
+\input{appendix}
+
+%=================================================================
+% REFERENCES (Section 8.11)
+% MDPI uses ACS Reference Style (Section 8.11.1)
+% Format: Author, A.A.; Author, B.B. Title. Journal Year, Volume, Pages.
+%=================================================================
+\begin{adjustwidth}{-\extralength}{0cm}
+\printendnotes[custom]
+
+\reftitle{References}
+
+\begin{thebibliography}{99}
+
+\bibitem{who2021falls}
+World Health Organization. Falls. Fact Sheet. 2021. Available online: \url{https://www.who.int/news-room/fact-sheets/detail/falls} (accessed on 1 December 2024).
+
+\bibitem{kalman1960new}
+Kalman, R.E. A New Approach to Linear Filtering and Prediction Problems. \textit{J. Basic Eng.} \textbf{1960}, \textit{82}, 35--45.
+
+\bibitem{hu2018squeeze}
+Hu, J.; Shen, L.; Sun, G. Squeeze-and-Excitation Networks. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), Salt Lake City, UT, USA, 18--22 June 2018; pp. 7132--7141.
+
+\bibitem{vaswani2017attention}
+Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones, L.; Gomez, A.N.; Kaiser, L.; Polosukhin, I. Attention Is All You Need. In Proceedings of the 31st International Conference on Neural Information Processing Systems (NeurIPS), Long Beach, CA, USA, 4--9 December 2017; pp. 5998--6008.
+
+\bibitem{igual2013challenges}
+Igual, R.; Medrano, C.; Plaza, I. Challenges, Issues and Trends in Fall Detection Systems. \textit{Biomed. Eng. Online} \textbf{2013}, \textit{12}, 66.
+
+\bibitem{ngu2022personalized}
+Ngu, A.H.; Gutierrez, Y.; Metsis, V.; Nadu, S.; Qasim, B. Personalized Watch-Based Fall Detection Using a Collaborative Edge-Cloud Framework. \textit{Int. J. Neural Syst.} \textbf{2022}, \textit{32}, 2250025.
+
+\bibitem{madgwick2010efficient}
+Madgwick, S.O.H. An Efficient Orientation Filter for Inertial and Inertial/Magnetic Sensor Arrays. Report; University of Bristol: Bristol, UK, 2010.
+
+\bibitem{sabatini2011estimating}
+Sabatini, A.M. Estimating Three-Dimensional Orientation of Human Body Parts by Inertial/Magnetic Sensing. \textit{Sensors} \textbf{2011}, \textit{11}, 1489--1525.
+
+\bibitem{lin2017focal}
+Lin, T.Y.; Goyal, P.; Girshick, R.; He, K.; Doll\'{a}r, P. Focal Loss for Dense Object Detection. In Proceedings of the IEEE International Conference on Computer Vision (ICCV), Venice, Italy, 22--29 October 2017; pp. 2980--2988.
+
+\bibitem{cawley2010overfitting}
+Cawley, G.C.; Talbot, N.L.C. On Over-fitting in Model Selection and Subsequent Selection Bias in Performance Evaluation. \textit{J. Mach. Learn. Res.} \textbf{2010}, \textit{11}, 2079--2107.
+
+\end{thebibliography}
+
+\end{adjustwidth}
+
+\end{document}
