@@ -1,0 +1,110 @@
+# Dual-Stream Kalman Transformer Configuration
+# Achieves 91.10% Test F1 on SmartFallMM (19-fold LOSO-CV)
+#
+# Architecture: Dual-stream transformer with Kalman-fused IMU
+# Input: 7ch [SMV, ax, ay, az, roll, pitch, yaw]
+# Preprocessing: Linear Kalman filter (acc + gyro -> euler angles)
+# Normalization: acc_only (StandardScaler on acceleration, orientation in radians)
+#
+# Reference: SmartFallMM Dataset, Texas State University
+
+model: Models.dual_stream_kalman.DualStreamKalmanTransformer
+dataset: smartfallmm
+
+# Subject configuration
+# Young (30): [29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+# Old (21): [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26]
+subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+
+# Validation subjects (excluded from test folds -> 19-fold CV)
+validation_subjects: [48, 57]
+
+# Train-only subjects (old population + young with data issues)
+train_only_subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29,30,32,35,39,45,59]
+
+# Model architecture
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: relu
+  norm_first: True
+  se_reduction: 4
+  acc_ratio: 0.5
+  use_se: True
+  use_tap: True
+  use_pos_encoding: False
+
+# Training hyperparameters
+batch_size: 64
+num_epoch: 200
+optimizer: adamw
+base_lr: 1.0e-3
+weight_decay: 5.0e-4
+seed: 2
+
+# Dataset configuration
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  age_group: [young, old]
+  sensors: [watch]
+  stride: 32
+
+  # Normalization (critical for performance)
+  enable_normalization: True
+  normalize_modalities: all
+  kalman_normalize_mode: acc_only  # Key: only normalize acceleration
+
+  # Filtering
+  enable_filtering: False
+  enable_motion_filtering: False
+
+  # Class-aware stride (oversample falls)
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 64
+  test_fall_stride: 16
+  test_adl_stride: 64
+
+  # Gyroscope preprocessing
+  convert_gyro_to_rad: True
+
+  # Class-aware truncation
+  enable_simple_truncation: True
+  enable_class_aware_truncation: True
+  fall_max_truncation_diff: 50
+  adl_max_truncation_diff: 128
+
+  # Kalman fusion settings
+  enable_kalman_fusion: True
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: True
+  filter_fs: 30.0
+  kalman_Q_orientation: 0.005
+  kalman_Q_rate: 0.01
+  kalman_R_acc: 0.05
+  kalman_R_gyro: 0.1
+  enable_kalman_smoothing: False
+  include_smv: False
+
+# Loss function (handles class imbalance)
+loss_type: focal
+loss_args:
+  alpha: 0.75
+  gamma: 2.0
+
+# Data loader
+feeder: Feeder.Make_Dataset.UTD_mm
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64

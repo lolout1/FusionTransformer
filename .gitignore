@@ -29,15 +29,29 @@ mismatch_analysis/
 # Documentation (commit to private repo instead)
 *.md
 notebooks/
+latex_report/
+backup_report/
+docs/
 
 # Temporary and backup files
 .migration_backup_*/
-*.out
-*.log
 *.csv
 *.png
 *.jpg
 *.pptx
+
+# LaTeX auxiliary files
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.bbl
+*.blg
+*.synctex.gz
+*.fls
+*.fdb_latexmk
 
 # IDE/OS
 .DS_Store
@@ -79,6 +93,9 @@ config/smartfallmm/stream_*/
 config/smartfallmm/yaw_ablation/
 config/smartfallmm/cfeb_ablation_*/
 config/smartfallmm/asymmetric_*/
+config/smartfallmm/gated_fusion_ablation/
+config/smartfallmm/no_earlystop_ablation/
+config/smartfallmm/linear_kf_optimal_val.yaml
 config/smartfallmm/controlled_comparison/
 config/smartfallmm/model_comparison/
 config/smartfallmm/transformer_architecture_comparison/
