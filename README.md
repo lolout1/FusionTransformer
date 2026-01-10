@@ -1,10 +1,18 @@
-# Dual-Stream Kalman Transformer for Fall Detection
+# Dual-Stream Kalman Transformer for Wearable Fall Detection
 
-Fall detection using wearable IMU sensors with Kalman-fused orientation features.
+A state-of-the-art fall detection system achieving **91.10% F1-score** using smartwatch IMU sensors. This repository implements a novel dual-stream transformer architecture with Kalman-fused orientation features, evaluated on the SmartFallMM dataset using rigorous 21-fold Leave-One-Subject-Out Cross-Validation.
+
+## Overview
+
+Fall detection from wearable sensors presents unique challenges: raw accelerometer data conflates gravitational and dynamic acceleration components, while gyroscope measurements suffer from integration drift. Our approach addresses these limitations through sensor fusion and architectural innovations:
+
+1. **Kalman Filter Fusion**: Fuses accelerometer (gravity reference) and gyroscope (angular velocity) into stable orientation estimates
+2. **Dual-Stream Processing**: Separate pathways for acceleration dynamics and orientation kinematics
+3. **Attention Mechanisms**: Squeeze-Excitation for channel importance, Temporal Attention Pooling for event localization
 
 ## Quick Start
 
-### 1. Clone Dataset
+### 1. Dataset Setup
 
 ```bash
 git clone https://github.com/txst-cs-smartfall/SmartFallMM-Dataset.git
@@ -12,157 +20,238 @@ ln -s SmartFallMM-Dataset/Young\ Data data/young
 ln -s SmartFallMM-Dataset/Old\ Data data/old
 ```
 
-### 2. Install Dependencies
+### 2. Environment Setup
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Run Inference (Pretrained)
+### 3. Reproduce Best Results
 
+```bash
+./scripts/best_exps/run_kalman_transformer.sh
+```
+
+This script executes full 21-fold LOSO-CV training with the optimal configuration. Expected runtime: 4-8 hours depending on hardware.
+
+---
+
+## Preprocessing Pipeline
+
+### Kalman Filter Sensor Fusion
+
+Raw 6-axis IMU data (accelerometer + gyroscope) is transformed into a 7-channel representation through a Linear Kalman Filter:
+
+```
+Input:  [ax, ay, az, gx, gy, gz]  (6 channels)
+Output: [SMV, ax, ay, az, roll, pitch, yaw]  (7 channels)
+```
+
+**State Vector (6D):**
+```
+x = [roll, pitch, yaw, roll_rate, pitch_rate, yaw_rate]
+```
+
+**Observation Model:**
+- Roll and pitch derived from accelerometer gravity reference: `roll = atan2(ay, az)`, `pitch = atan2(-ax, sqrt(ay² + az²))`
+- Angular rates directly from gyroscope
+- Yaw estimated via gyroscope integration (no magnetometer)
+
+**Filter Parameters (Optimized):**
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Q_orientation | 0.005 | Process noise for angles (rad²) |
+| Q_rate | 0.01 | Process noise for angular rates ((rad/s)²) |
+| R_acc | 0.05 | Measurement noise for accelerometer (rad²) |
+| R_gyro | 0.1 | Measurement noise for gyroscope ((rad/s)²) |
+
+**Signal Magnitude Vector (SMV):**
+```
+SMV = sqrt(ax² + ay² + az²)
+```
+Captures total acceleration magnitude independent of device orientation. Falls produce characteristic SMV spikes (>20 m/s²) during impact.
+
+### Channel-Aware Normalization
+
+Critical insight: orientation angles (roll, pitch, yaw) are bounded in [-π, π] with physical meaning. Standard normalization destroys this structure.
+
+**Solution:** Normalize only accelerometer channels (0-3), preserve orientation in radians (4-6).
+
+```python
+# Channels 0-3: StandardScaler normalization
+features[:, :4] = (features[:, :4] - mean) / std
+
+# Channels 4-6: Keep raw radians
+features[:, 4:7] = orientation  # Unchanged
+```
+
+---
+
+## Model Architecture
+
+### Dual-Stream Kalman Transformer
+
+```
+Input: (B, 128, 7)
+       │
+       ├─── Acceleration Stream ────┐
+       │    [SMV, ax, ay, az]       │
+       │    Conv1D(4→32, k=8)       │
+       │    BatchNorm → SiLU        │
+       │                            │
+       └─── Orientation Stream ─────┤
+            [roll, pitch, yaw]      │
+            Conv1D(3→32, k=8)       │
+            BatchNorm → SiLU        │
+                                    │
+            ┌───────────────────────┘
+            │ Concatenate → LayerNorm
+            ▼
+       TransformerEncoder
+       (2 layers, 4 heads, dim=64)
+            │
+       Squeeze-Excitation
+       (channel attention)
+            │
+       Temporal Attention Pooling
+       (learned sequence aggregation)
+            │
+       Dropout(0.5) → Linear(64→1)
+            │
+       Output: fall probability
+```
+
+**Key Components:**
+
+| Component | Purpose |
+|-----------|---------|
+| Dual-Stream Conv | Modality-specific feature extraction with different dropout rates |
+| SE Block | Learns channel importance weights via global pooling + MLP |
+| TAP | Attention-weighted temporal pooling to focus on impact events |
+| Pre-norm Transformer | Stable training with LayerNorm before attention |
+
+---
+
+## Training Configuration
+
+| Parameter | Value |
+|-----------|-------|
+| Optimizer | AdamW |
+| Learning Rate | 1e-3 |
+| Weight Decay | 5e-4 |
+| Batch Size | 64 |
+| Epochs | 80 |
+| Loss | Focal Loss (α=0.75, γ=2.0) |
+| Early Stopping | Patience=15 |
+
+**Class-Aware Sampling:**
+- Fall windows: stride=16 (more overlap for rare events)
+- ADL windows: stride=64 (standard coverage)
+
+---
+
+## Results
+
+### Model Comparison (21-fold LOSO-CV)
+
+| Model | Test F1 | Architecture |
+|-------|---------|--------------|
+| **Dual-Stream Kalman Transformer** | **91.10%** | SE + TAP, dual-stream |
+| Kalman Gated Hierarchical Fusion | 90.44% | Multi-scale gating |
+| CNN-Mamba | 89.11% | CNN + Mamba blocks |
+| Dual-Stream LSTM | 88.84% | Bidirectional LSTM |
+
+### Best Fold Performance
+
+| Fold | Test F1 | Test Accuracy |
+|------|---------|---------------|
+| S50 | 98.41% | 97.78% |
+| S58 | 98.38% | 97.35% |
+| S55 | 97.90% | 96.45% |
+
+---
+
+## Reproduction Scripts
+
+### Train Best Model
+```bash
+./scripts/best_exps/run_kalman_transformer.sh
+```
+
+### Train Alternative Architectures
+```bash
+# Kalman Gated Hierarchical Fusion
+python main.py --config config/smartfallmm/kalman_gated_hierarchical.yaml
+
+# CNN-Mamba
+python main.py --config config/smartfallmm/cnn_mamba_kalman.yaml
+
+# Dual-Stream LSTM
+python main.py --config config/smartfallmm/dual_stream_lstm.yaml
+```
+
+### Inference with Pretrained Weights
 ```bash
 python inference.py --test
 ```
 
 ---
 
-## Reproduce Best Results
+## Project Structure
 
-All models evaluated using **21-fold Leave-One-Subject-Out Cross-Validation** on young subjects.
-
-### Dual-Stream Kalman Transformer (91.10% F1)
-
-```bash
-python main.py --config config/smartfallmm/reproduce_91.yaml --work-dir results/kalman_transformer
 ```
-
-| Metric | Value |
-|--------|-------|
-| Test F1 | 91.10% |
-| Best Fold | S50 (98.41%) |
-| Architecture | Dual-stream SE + TAP |
-
-### Kalman Gated Hierarchical Fusion (90.44% F1)
-
-```bash
-python main.py --config config/smartfallmm/kalman_gated_hierarchical.yaml --work-dir results/kghf
+├── scripts/best_exps/
+│   └── run_kalman_transformer.sh    # Reproduction script
+├── config/smartfallmm/
+│   ├── reproduce_91.yaml            # Best model config
+│   ├── kalman_gated_hierarchical.yaml
+│   ├── cnn_mamba_kalman.yaml
+│   └── dual_stream_lstm.yaml
+├── Models/
+│   ├── kalman_transformer_variants.py  # KalmanBalancedFlexible
+│   ├── kalman_gated_hierarchical.py    # KGHF
+│   ├── cnn_mamba.py
+│   └── dual_stream_lstm.py
+├── utils/kalman/
+│   ├── filters.py                   # Kalman filter implementation
+│   ├── preprocessing.py             # Feature assembly
+│   └── quaternion.py                # Orientation utilities
+├── Feeder/
+│   └── Make_Dataset.py              # Data loading
+├── weights/
+│   └── best_model.pth               # Pretrained weights (S50, 98.41% F1)
+├── inference.py                     # Standalone inference
+├── main.py                          # Training entry point
+└── requirements.txt
 ```
-
-| Metric | Value |
-|--------|-------|
-| Test F1 | 90.44% |
-| Architecture | Multi-scale gated fusion |
-
-### CNN-Mamba (89.11% F1)
-
-```bash
-python main.py --config config/smartfallmm/cnn_mamba_kalman.yaml --work-dir results/cnn_mamba
-```
-
-| Metric | Value |
-|--------|-------|
-| Test F1 | 89.11% |
-| Architecture | CNN + Mamba blocks |
-
-### Dual-Stream LSTM (88.84% F1)
-
-```bash
-python main.py --config config/smartfallmm/dual_stream_lstm.yaml --work-dir results/lstm
-```
-
-| Metric | Value |
-|--------|-------|
-| Test F1 | 88.84% |
-| Architecture | Bi-LSTM dual-stream |
-
----
-
-## Results Summary
-
-| Model | Test F1 | Config |
-|-------|---------|--------|
-| **Dual-Stream Kalman Transformer** | **91.10%** | `reproduce_91.yaml` |
-| Kalman Gated Hierarchical Fusion | 90.44% | `kalman_gated_hierarchical.yaml` |
-| CNN-Mamba | 89.11% | `cnn_mamba_kalman.yaml` |
-| Dual-Stream LSTM | 88.84% | `dual_stream_lstm.yaml` |
-
----
-
-## Pretrained Weights
-
-Best model weights included: `weights/best_model.pth`
-- Fold: S50
-- Test F1: 98.41%
-- Model: KalmanBalancedFlexible
-
-```python
-from Models.kalman_transformer_variants import KalmanBalancedFlexible
-import torch
-
-model = KalmanBalancedFlexible()
-model.load_state_dict(torch.load('weights/best_model.pth'))
-```
-
----
-
-## Key Features
-
-### Kalman Fusion Preprocessing
-- Linear Kalman filter fuses accelerometer + gyroscope → orientation (roll, pitch, yaw)
-- 7-channel output: [SMV, ax, ay, az, roll, pitch, yaw]
-- Channel-aware normalization: StandardScaler on accelerometer only
-
-### Dual-Stream Architecture
-- Separate streams for acceleration (4ch) and orientation (3ch)
-- Squeeze-Excitation (SE) for channel attention
-- Temporal Attention Pooling (TAP) for sequence aggregation
-
-### Training
-- Focal Loss (alpha=0.75, gamma=2.0)
-- AdamW optimizer
-- Early stopping with patience=15
 
 ---
 
 ## Dataset
 
-The SmartFallMM dataset:
-- **Young Group**: 30 subjects (ages 18-35) with fall + ADL activities
-- **Old Group**: 21 subjects (ages 65+) with ADL activities only
-- **Sensors**: Smartwatch accelerometer + gyroscope
-- **Activities**: 5 fall types + 9 ADLs
+**SmartFallMM** is a multimodal fall detection dataset collected at Texas State University:
+
+| Group | Subjects | Ages | Activities |
+|-------|----------|------|------------|
+| Young | 30 | 18-35 | 5 fall types + 9 ADLs |
+| Old | 21 | 65+ | 9 ADLs only |
+
+**Sensors:** Smartwatch (accelerometer + gyroscope at ~30Hz)
+
+**Evaluation Protocol:** 21-fold Leave-One-Subject-Out Cross-Validation on young subjects ensures no data leakage between training and testing.
 
 Dataset: https://github.com/txst-cs-smartfall/SmartFallMM-Dataset
 
 ---
 
-## Project Structure
-
-```
-├── config/smartfallmm/
-│   ├── reproduce_91.yaml              # Best transformer config
-│   ├── kalman_gated_hierarchical.yaml # KGHF config
-│   ├── cnn_mamba_kalman.yaml          # CNN-Mamba config
-│   └── dual_stream_lstm.yaml          # LSTM config
-├── Models/
-│   ├── kalman_transformer_variants.py # KalmanBalancedFlexible
-│   ├── kalman_gated_hierarchical.py   # KGHF
-│   ├── cnn_mamba.py                   # CNN-Mamba
-│   └── dual_stream_lstm.py            # LSTM
-├── utils/kalman/                      # Kalman filter implementation
-├── weights/best_model.pth             # Pretrained weights
-├── inference.py                       # Inference script
-└── main.py                            # Training script
-```
-
----
-
 ## Citation
 
-```
-[Paper citation pending]
+```bibtex
+[Citation pending publication]
 ```
 
 ## License
 
-Copyright SmartFall Group, Texas State University. All rights reserved.
+Copyright © SmartFall Research Group, Texas State University. All rights reserved.
+
+For dataset access inquiries: Dr. Anne Ngu (angu@txstate.edu)
