@@ -1,0 +1,63 @@
+model: Models.cnn_mamba.CNNMambaKalman
+dataset: smartfallmm
+
+subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [48, 57]
+train_only_subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29,30,32,35,39,45,59]
+
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  mamba_dim: 32
+  dropout: 0.25
+
+batch_size: 64
+num_epoch: 80
+optimizer: adamw
+base_lr: 1.0e-3
+weight_decay: 5.0e-4
+seed: 2
+
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  age_group: [young, old]
+  sensors: [watch]
+  stride: 32
+  enable_normalization: True
+  normalize_modalities: all
+  kalman_normalize_mode: acc_only
+  enable_filtering: False
+  enable_motion_filtering: False
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 64
+  convert_gyro_to_rad: True
+  enable_simple_truncation: True
+  max_truncation_diff: 50
+  enable_kalman_fusion: True
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: True
+  filter_fs: 30.0
+  kalman_Q_orientation: 0.005
+  kalman_Q_rate: 0.01
+  kalman_R_acc: 0.05
+  kalman_R_gyro: 0.1
+  enable_kalman_smoothing: False
+  include_smv: False
+
+loss_type: focal
+loss_args:
+  alpha: 0.75
+  gamma: 2.0
+
+feeder: Feeder.Make_Dataset.UTD_mm
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
