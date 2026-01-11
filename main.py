@@ -35,6 +35,7 @@ from utils.callbacks import EarlyStopping
 from utils.loss import BinaryFocalLoss
 from utils.metrics_report import (save_enhanced_results, generate_text_report,
                                   create_scores_csv_compatible)
+from utils.wandb_integration import WandbLogger
 
 def get_args():
     '''
@@ -135,6 +136,10 @@ def get_args():
     parser.add_argument('--num-worker', type = int, default= 0)
     parser.add_argument('--result-file', type = str, help = 'Name of resutl file')
 
+    # Model saving strategy
+    parser.add_argument('--save-best-val-f1', type=str2bool, default=False,
+                        help='Save checkpoint by best val F1 instead of lowest val loss')
+
     # Single-fold execution for parallel SLURM jobs
     parser.add_argument('--single-fold', type=int, default=None,
                         help='Run only a single LOSO fold for specified test subject (for parallel job submission)')
@@ -144,6 +149,14 @@ def get_args():
                         help='Enable Kalman filter preprocessing for IMU data smoothing')
     parser.add_argument('--kalman-args', type=str, default='{}',
                         help='Kalman filter parameters as dict string')
+
+    # W&B logging
+    parser.add_argument('--enable-wandb', action='store_true',
+                        help='Enable Weights & Biases logging')
+    parser.add_argument('--wandb-project', type=str, default='smartfall-mm',
+                        help='W&B project name')
+    parser.add_argument('--wandb-entity', type=str, default='abheek-texas-state-university',
+                        help='W&B entity (team/user)')
 
     return parser
 
@@ -202,6 +215,8 @@ class Trainer():
         self.train_loss_summary = []
         self.val_loss_summary = []
         self.best_loss = float('inf')
+        self.best_epoch = 0
+        self.best_train_metrics = None
         self.test_accuracy = 0
         self.test_f1 = 0
         self.test_accuracy = 0
@@ -276,10 +291,35 @@ class Trainer():
         # self.load_loss()
         
         self.include_val = arg.include_val
-        
+
         num_params = self.count_parameters(self.model)
         self.print_log(f'# Parameters: {num_params}')
         self.print_log(f'Model size : {num_params/ (1024 ** 2):.2f} MB')
+
+        # W&B logger
+        self.wandb_enabled = getattr(arg, 'enable_wandb', False)
+        self.wandb_logger = None
+        if self.wandb_enabled:
+            config = {
+                'model': arg.model,
+                'model_args': arg.model_args,
+                'dataset_args': arg.dataset_args,
+                'batch_size': arg.batch_size,
+                'num_epoch': arg.num_epoch,
+                'base_lr': arg.base_lr,
+                'optimizer': arg.optimizer,
+                'weight_decay': arg.weight_decay,
+                'loss_type': getattr(arg, 'loss_type', 'bce'),
+                'seed': arg.seed,
+            }
+            model_name = arg.model.split('.')[-1] if '.' in arg.model else arg.model
+            self.wandb_logger = WandbLogger(
+                config=config,
+                project=getattr(arg, 'wandb_project', 'smartfall-mm'),
+                entity=getattr(arg, 'wandb_entity', 'abheek-texas-state-university'),
+                name=f"{model_name}_lr{arg.base_lr}_seed{arg.seed}",
+                enabled=True,
+            )
     
     def add_avg_df(self, results):
         if results.empty:
@@ -915,14 +955,14 @@ class Trainer():
         self.record_time()
         return split_time
 
-    def print_log(self, string : str, print_time = True) -> None:
+    def print_log(self, string : str, print_time = True, end='\n') -> None:
         '''
         Prints log to a file
         '''
-        print(string)
+        print(string, end=end, flush=True)
         if self.arg.print_log:
             with open('{}/log.txt'.format(self.arg.work_dir), 'a') as f:
-                print(string, file = f)
+                print(string, file=f, end=end)
     def loss_viz(self, train_loss : List[float], val_loss: List[float]) :
         '''
         Visualizes the val and train loss curve togethers
@@ -1119,10 +1159,8 @@ class Trainer():
             k: '{:02d}%'.format(int(round(v * 100 / sum(timer.values()))))
             for k, v in timer.items()
         }
-        self.print_log(
-            '\tTraining Loss: {:4f},  Acc: {:2f}%, F1 score: {:2f}%, Precision: {:2f}%, Recall: {:2f}%, AUC: {:2f}%  '.format(train_loss, accuracy, f1, precision, recall, auc_score)
-        )
-        self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
+        self.print_log('E{:02d} Train: L={:.4f} A={:.1f}% F1={:.1f}% | '.format(
+            epoch+1, train_loss, accuracy, f1), end='')
         train_metrics = self._format_metrics(train_loss, accuracy, f1, precision, recall, auc_score)
         self.current_fold_metrics['train'] = train_metrics
         self._record_epoch_metrics('train', epoch + 1, train_metrics)
@@ -1130,7 +1168,17 @@ class Trainer():
         self.val_loss_summary.append(val_loss)
         self.early_stop(val_loss)
 
-    
+        # W&B epoch logging
+        if self.wandb_logger:
+            val_metrics = self.current_fold_metrics.get('val')
+            self.wandb_logger.log_epoch_metrics(
+                epoch=epoch,
+                train_metrics=train_metrics,
+                val_metrics=val_metrics,
+                fold_idx=self.current_fold_index,
+                test_subject=self.current_test_subject,
+            )
+
     def eval(self, epoch, loader_name = 'val', result_file = None):
         '''
         Evaluates the models performance
@@ -1140,7 +1188,7 @@ class Trainer():
             f_r = open (result_file, 'w', encoding='utf-8')
         self.model.eval()
 
-        self.print_log('Eval epoch: {}'.format(epoch+1))
+        # Removed verbose "Eval epoch" line for compact output
 
         loss_accum = 0.0
         cnt = 0
@@ -1182,7 +1230,11 @@ class Trainer():
         metrics = self._format_metrics(avg_loss, accuracy, f1, precision, recall, auc_score)
         epoch_label = epoch + 1 if loader_name != 'test' else 'best'
         self._record_epoch_metrics(loader_name, epoch_label, metrics)
-        self.print_log('{} Loss: {:4f}. {} Acc: {:2f}% F1 score: {:2f}%, Precision: {:2f}%, Recall: {:2f}%, AUC: {:2f}%'.format(loader_name.capitalize(), avg_loss, loader_name.capitalize(), accuracy, f1, precision, recall, auc_score))
+        if loader_name == 'val':
+            self.print_log('Val: L={:.4f} A={:.1f}% F1={:.1f}%'.format(avg_loss, accuracy, f1))
+        else:
+            self.print_log('{}: L={:.4f} A={:.1f}% F1={:.1f}% P={:.1f}% R={:.1f}%'.format(
+                loader_name.capitalize(), avg_loss, accuracy, f1, precision, recall))
         if loader_name == 'val':
             self.current_fold_metrics['val'] = metrics
             if avg_loss < self.best_loss :
@@ -1191,7 +1243,12 @@ class Trainer():
                     # Handle both single and grouped test subjects
                     test_subject_str = '_'.join(map(str, sorted(self.test_subject))) if self.test_subject else 'unknown'
                     torch.save(deepcopy(self.model.state_dict()), f'{self.model_path}_{test_subject_str}.pth')
-                    self.print_log('Weights Saved')
+                    self.best_epoch = epoch + 1
+                    self.best_train_metrics = deepcopy(self.current_fold_metrics.get('train'))
+                    self.print_log(' * Saved E{}'.format(self.best_epoch))
+                    # Reset early stopping counter when saving best weights
+                    self.early_stop.counter = 0
+                    self.early_stop.best_loss = avg_loss
         elif loader_name == 'test':
             self.current_fold_metrics['test'] = metrics
             self.test_accuracy = metrics['accuracy']
@@ -1338,6 +1395,8 @@ class Trainer():
                     self.train_loss_summary = []
                     self.val_loss_summary = []
                     self.best_loss = float('inf')
+                    self.best_epoch = 0
+                    self.best_train_metrics = None
 
                     # For grouped folds, use first subject for tracking (but record all)
                     fold_name = '_'.join(map(str, sorted(test_subjects)))
@@ -1384,10 +1443,15 @@ class Trainer():
                     self.model.eval()
                     # Handle both single and grouped test subjects
                     test_subjects_str = '_'.join(map(str, sorted(self.test_subject)))
-                    self.print_log(f' ------------ Test Subjects {test_subjects_str} -------')
-                    self.eval(epoch = 0 , loader_name='test')
-                    self.print_log(f'Test accuracy for : {self.test_accuracy}')
-                    self.print_log(f'Test F-Score: {self.test_f1}')
+                    self.print_log(f'\n===== Test Subject {test_subjects_str} (Best E{self.best_epoch}) =====')
+                    # Show best epoch train/val metrics
+                    if self.best_train_metrics and self.best_val_metrics:
+                        t = self.best_train_metrics
+                        v = self.best_val_metrics
+                        self.print_log(f'Best Train: F1={t["f1_score"]:.1f}% A={t["accuracy"]:.1f}% | Val: F1={v["f1_score"]:.1f}% A={v["accuracy"]:.1f}%')
+                    self.eval(epoch=0, loader_name='test')
+                    gap = self.best_val_metrics['f1_score'] - self.test_f1 if self.best_val_metrics else 0
+                    self.print_log(f'Gap (Val-Test): {gap:.1f}%')
                     self.loss_viz(self.train_loss_summary, self.val_loss_summary)
                     # Store fold loss history for averaged plotting
                     self.all_folds_train_loss.append(self.train_loss_summary.copy())
@@ -1403,6 +1467,22 @@ class Trainer():
                         'test': test_metrics
                     }
                     self.fold_metrics.append(fold_record)
+
+                    # W&B fold logging
+                    if self.wandb_logger:
+                        model_path = f'{self.model_path}_{test_subjects_str}.pth'
+                        self.wandb_logger.log_fold_complete(
+                            fold_idx=fold_idx,
+                            test_subject=test_subjects,
+                            train_metrics=train_metrics,
+                            val_metrics=val_metrics,
+                            test_metrics=test_metrics,
+                            best_epoch=self.best_epoch,
+                            model_path=model_path if os.path.exists(model_path) else None,
+                            train_loss_history=self.train_loss_summary,
+                            val_loss_history=self.val_loss_summary,
+                        )
+
                     row = {'test_subject': test_subjects_str}
                     for split_name, metrics in [('train', train_metrics), ('val', val_metrics), ('test', test_metrics)]:
                         rounded_metrics = self._round_metrics(metrics)
@@ -1443,7 +1523,11 @@ class Trainer():
 
                 # Plot averaged train-val loss curves across all folds
                 self.plot_averaged_loss_curves()
-    
+
+                # Finish W&B run
+                if self.wandb_logger:
+                    self.wandb_logger.finish()
+
     def viz_feature(self, teacher_features, student_features, epoch):
         teacher_features = torch.flatten(teacher_features, start_dim=1)
         student_features = torch.flatten(student_features, start_dim= 1)

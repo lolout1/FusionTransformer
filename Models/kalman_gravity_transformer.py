@@ -1,0 +1,400 @@
+"""
+Kalman Gravity Vector Transformer for Fall Detection.
+
+Input: 7ch [SMV, ax, ay, az, gx, gy, gz]
+    - SMV: Signal magnitude vector from accelerometer
+    - ax, ay, az: Raw acceleration (3ch)
+    - gx, gy, gz: Normalized gravity vector (3ch)
+
+Output: Binary fall probability
+
+Advantages over Euler angles:
+    - No yaw drift (gravity is yaw-independent)
+    - No gimbal lock (no Euler angle singularities)
+    - Bounded output [-1, 1] for each component
+    - More interpretable: gx=0, gy=0, gz=1 means device is level
+"""
+
+import math
+import torch
+from torch import nn
+from torch.nn import TransformerEncoderLayer
+import torch.nn.functional as F
+
+try:
+    from einops import rearrange
+except ImportError:
+    raise ImportError("Please install einops: pip install einops")
+
+
+class SqueezeExcitation(nn.Module):
+    """
+    Squeeze-Excitation channel attention module.
+
+    Learns channel-wise importance weights through global pooling
+    and a bottleneck MLP.
+    """
+
+    def __init__(self, channels: int, reduction: int = 4):
+        super().__init__()
+        reduced = max(channels // reduction, 8)
+        self.fc = nn.Sequential(
+            nn.Linear(channels, reduced, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(reduced, channels, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Input tensor of shape (B, T, C)
+        Returns:
+            Channel-reweighted tensor of shape (B, T, C)
+        """
+        scale = x.mean(dim=1)
+        scale = self.fc(scale).unsqueeze(1)
+        return x * scale
+
+
+class TemporalAttentionPooling(nn.Module):
+    """
+    Learnable temporal pooling via attention mechanism.
+
+    Learns to weight different time steps based on their importance.
+    Critical for fall detection where the impact is a brief transient.
+    """
+
+    def __init__(self, embed_dim: int):
+        super().__init__()
+        self.attention = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim // 2),
+            nn.Tanh(),
+            nn.Linear(embed_dim // 2, 1, bias=False)
+        )
+
+    def forward(self, x: torch.Tensor) -> tuple:
+        """
+        Args:
+            x: Input tensor of shape (B, T, C)
+        Returns:
+            context: Weighted sum of shape (B, C)
+            weights: Attention weights of shape (B, T)
+        """
+        scores = self.attention(x).squeeze(-1)
+        weights = F.softmax(scores, dim=1)
+        context = torch.einsum('bt,btc->bc', weights, x)
+        return context, weights
+
+
+class TransformerEncoderWithNorm(nn.TransformerEncoder):
+    """Transformer encoder with guaranteed final layer normalization."""
+
+    def forward(self, src, mask=None, src_key_padding_mask=None):
+        output = src
+        for layer in self.layers:
+            output = layer(output, src_mask=mask, src_key_padding_mask=src_key_padding_mask)
+        if self.norm is not None:
+            output = self.norm(output)
+        return output
+
+
+class KalmanGravityTransformer(nn.Module):
+    """
+    Dual-Stream Kalman Gravity Transformer for fall detection.
+
+    Uses gravity vector output from Kalman filter instead of Euler angles.
+
+    Architecture:
+    ```
+    Input: (B, 128, 7) [SMV, ax, ay, az, gx, gy, gz]
+           |
+           +--- ACC Stream (4ch) ---+
+           |    Conv1D(4->acc_dim)  |
+           |    BatchNorm + SiLU    |
+           |                        |
+           +--- GRAVITY Stream (3ch)+
+                Conv1D(3->grav_dim) |
+                BatchNorm + SiLU    |
+                                    |
+                +-------------------+
+                | Concatenate (64ch)
+                v
+           LayerNorm
+                |
+           TransformerEncoder (2 layers, 4 heads)
+                |
+           Squeeze-Excitation
+                |
+           Temporal Attention Pooling
+                |
+           Dropout + Linear(64->1)
+                |
+           Output: (B, 1) logits
+    ```
+
+    Args:
+        imu_frames: Sequence length (default: 128)
+        imu_channels: Input channels (default: 7)
+        num_classes: Output classes (default: 1 for binary)
+        num_heads: Transformer attention heads (default: 4)
+        num_layers: Transformer layers (default: 2)
+        embed_dim: Embedding dimension (default: 64)
+        dropout: Dropout rate (default: 0.5)
+        activation: Transformer activation (default: 'relu')
+        norm_first: Pre-norm transformer (default: True)
+        se_reduction: SE bottleneck ratio (default: 4)
+        acc_ratio: Acc stream embedding ratio (default: 0.55)
+        use_se: Enable Squeeze-Excitation (default: True)
+        use_tap: Enable Temporal Attention Pooling (default: True)
+        use_pos_encoding: Enable positional encoding (default: False)
+        acc_channels: Accelerometer channels including SMV (default: 4)
+        ori_channels: Gravity vector channels (default: 3)
+    """
+
+    def __init__(
+        self,
+        imu_frames: int = 128,
+        imu_channels: int = 7,
+        acc_frames: int = 128,
+        acc_coords: int = 7,
+        mocap_frames: int = 128,
+        num_joints: int = 32,
+        num_classes: int = 1,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        embed_dim: int = 64,
+        dropout: float = 0.5,
+        activation: str = 'relu',
+        norm_first: bool = True,
+        se_reduction: int = 4,
+        acc_ratio: float = 0.55,
+        use_se: bool = True,
+        use_tap: bool = True,
+        use_pos_encoding: bool = False,
+        acc_channels: int = 4,
+        ori_channels: int = 3,
+        **kwargs
+    ):
+        super().__init__()
+
+        # Store configuration
+        self.imu_frames = imu_frames if imu_frames else acc_frames
+        self.imu_channels = imu_channels if imu_channels else acc_coords
+        self.use_se = use_se
+        self.use_tap = use_tap
+        self.use_pos_encoding = use_pos_encoding
+        self.embed_dim = embed_dim
+
+        # Channel configuration
+        self.acc_channels = acc_channels  # [SMV, ax, ay, az] = 4
+        self.grav_channels = ori_channels  # [gx, gy, gz] = 3
+
+        # Compute stream embedding dimensions
+        # Slightly favor accelerometer (more reliable signal)
+        acc_dim = int(embed_dim * acc_ratio)
+        grav_dim = embed_dim - acc_dim
+
+        # Accelerometer Stream Projection
+        self.acc_proj = nn.Sequential(
+            nn.Conv1d(self.acc_channels, acc_dim, kernel_size=8, padding='same'),
+            nn.BatchNorm1d(acc_dim),
+            nn.SiLU(),
+            nn.Dropout(dropout * 0.2)
+        )
+
+        # Gravity Vector Stream Projection
+        # Gravity vector is bounded [-1, 1], less noisy than Euler angles
+        self.grav_proj = nn.Sequential(
+            nn.Conv1d(self.grav_channels, grav_dim, kernel_size=8, padding='same'),
+            nn.BatchNorm1d(grav_dim),
+            nn.SiLU(),
+            nn.Dropout(dropout * 0.25)  # Slightly less dropout than Euler
+        )
+
+        # Fusion normalization
+        self.fusion_norm = nn.LayerNorm(embed_dim)
+
+        # Optional Positional Encoding
+        if use_pos_encoding:
+            self.pos_encoding = nn.Parameter(
+                torch.randn(1, self.imu_frames, embed_dim) * 0.02
+            )
+        else:
+            self.pos_encoding = None
+
+        # Transformer Encoder
+        encoder_layer = TransformerEncoderLayer(
+            d_model=embed_dim,
+            nhead=num_heads,
+            dim_feedforward=embed_dim * 2,
+            dropout=dropout,
+            activation=activation,
+            norm_first=norm_first,
+            batch_first=False
+        )
+
+        self.encoder = TransformerEncoderWithNorm(
+            encoder_layer=encoder_layer,
+            num_layers=num_layers,
+            norm=nn.LayerNorm(embed_dim)
+        )
+
+        # Squeeze-Excitation Channel Attention
+        if use_se:
+            self.se = SqueezeExcitation(embed_dim, reduction=se_reduction)
+        else:
+            self.se = None
+
+        # Temporal Pooling
+        if use_tap:
+            self.temporal_pool = TemporalAttentionPooling(embed_dim)
+        else:
+            self.temporal_pool = None
+
+        # Classification Head
+        self.dropout_layer = nn.Dropout(dropout)
+        self.output = nn.Linear(embed_dim, num_classes)
+
+        self._init_weights()
+
+    def _init_weights(self):
+        """Initialize output layer with proper scaling."""
+        nn.init.normal_(self.output.weight, 0, math.sqrt(2.0 / self.output.out_features))
+        if self.output.bias is not None:
+            nn.init.constant_(self.output.bias, 0)
+
+    def forward(self, acc_data: torch.Tensor, skl_data=None, **kwargs) -> tuple:
+        """
+        Forward pass through the model.
+
+        Args:
+            acc_data: IMU tensor of shape (B, T, 7)
+                      Channels: [SMV, ax, ay, az, gx, gy, gz]
+            skl_data: Unused (skeleton data for multimodal compatibility)
+            **kwargs: Additional arguments (ignored)
+
+        Returns:
+            logits: Classification logits of shape (B, 1)
+            features: Intermediate features of shape (B, T, embed_dim)
+        """
+        # Split into accelerometer and gravity streams
+        acc = acc_data[:, :, :self.acc_channels]  # (B, T, 4)
+        grav = acc_data[:, :, self.acc_channels:self.acc_channels + self.grav_channels]  # (B, T, 3)
+
+        # Reshape for Conv1d: (B, T, C) -> (B, C, T)
+        acc = rearrange(acc, 'b t c -> b c t')
+        grav = rearrange(grav, 'b t c -> b c t')
+
+        # Stream projections
+        acc_feat = self.acc_proj(acc)
+        grav_feat = self.grav_proj(grav)
+
+        # Concatenate streams and reshape
+        x = torch.cat([acc_feat, grav_feat], dim=1)
+        x = rearrange(x, 'b c t -> b t c')
+        x = self.fusion_norm(x)
+
+        # Optional positional encoding
+        if self.use_pos_encoding and self.pos_encoding is not None:
+            x = x + self.pos_encoding
+
+        # Transformer encoder
+        x = rearrange(x, 'b t c -> t b c')
+        x = self.encoder(x)
+        x = rearrange(x, 't b c -> b t c')
+
+        # Squeeze-Excitation
+        if self.se is not None:
+            x = self.se(x)
+
+        # Store features before pooling
+        features = x
+
+        # Temporal pooling
+        if self.temporal_pool is not None:
+            x, attn_weights = self.temporal_pool(x)
+        else:
+            x = x.mean(dim=1)
+
+        # Classification
+        x = self.dropout_layer(x)
+        logits = self.output(x)
+
+        return logits, features
+
+    def get_attention_weights(self, acc_data: torch.Tensor) -> torch.Tensor:
+        """Get temporal attention weights for visualization."""
+        if self.temporal_pool is None:
+            raise ValueError("Model was initialized with use_tap=False")
+
+        with torch.no_grad():
+            acc = acc_data[:, :, :self.acc_channels]
+            grav = acc_data[:, :, self.acc_channels:self.acc_channels + self.grav_channels]
+
+            acc = rearrange(acc, 'b t c -> b c t')
+            grav = rearrange(grav, 'b t c -> b c t')
+
+            acc_feat = self.acc_proj(acc)
+            grav_feat = self.grav_proj(grav)
+
+            x = torch.cat([acc_feat, grav_feat], dim=1)
+            x = rearrange(x, 'b c t -> b t c')
+            x = self.fusion_norm(x)
+
+            if self.use_pos_encoding and self.pos_encoding is not None:
+                x = x + self.pos_encoding
+
+            x = rearrange(x, 'b t c -> t b c')
+            x = self.encoder(x)
+            x = rearrange(x, 't b c -> b t c')
+
+            if self.se is not None:
+                x = self.se(x)
+
+            _, weights = self.temporal_pool(x)
+
+        return weights
+
+
+if __name__ == "__main__":
+    print("=" * 70)
+    print("KalmanGravityTransformer Model Test")
+    print("=" * 70)
+
+    model = KalmanGravityTransformer()
+
+    batch_size = 8
+    seq_len = 128
+    channels = 7
+
+    x = torch.randn(batch_size, seq_len, channels)
+    logits, features = model(x)
+
+    print(f"\nModel: KalmanGravityTransformer")
+    print(f"Input shape:    ({batch_size}, {seq_len}, {channels})")
+    print(f"  - Channels: [SMV, ax, ay, az, gx, gy, gz]")
+    print(f"Output shape:   {logits.shape}")
+    print(f"Features shape: {features.shape}")
+
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"\nParameters: {total_params:,} total, {trainable_params:,} trainable")
+
+    model.train()
+    x = torch.randn(4, 128, 7, requires_grad=True)
+    logits, _ = model(x)
+    loss = logits.sum()
+    loss.backward()
+    grad_norm = x.grad.norm().item()
+    print(f"\nGradient check: grad_norm={grad_norm:.6f} [{'OK' if grad_norm > 0 else 'FAIL'}]")
+
+    model.eval()
+    x = torch.randn(2, 128, 7)
+    weights = model.get_attention_weights(x)
+    print(f"\nAttention weights shape: {weights.shape}")
+    print(f"Attention sum (should be 1.0): {weights.sum(dim=1)}")
+
+    print("\n" + "=" * 70)
+    print("All tests passed!")
+    print("=" * 70)

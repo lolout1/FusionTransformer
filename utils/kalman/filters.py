@@ -400,11 +400,11 @@ def create_filter(filter_type: str = 'linear', **params) -> object:
     Factory function to create Kalman filter.
 
     Args:
-        filter_type: 'linear' or 'ekf'
+        filter_type: 'linear', 'ekf', or 'ukf'
         **params: Filter-specific parameters
 
     Returns:
-        KalmanFilter or ExtendedKalmanFilter instance
+        KalmanFilter, ExtendedKalmanFilter, or UnscentedKalmanFilter instance
     """
     if filter_type == 'linear':
         return KalmanFilter(
@@ -419,5 +419,27 @@ def create_filter(filter_type: str = 'linear', **params) -> object:
             Q_bias=params.get('Q_bias', 0.0001),
             R_acc=params.get('R_acc', 0.1)
         )
+    elif filter_type == 'ukf':
+        # Use fast UKF for real-time performance
+        try:
+            from .ukf_fast import UnscentedKalmanFilterFast
+            return UnscentedKalmanFilterFast(
+                Q_quat=params.get('Q_quat', 0.001),
+                Q_bias=params.get('Q_bias', 0.0001),
+                R_acc=params.get('R_acc', 0.1),
+                alpha=params.get('alpha', 0.01),
+                beta=params.get('beta', 2.0),
+                kappa=params.get('kappa', 0.0)
+            )
+        except ImportError:
+            from .ukf import UnscentedKalmanFilter
+            return UnscentedKalmanFilter(
+                Q_quat=params.get('Q_quat', 0.001),
+                Q_bias=params.get('Q_bias', 0.0001),
+                R_acc=params.get('R_acc', 0.1),
+                alpha=params.get('alpha', 0.01),
+                beta=params.get('beta', 2.0),
+                kappa=params.get('kappa', 0.0)
+            )
     else:
-        raise ValueError(f"Unknown filter type: {filter_type}")
+        raise ValueError(f"Unknown filter type: {filter_type}. Supported: linear, ekf, ukf")

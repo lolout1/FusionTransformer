@@ -1,0 +1,21 @@
+# Acc + Raw Gyro (7ch) - Single Stream Transformer
+# Channels: [smv, acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
+
+model: Models.flexible_transformer.FlexibleSingleStream
+
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: gelu
+  norm_first: True
+  se_reduction: 4
+  use_se: True
+  use_tap: True
+
+dataset_args:
+  kalman_filter_type: none
+  kalman_output_format: euler

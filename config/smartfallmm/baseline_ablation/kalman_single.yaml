@@ -1,0 +1,25 @@
+# Kalman Fused (7ch) - Single Stream Transformer
+# Channels: [smv, acc_x, acc_y, acc_z, roll, pitch, yaw]
+
+model: Models.flexible_transformer.FlexibleSingleStream
+
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: gelu
+  norm_first: True
+  se_reduction: 4
+  use_se: True
+  use_tap: True
+
+dataset_args:
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_Q_orientation: 0.005
+  kalman_Q_rate: 0.01
+  kalman_R_acc: 0.05
+  kalman_R_gyro: 0.1

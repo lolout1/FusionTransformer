@@ -1,107 +1,52 @@
-# =============================================================================
-# .gitignore for FusionTransformer (fusion remote)
-# =============================================================================
-
 # Python
 __pycache__/
 *.pyc
 *.pyo
-.ipynb_checkpoints/
-.venv/
 *.egg-info/
+.venv/
+.ipynb_checkpoints/
 
-# Data (large files - never commit)
+# Data (large files)
 data/
-data_mnist/
 SmartFallMM-Dataset/
 
-# Results and experiments (large outputs)
+# Results and logs
 results/
-saved_exps/
 work_dir/
-exps/
 logs/
-experiments/
-weights/
-analysis/
-mismatch_analysis/
-
-# Documentation (commit to private repo instead)
-*.md
-notebooks/
-
-# Temporary and backup files
-.migration_backup_*/
 *.out
 *.log
-*.csv
-*.png
-*.jpg
-*.pptx
+
+# Weights (except tracked ones)
+weights/
+!weights/best_model.pth
 
 # IDE/OS
 .DS_Store
 .vscode/
-.vscoode
 .idea/
 
-# Config (keep config.py private)
-/config.py
+# Temporary
+*.migration_backup*
+wandb/
+ray_results/
 
-# Root level scripts (only keep essential)
-/*.py
-!main.py
-/*.sh
+# Backup directories
+backup_report/
+best/
+comprehensive_analysis/
+latex_report/
+neuro/
+simple/
+mismatch_analysis/
 
-# Experimental/ablation configs (keep only production configs)
-# KEEP: modality_ablation/, ekf_robust/, comprehensive_ablation/
+# Experimental configs (keep production ones)
 config/smartfallmm/ablation_*/
 config/smartfallmm/bugfix*/
-config/smartfallmm/comprehensive_ablation_*/
 config/smartfallmm/timestamp_trim_test/
-config/smartfallmm/critique_ablation/
-config/smartfallmm/cnn_*/
-config/smartfallmm/conv_tokenizer_ablation/
-config/smartfallmm/embedding_ratio_ablation/
-config/smartfallmm/enhanced_*/
-config/smartfallmm/fusion_ratio_ablation/
 config/smartfallmm/hyperparam_tuning/
-config/smartfallmm/kalman_*/
-config/smartfallmm/lr_schedule_ablation/
-config/smartfallmm/modality_comparison/
-config/smartfallmm/modality_smv_comparison/
-config/smartfallmm/normalization_ablation/
-config/smartfallmm/optimal_combined.yaml
-config/smartfallmm/patch_transformer_ablation/
-config/smartfallmm/phone/
-config/smartfallmm/se_tap_ablation_*/
-config/smartfallmm/stream_*/
-config/smartfallmm/yaw_ablation/
-config/smartfallmm/cfeb_ablation_*/
-config/smartfallmm/asymmetric_*/
-config/smartfallmm/controlled_comparison/
-config/smartfallmm/model_comparison/
-config/smartfallmm/transformer_architecture_comparison/
-config/smartfallmm/imu_*.yaml
-config/smartfallmm/dual_stream_*.yaml
-config/smartfallmm/kalman_*.yaml
-config/smartfallmm/comparison_*.yaml
-config/smartfallmm/transformer_*.yaml
-config/smartfallmm/transmodel_*.yaml
-config/smartfallmm/madgwick_*.yaml
-config/smartfallmm/dualstream_*.yaml
 
-# Scripts directory (experimental scripts)
-scripts/
-
-# Phone experiments
-phone/
-
-# Temporary analysis files
-dual_val_analysis.txt
-ekf_analysis.txt
-gate_info.txt
-out.txt
-preprocessing_validation_report.txt
-val_analysis_output.txt
-imu_diagnostic_report.png
+# Private
+claude.md
+prompt.md
+CLAUDE.md

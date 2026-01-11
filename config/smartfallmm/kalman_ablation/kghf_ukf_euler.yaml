@@ -1,0 +1,29 @@
+# KalmanGatedHierarchical + Unscented KF (Euler)
+
+model: Models.kalman_gated_hierarchical.KalmanGatedHierarchical
+
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.4
+  activation: gelu
+  norm_first: True
+  se_reduction: 4
+  acc_channels: 4
+  use_multi_scale: True
+  use_hierarchical_gate: True
+  use_residual_gate: True
+  feature_noise: 0.1
+
+dataset_args:
+  kalman_filter_type: ukf
+  kalman_output_format: euler
+  kalman_Q_quat: 0.001
+  kalman_Q_bias: 0.0001
+  kalman_R_acc: 0.05
+  kalman_alpha: 0.01
+  kalman_beta: 2.0
+  kalman_kappa: 0.0
