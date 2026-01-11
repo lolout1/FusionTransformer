@@ -19,7 +19,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install torch numpy scipy scikit-learn pytest pyyaml
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy scipy scikit-learn pytest pyyaml
 
       - name: Run tests
         run: pytest tests/unit/ -v --tb=short
