@@ -1,0 +1,34 @@
+# Baseline ablation shared settings
+
+batch_size: 32
+num_epoch: 80
+base_lr: 0.001
+weight_decay: 0.01
+seed: 2
+
+optimizer: adamw
+nesterov: False
+
+loss: focal
+loss_args:
+  alpha: 0.75
+  gamma: 2.0
+
+dataset: Feeder.smartfallmm_dataset.UTD_mm
+dataset_args:
+  window_size: 128
+  stride: 32
+  fall_stride: 16
+  modalities: [accelerometer, gyroscope]
+  sensors: [watch]
+  normalization_mode: acc_only
+  acc_smv: True
+
+subjects: [29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+validation_subjects: [48, 57]
+train_only_subjects: [29, 32, 35, 39]
+
+early_stopping:
+  patience: 15
+  min_delta: 0.0001
+  monitor: val_loss

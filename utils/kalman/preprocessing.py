@@ -6,6 +6,8 @@ Integrates with existing loader.py DatasetBuilder class.
 Supports multiple filter types:
 - 'linear': Linear Kalman Filter (Euler state, no bias estimation)
 - 'ekf': Extended Kalman Filter (quaternion state + gyro bias)
+- 'ukf': Standard Unscented Kalman Filter (quaternion + gyro bias, simpler/stable)
+- 'sr_ukf': Square Root UKF (quaternion + gyro bias, numerically robust)
 - 'madgwick': Madgwick AHRS Filter (gradient descent optimization)
 - 'adaptive': Adaptive Kalman Filter (dynamic measurement noise)
 """
@@ -74,6 +76,15 @@ def process_trial_kalman(acc_data: np.ndarray,
     T = len(acc_data)
 
     # Handle different filter types
+    if filter_type == 'none':
+        # No Kalman filtering - return raw gyro as "orientation"
+        result = {'orientation': gyro_data.copy()}
+        if include_uncertainty:
+            result['uncertainty'] = np.zeros((T, 3))
+        if include_innovation:
+            result['innovation'] = np.zeros((T, 1))
+        return result
+
     if filter_type == 'madgwick':
         from .madgwick import process_trial_madgwick
         orientations = process_trial_madgwick(
@@ -126,6 +137,66 @@ def process_trial_kalman(acc_data: np.ndarray,
             result['uncertainty'] = np.zeros((T, 3))
         if include_innovation:
             result['innovation'] = np.zeros((T, 1))
+        return result
+
+    elif filter_type == 'sr_ukf':
+        # Square Root Unscented Kalman Filter - most robust for falls
+        from .sr_ukf import process_trial_sr_ukf
+
+        # Build SR-UKF parameters
+        ukf_params = {}
+        if Q_params:
+            if 'Q_quat' in Q_params:
+                ukf_params['Q_quat'] = Q_params['Q_quat']
+            if 'Q_bias' in Q_params:
+                ukf_params['Q_bias'] = Q_params['Q_bias']
+        if R_params:
+            if 'R_acc' in R_params:
+                ukf_params['R_acc'] = R_params['R_acc']
+
+        # Adaptive R parameters
+        ukf_params['enable_adaptive_R'] = kwargs.get('enable_adaptive_R', True)
+        ukf_params['adaptive_threshold_g'] = adaptive_threshold_g
+        ukf_params['adaptive_R_scale_max'] = adaptive_R_scale_max
+
+        result = process_trial_sr_ukf(
+            acc_data, gyro_data,
+            output_format=output_format,
+            dt=dt,
+            **ukf_params
+        )
+
+        # SR-UKF returns dict with orientation, uncertainty, innovation, gyro_bias
+        return result
+
+    elif filter_type == 'ukf':
+        # Standard Unscented Kalman Filter - simpler and more numerically stable
+        from .ukf import process_trial_ukf
+
+        # Build UKF parameters
+        ukf_params = {}
+        if Q_params:
+            if 'Q_quat' in Q_params:
+                ukf_params['Q_quat'] = Q_params['Q_quat']
+            if 'Q_bias' in Q_params:
+                ukf_params['Q_bias'] = Q_params['Q_bias']
+        if R_params:
+            if 'R_acc' in R_params:
+                ukf_params['R_acc'] = R_params['R_acc']
+
+        # Adaptive R parameters
+        ukf_params['enable_adaptive_R'] = kwargs.get('enable_adaptive_R', True)
+        ukf_params['adaptive_threshold_g'] = adaptive_threshold_g
+        ukf_params['adaptive_R_scale_max'] = adaptive_R_scale_max
+
+        result = process_trial_ukf(
+            acc_data, gyro_data,
+            output_format=output_format,
+            dt=dt,
+            **ukf_params
+        )
+
+        # UKF returns dict with orientation, uncertainty, innovation, gyro_bias
         return result
 
     # Standard Kalman filters (linear, ekf)

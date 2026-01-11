@@ -1,0 +1,24 @@
+# Acc + Raw Gyro (7ch) - Dual Stream Transformer
+# Stream 1: [smv, acc_x, acc_y, acc_z] (4ch)
+# Stream 2: [gyro_x, gyro_y, gyro_z] (3ch)
+
+model: Models.flexible_transformer.FlexibleDualStream
+
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  acc_channels: 4
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: gelu
+  norm_first: True
+  se_reduction: 4
+  use_se: True
+  use_tap: True
+  acc_ratio: 0.5
+
+dataset_args:
+  kalman_filter_type: none
+  kalman_output_format: euler
