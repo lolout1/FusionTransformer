@@ -177,10 +177,25 @@ def init_seed(seed):
 
 def import_class(import_str):
     '''
-    Imports a class dynamically 
+    Imports a class dynamically.
 
+    Resolution order:
+        1. fusionlib registry (if available)
+        2. Legacy dynamic import from string path
+
+    Supports both:
+        - New style: 'kalman_transformer'
+        - Legacy style: 'Models.imu_transformer_kalman.KalmanTransformer'
     '''
-    mod_str , _sep, class_str = import_str.rpartition('.')
+    # Try registry first (if fusionlib is available)
+    try:
+        from fusionlib.registry import MODEL_REGISTRY
+        return MODEL_REGISTRY.get(import_str)
+    except (ImportError, KeyError):
+        pass  # Fall through to legacy import
+
+    # Legacy dynamic import
+    mod_str, _sep, class_str = import_str.rpartition('.')
     __import__(mod_str)
     try:
         return getattr(sys.modules[mod_str], class_str)
@@ -205,6 +220,7 @@ class Trainer():
         self.fold_metrics = []
         self.epoch_logs = []
         self.best_val_metrics = None
+        self.best_epoch = 0
         self.current_fold_metrics = {'train': None, 'val': None, 'test': None}
         self.current_fold_index = None
         self.current_test_subject = None
@@ -216,7 +232,7 @@ class Trainer():
         self.norm_val = None
         self.norm_test = None
         self.data_loader = dict()
-        self.early_stop = EarlyStopping(patience=15, min_delta=.001)
+        self.early_stop = EarlyStopping(patience=15, min_delta=0.0001)
         # Dataset statistics tracking for comprehensive CSV
         self.dataset_statistics = []
         self.builder = None  # Will store DatasetBuilder reference to access statistics
@@ -322,6 +338,12 @@ class Trainer():
         self.current_test_subject = test_subject
         self.current_fold_metrics = {'train': None, 'val': None, 'test': None}
         self.best_val_metrics = None
+        self.best_epoch = 0
+        # Dataset statistics for this fold
+        self.fold_fall_windows = 0
+        self.fold_adl_windows = 0
+        self.fold_fall_trials = 0
+        self.fold_adl_trials = 0
     
     def save_config(self,src_path : str, desc_path : str) -> None: 
         '''
@@ -646,6 +668,16 @@ class Trainer():
             # Print comprehensive validation and skip summaries after all splits are loaded
             self.builder.print_validation_summary()
             self.builder.print_skip_summary()
+
+            # Aggregate fold dataset statistics
+            if hasattr(self.builder, 'subject_modality_stats'):
+                for subj_id, stats in self.builder.subject_modality_stats.items():
+                    self.fold_fall_windows += stats.get('fall_windows', 0)
+                    self.fold_adl_windows += stats.get('adl_windows', 0)
+            # Get trial counts from skip_stats
+            if hasattr(self.builder, 'skip_stats'):
+                self.fold_fall_trials = self.builder.skip_stats.get('fall_trials', 0)
+                self.fold_adl_trials = self.builder.skip_stats.get('adl_trials', 0)
 
             self._log_dataset_split()
             return True
@@ -1114,6 +1146,7 @@ class Trainer():
             if avg_loss < self.best_loss :
                     self.best_loss = avg_loss
                     self.best_val_metrics = metrics
+                    self.best_epoch = epoch
                     test_subject_str = '_'.join(map(str, sorted(self.test_subject))) if self.test_subject else 'unknown'
                     torch.save(deepcopy(self.model.state_dict()), f'{self.model_path}_{test_subject_str}.pth')
                     self.print_log('Weights Saved')
@@ -1313,6 +1346,7 @@ class Trainer():
                         self.print_log(f'Warning: Missing metrics for subjects {test_subjects_str}, skipping summary row.')
                         continue
                     fold_record = {
+                        'fold_idx': fold_idx,
                         'test_subject': test_subjects_str,
                         'train': train_metrics,
                         'val': val_metrics,
@@ -1347,6 +1381,62 @@ class Trainer():
                         # Print summary to console
                         summary_text = generate_text_report(self.fold_metrics, model_name)
                         self.print_log("\n" + summary_text)
+
+                        # Save standardized metrics.json for experiment tracking
+                        try:
+                            from fusionlib.results.schema import ExperimentMetrics, FoldMetrics as FoldMetricsSchema
+                            from fusionlib.results.manifest import ExperimentManifest
+
+                            # Generate experiment ID from work_dir
+                            experiment_id = Path(self.arg.work_dir).name
+
+                            # Build experiment metrics
+                            exp_metrics = ExperimentMetrics(
+                                experiment_id=experiment_id,
+                                experiment_name=getattr(self.arg, 'experiment_name', model_name),
+                                model=self.arg.model,
+                                model_args=dict(self.arg.model_args) if self.arg.model_args else {},
+                                dataset=self.arg.feeder,
+                                dataset_args=dict(self.arg.train_feeder_args) if self.arg.train_feeder_args else {},
+                                training_args={
+                                    'num_epoch': self.arg.num_epoch,
+                                    'batch_size': self.arg.batch_size,
+                                    'learning_rate': self.arg.base_lr,
+                                    'optimizer': self.arg.optimizer,
+                                    'loss': getattr(self.arg, 'loss', 'cross_entropy'),
+                                },
+                            )
+
+                            # Convert fold records to FoldMetrics
+                            for fold in self.fold_metrics:
+                                fold_schema = FoldMetricsSchema(
+                                    fold_idx=fold.get('fold_idx', 0),
+                                    test_subject=fold['test_subject'],
+                                    train=fold['train'],
+                                    val=fold['val'],
+                                    test=fold['test'],
+                                )
+                                exp_metrics.add_fold(fold_schema)
+
+                            # Save metrics.json
+                            metrics_path = f'{self.arg.work_dir}/metrics.json'
+                            exp_metrics.to_json(metrics_path)
+                            self.print_log(f'Saved standardized metrics to: {metrics_path}')
+
+                            # Register in manifest
+                            exp_metrics.compute_summary()
+                            manifest = ExperimentManifest()
+                            manifest.register(
+                                experiment_id=experiment_id,
+                                model=self.arg.model,
+                                test_f1_mean=exp_metrics.summary.get('test_f1_mean', 0),
+                                test_f1_std=exp_metrics.summary.get('test_f1_std', 0),
+                            )
+
+                        except ImportError:
+                            pass  # fusionlib not available, skip metrics.json
+                        except Exception as e:
+                            self.print_log(f'Warning: Failed to save metrics.json: {e}')
 
                 if self.epoch_logs:
                     log_df = pd.DataFrame(self.epoch_logs)
