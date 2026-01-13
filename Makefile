@@ -132,3 +132,88 @@ submit-baseline-ablation:
 
 baseline-ablation:
 	$(PYTHON) scripts/ablation/run_baseline_ablation.py --mode sequential --wandb
+
+# ============================================================
+# Kalman Filter Ablation on Shared Partition (CPU-only)
+# ============================================================
+
+KALMAN_CONFIGS := balanced_lkf_euler balanced_ekf_euler balanced_ukf_euler \
+                  balanced_lkf_gravity balanced_ekf_quat balanced_ukf_quat \
+                  kghf_lkf_euler kghf_ekf_euler kghf_ukf_euler \
+                  kghf_lkf_gravity kghf_ekf_quat kghf_ukf_quat
+
+ABLATION_TIMESTAMP := $(shell date +%Y%m%d_%H%M%S)
+ABLATION_RESULTS := results/kalman_ablation_$(ABLATION_TIMESTAMP)
+
+# Run all 12 configs sequentially (run manually with env active)
+ablation-run:
+	@mkdir -p $(ABLATION_RESULTS)
+	@echo "============================================================"
+	@echo "KALMAN ABLATION - SEQUENTIAL (12 configs)"
+	@echo "Results: $(ABLATION_RESULTS)"
+	@echo "============================================================"
+	@for cfg in $(KALMAN_CONFIGS); do \
+		echo ""; \
+		echo ">>> Running: $$cfg"; \
+		python main.py \
+			--config config/smartfallmm/kalman_ablation/$${cfg}.yaml \
+			--work_dir $(ABLATION_RESULTS)/$${cfg} \
+			--enable_wandb True \
+			--device 0 || true; \
+	done
+	@echo "============================================================"
+	@echo "COMPLETE. Results: $(ABLATION_RESULTS)"
+	@echo "============================================================"
+
+# Submit all 12 configs in parallel on shared partition (5 days each)
+ablation-shared:
+	@mkdir -p logs $(ABLATION_RESULTS)
+	@echo "============================================================"
+	@echo "KALMAN ABLATION - PARALLEL SUBMISSION (12 configs)"
+	@echo "Results: $(ABLATION_RESULTS)"
+	@echo "============================================================"
+	@for cfg in $(KALMAN_CONFIGS); do \
+		sbatch --job-name="kf-$${cfg:0:12}" \
+		       --partition=shared \
+		       --nodes=1 \
+		       --ntasks=12 \
+		       --mem=48G \
+		       --time=5-00:00:00 \
+		       --output="logs/ablation_$${cfg}_%j.out" \
+		       --error="logs/ablation_$${cfg}_%j.out" \
+		       --wrap="cd $(PWD) && $(PYTHON) main.py \
+		              --config config/smartfallmm/kalman_ablation/$${cfg}.yaml \
+		              --work_dir $(ABLATION_RESULTS)/$${cfg} \
+		              --enable_wandb True \
+		              --device 0" && \
+		echo "Submitted: $$cfg"; \
+	done
+	@echo "============================================================"
+	@echo "Monitor: squeue -u $$USER"
+	@echo "Results: $(ABLATION_RESULTS)"
+	@echo "============================================================"
+
+# Check job status
+ablation-status:
+	@squeue -u $$USER --format="%.10i %.20j %.12P %.8T %.12M %.4D %R"
+
+# Cancel all kalman ablation jobs
+ablation-cancel:
+	@scancel -u $$USER --name="kf-*"
+	@echo "Cancelled all kf-* jobs"
+
+# Aggregate results from completed ablation
+ablation-results:
+	@echo "============================================================"
+	@echo "KALMAN ABLATION RESULTS"
+	@echo "============================================================"
+	@for dir in $(ABLATION_RESULTS)/*/; do \
+		cfg=$$(basename $$dir); \
+		if [ -f "$$dir/scores.csv" ]; then \
+			f1=$$(tail -n +2 "$$dir/scores.csv" | cut -d',' -f15 | \
+			      awk '{s+=$$1;n++}END{if(n>0)printf "%.2f",s/n}'); \
+			printf "%-25s Test F1: %s%%\n" "$$cfg" "$$f1"; \
+		else \
+			printf "%-25s PENDING\n" "$$cfg"; \
+		fi; \
+	done
