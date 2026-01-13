@@ -1,43 +1,30 @@
-.PHONY: help test test-unit test-integration train sweep ray-up ray-down clean wandb-sync ablation ablation-ray ablation-single ablation-aggregate
+.PHONY: help test train train-best train-wandb sweep clean
 
 PYTHON := python
-CONFIG := config/smartfallmm/reproduce_91_val_f1.yaml
+CONFIG_BEST := config/smartfallmm/lkf_euler_baseline.yaml
+CONFIG := $(CONFIG_BEST)
 
 help:
-	@echo "SmartFallMM Commands:"
+	@echo "Kalman-Fused Dual-Stream Transformer"
 	@echo ""
-	@echo "Testing:"
-	@echo "  make test              - Run all tests"
-	@echo "  make test-unit         - Run unit tests only"
-	@echo "  make test-integration  - Run integration tests only"
-	@echo ""
-	@echo "Training:"
-	@echo "  make train             - Train with default config"
+	@echo "Training (91.10% F1 target):"
+	@echo "  make train             - Train best model (LKF Euler, 21-fold LOSO)"
 	@echo "  make train-wandb       - Train with W&B logging"
+	@echo "  make train-fold FOLD=0 - Train single fold (debugging)"
 	@echo ""
-	@echo "Ablation Study:"
-	@echo "  make ablation          - Run 8 configs on 8 GPUs in parallel"
-	@echo "  make ablation-seq      - Run sequentially (1 GPU)"
-	@echo "  make ablation-single V=balanced_lkf_euler  - Run single variant"
-	@echo "  make ablation-aggregate  - Aggregate results + LaTeX table"
+	@echo "SLURM Submission:"
+	@echo "  make submit            - Submit training job"
+	@echo "  make submit-wandb      - Submit with W&B logging"
 	@echo ""
-	@echo "Sweeps:"
-	@echo "  make sweep             - Run Ray Tune hyperparameter sweep"
-	@echo "  make ray-up            - Start Ray cluster"
-	@echo "  make ray-down          - Stop Ray cluster"
+	@echo "Filter Comparison:"
+	@echo "  make compare-filters   - Run LKF vs EKF vs UKF comparison"
 	@echo ""
 	@echo "Misc:"
+	@echo "  make clean             - Remove temp files"
 	@echo "  make wandb-sync        - Sync offline W&B runs"
-	@echo "  make clean             - Clean temp files"
 
 test:
-	pytest tests/ -v --tb=short || exit 1
-
-test-unit:
-	pytest tests/unit/ -v --tb=short || exit 1
-
-test-integration:
-	pytest tests/integration/ -v --tb=short || exit 1
+	pytest tests/ -v --tb=short
 
 train:
 	$(PYTHON) main.py --config $(CONFIG)
@@ -47,6 +34,14 @@ train-wandb:
 
 train-fold:
 	$(PYTHON) main.py --config $(CONFIG) --single-fold $(FOLD)
+
+# Filter comparison (LKF vs EKF vs UKF)
+compare-filters:
+	@echo "Running filter comparison..."
+	@mkdir -p results/filter_comparison
+	$(PYTHON) main.py --config config/smartfallmm/lkf_euler_baseline.yaml --work-dir results/filter_comparison/lkf_euler
+	$(PYTHON) main.py --config config/smartfallmm/ekf_quaternion_realtime.yaml --work-dir results/filter_comparison/ekf_quat
+	$(PYTHON) main.py --config config/smartfallmm/kalman_gravity_vector.yaml --work-dir results/filter_comparison/lkf_gravity
 
 sweep:
 	$(PYTHON) runners/ray_tune_sweep.py --sweep hyperparameter --samples 50
@@ -85,18 +80,31 @@ clean:
 	rm -rf ray_results/
 	rm -rf outputs/ multirun/
 
-# SLURM job submission
+# SLURM job submission (shared partition - CPU)
 submit:
-	sbatch --parsable -n 12 --mem=48G --time=3-00:00:00 \
-		--partition=shared --job-name=smartfall \
-		--output=logs/train_%j.out --error=logs/train_%j.err \
-		--wrap="$(PYTHON) main.py --config $(CONFIG)"
+	@mkdir -p logs
+	sbatch --partition=shared --ntasks=4 --mem=16G --time=2-00:00:00 \
+		--job-name=reproduce_91 \
+		--output=logs/train_%j.out \
+		--wrap="source /mmfs1/home/sww35/miniforge3/etc/profile.d/conda.sh && conda activate py39 && $(PYTHON) main.py --config $(CONFIG) --device cpu"
+	@echo "Submitted to shared. Monitor: squeue -u $$USER"
+
+# SLURM job submission (gpu1 partition)
+submit-gpu:
+	@mkdir -p logs
+	sbatch --partition=gpu1 --gres=gpu:1 --mem=32G --time=12:00:00 \
+		--job-name=kalman_train \
+		--output=logs/train_%j.out \
+		--wrap="source /mmfs1/home/sww35/miniforge3/etc/profile.d/conda.sh && conda activate py39 && $(PYTHON) main.py --config $(CONFIG)"
+	@echo "Submitted to gpu1. Monitor: squeue -u $$USER"
 
 submit-wandb:
-	sbatch --parsable -n 12 --mem=48G --time=3-00:00:00 \
-		--partition=shared --job-name=smartfall-wandb \
-		--output=logs/train_%j.out --error=logs/train_%j.err \
-		--wrap="$(PYTHON) main.py --config $(CONFIG) --enable-wandb"
+	@mkdir -p logs
+	sbatch --partition=gpu1 --gres=gpu:1 --mem=32G --time=12:00:00 \
+		--job-name=kalman_wandb \
+		--output=logs/train_%j.out \
+		--wrap="source /mmfs1/home/sww35/miniforge3/etc/profile.d/conda.sh && conda activate py39 && $(PYTHON) main.py --config $(CONFIG) --enable-wandb"
+	@echo "Submitted with W&B. Monitor: squeue -u $$USER"
 
 submit-ablation:
 	@mkdir -p logs

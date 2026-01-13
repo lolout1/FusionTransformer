@@ -495,8 +495,8 @@ class DatasetBuilder:
         # Class-aware truncation limits (different thresholds for falls vs ADLs)
         # Falls need tighter alignment (shorter events), ADLs can be more lenient (longer activities)
         self.enable_class_aware_truncation = kwargs.get('enable_class_aware_truncation', True)
-        self.fall_max_truncation_diff = kwargs.get('fall_max_truncation_diff', 64)   # Falls: stricter
-        self.adl_max_truncation_diff = kwargs.get('adl_max_truncation_diff', 128)    # ADLs: more lenient
+        self.fall_max_truncation_diff = kwargs.get('fall_max_truncation_diff', 50)   # Falls: strict
+        self.adl_max_truncation_diff = kwargs.get('adl_max_truncation_diff', 50)    # ADLs: strict (match falls)
 
         # Two-tier timestamp trim preprocessing (NEW)
         # Tier 1: Try to trim start/end samples using timestamps to maximize overlap
