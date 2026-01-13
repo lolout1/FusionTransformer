@@ -9,8 +9,8 @@ subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29,30,31,32,3
 validation_subjects: [48, 57]
 train_only_subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29,30,32,35,39,45,59]
 
-# Training (proven optimal)
-batch_size: 32
+# Training (proven optimal - batch_size=64 matches 91.10% F1 run)
+batch_size: 64
 num_epoch: 80
 optimizer: adamw
 base_lr: 1.0e-3
@@ -52,8 +52,8 @@ loss_args:
 
 # Feeder args
 train_feeder_args:
-  batch_size: 32
+  batch_size: 64
 val_feeder_args:
-  batch_size: 32
+  batch_size: 64
 test_feeder_args:
-  batch_size: 32
+  batch_size: 64

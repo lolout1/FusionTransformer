@@ -532,6 +532,7 @@ class DatasetBuilder:
             'skipped_dtw_length_mismatch': 0,
             'skipped_poor_gyro_hard': 0,
             'skipped_poor_gyro_adaptive': 0,
+            'skipped_invalid_gyro': 0,  # Empty/corrupt gyro data
             # Timestamp alignment tracking
             'timestamp_aligned': 0,
             'timestamp_use_as_is': 0,
@@ -629,6 +630,7 @@ class DatasetBuilder:
             'skipped_dtw_length_mismatch': 0,
             'skipped_poor_gyro_hard': 0,
             'skipped_poor_gyro_adaptive': 0,
+            'skipped_invalid_gyro': 0,  # Empty/corrupt gyro data
             # Timestamp alignment statistics
             'timestamp_aligned': 0,
             'timestamp_use_as_is': 0,
@@ -744,6 +746,34 @@ class DatasetBuilder:
 
         unique_lengths = set(tracked_modalities.values())
         return len(unique_lengths) > 1, tracked_modalities
+
+    def _validate_gyro_for_kalman(self, gyro_data: np.ndarray) -> bool:
+        """
+        Validate that gyroscope data is suitable for Kalman fusion.
+
+        Returns False if data is empty, corrupt, or all zeros (indicating
+        missing/invalid sensor data). This ensures consistent features
+        across all training samples - we skip trials with bad gyro entirely
+        rather than falling back to raw data.
+        """
+        if gyro_data is None:
+            return False
+        if not isinstance(gyro_data, np.ndarray):
+            return False
+        if gyro_data.size == 0:
+            return False
+        if len(gyro_data.shape) != 2 or gyro_data.shape[1] != 3:
+            return False
+        # Check for NaN/Inf
+        if np.isnan(gyro_data).all() or np.isinf(gyro_data).any():
+            return False
+        # Check for all-zero data (placeholder/missing sensor)
+        if np.allclose(gyro_data, 0, atol=1e-10):
+            return False
+        # Check for constant values (sensor stuck)
+        if np.std(gyro_data) < 1e-8:
+            return False
+        return True
 
     def _synchronize_modalities(
         self,
@@ -1432,6 +1462,14 @@ class DatasetBuilder:
 
                     # Kalman filter fusion (replaces gyroscope with orientation features)
                     if self.enable_kalman_fusion and 'accelerometer' in trial_data and 'gyroscope' in trial_data:
+                        # Validate gyro data BEFORE attempting Kalman fusion
+                        # Skip trials with invalid gyro to ensure consistent features
+                        if not self._validate_gyro_for_kalman(trial_data['gyroscope']):
+                            self.skip_stats['skipped_invalid_gyro'] += 1
+                            self.subject_modality_stats[subject_id]['skipped_invalid_gyro'] = \
+                                self.subject_modality_stats[subject_id].get('skipped_invalid_gyro', 0) + 1
+                            continue  # Skip entire trial - don't fall back to raw data
+
                         try:
                             # Save original gyro data before fusion (needed for yaw_replacement modes)
                             original_gyro = trial_data['gyroscope'].copy()
@@ -1455,8 +1493,13 @@ class DatasetBuilder:
                             if 'innovation' in trial_data:
                                 del trial_data['innovation']
                         except Exception as err:
-                            print(f"Warning: Kalman fusion failed for S{subject_id}A{action_id}T{trial_id}: {err}")
-                            # Continue with raw acc+gyro if Kalman fusion fails
+                            # Kalman fusion failed - skip trial entirely for consistent features
+                            self.skip_stats['skipped_invalid_gyro'] += 1
+                            self.subject_modality_stats[subject_id]['skipped_invalid_gyro'] = \
+                                self.subject_modality_stats[subject_id].get('skipped_invalid_gyro', 0) + 1
+                            if self.debug:
+                                print(f"Skipping S{subject_id}A{action_id}T{trial_id}: Kalman fusion failed - {err}")
+                            continue  # Skip entire trial
 
                     try:
                         self._synchronize_modalities(
@@ -1732,6 +1775,8 @@ class DatasetBuilder:
             print(f"  - DTW length mismatch (acc-gyro diff > 10): {self.skip_stats['skipped_dtw_length_mismatch']}")
             print(f"  - File load errors: {self.skip_stats['skipped_file_load_error']}")
             print(f"  - No windows generated: {self.skip_stats['skipped_no_windows']}")
+            if self.enable_kalman_fusion:
+                print(f"  - Invalid gyro for Kalman fusion: {self.skip_stats['skipped_invalid_gyro']}")
             if self.enable_simple_truncation:
                 if self.enable_class_aware_truncation:
                     print(f"  - Truncation diff too large (falls > {self.fall_max_truncation_diff}, ADLs > {self.adl_max_truncation_diff}): {self.skip_stats['skipped_truncation_too_large']}")
