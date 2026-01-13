@@ -493,7 +493,7 @@ class DatasetBuilder:
         # Track modality validation per subject
         self.subject_modality_stats = defaultdict(lambda: {
             'accelerometer': 0, 'gyroscope': 0, 'skeleton': 0,
-            'total_trials': 0, 'valid_trials': 0,
+            'total_trials': 0, 'valid_trials': 0, 'fall_trials': 0, 'adl_trials': 0,
             'skipped_missing_modality': 0,
             'skipped_length_mismatch': 0,
             'skipped_too_short': 0,
@@ -501,6 +501,7 @@ class DatasetBuilder:
             'skipped_dtw_length_mismatch': 0,
             'skipped_poor_gyro_hard': 0,
             'skipped_poor_gyro_adaptive': 0,
+            'skipped_kalman_fusion': 0,
             # Timestamp alignment tracking
             'timestamp_aligned': 0,
             'timestamp_use_as_is': 0,
@@ -535,6 +536,11 @@ class DatasetBuilder:
         self.quality_mode = kwargs.get('quality_mode', 'none')  # 'none', 'hard', 'adaptive'
         self.quality_threshold_snr = kwargs.get('quality_threshold_snr', 1.0)
         self.quality_method = kwargs.get('quality_method', 'simple')
+
+        # Window filtering configuration
+        # min_windows_per_trial: 1 means >= 1 (include single-window trials)
+        #                        2 means > 1 (exclude single-window trials)
+        self.min_windows_per_trial = kwargs.get('min_windows_per_trial', 1)
 
         # Motion filtering configuration (matches Android app)
         self.enable_motion_filtering = kwargs.get('enable_motion_filtering', False)
@@ -581,8 +587,13 @@ class DatasetBuilder:
 
         # Global skip tracking
         self.skip_stats = {
+            # Config parameters for logging
+            'min_windows_per_trial': self.min_windows_per_trial,
+            # Trial counts
             'total_trials': 0,
             'valid_trials': 0,
+            'fall_trials': 0,
+            'adl_trials': 0,
             'skipped_missing_modality': 0,
             'skipped_length_mismatch': 0,
             'skipped_too_short': 0,
@@ -590,6 +601,7 @@ class DatasetBuilder:
             'skipped_dtw_length_mismatch': 0,
             'skipped_poor_gyro_hard': 0,
             'skipped_poor_gyro_adaptive': 0,
+            'skipped_kalman_fusion': 0,
             # Timestamp alignment statistics
             'timestamp_aligned': 0,
             'timestamp_use_as_is': 0,
@@ -871,7 +883,8 @@ class DatasetBuilder:
             self.data[modality].append(modality_data)
     
     def _len_check(self, d):
-        return all(len(v) > 1 for v in d.values())
+        """Check if all modalities have minimum required windows."""
+        return all(len(v) >= self.min_windows_per_trial for v in d.values())
 
     def get_size_diff(self, trial_data):
         return trial_data['accelerometer'].shape[0]  - trial_data['skeleton'].shape[0]
@@ -932,6 +945,13 @@ class DatasetBuilder:
 
                 if self.task == 'fd':
                     label = int(trial.action_id > 9)
+                    # Track fall vs ADL trials
+                    if label == 1:
+                        self.skip_stats['fall_trials'] += 1
+                        self.subject_modality_stats[subject_id]['fall_trials'] += 1
+                    else:
+                        self.skip_stats['adl_trials'] += 1
+                        self.subject_modality_stats[subject_id]['adl_trials'] += 1
                 elif self.task == 'age':
                     label = int(trial.subject_id < 29 or trial.subject_id > 46)
                 else:
@@ -1250,8 +1270,10 @@ class DatasetBuilder:
                             if 'innovation' in trial_data:
                                 del trial_data['innovation']
                         except Exception as err:
-                            print(f"Warning: Kalman fusion failed for S{subject_id}A{action_id}T{trial_id}: {err}")
-                            # Continue with raw acc+gyro if Kalman fusion fails
+                            print(f"Skipping S{subject_id}A{action_id}T{trial_id}: Kalman fusion failed: {err}")
+                            self.skip_stats['skipped_kalman_fusion'] += 1
+                            self.subject_modality_stats[subject_id]['skipped_kalman_fusion'] += 1
+                            continue
 
                     try:
                         self._synchronize_modalities(
@@ -1441,6 +1463,12 @@ class DatasetBuilder:
         print("TRIAL PROCESSING SUMMARY")
         print("=" * 70)
 
+        # Log key config parameters
+        min_win = self.skip_stats.get('min_windows_per_trial', 1)
+        win_check = ">= 1" if min_win == 1 else f"> {min_win - 1}"
+        print(f"Window filter: {win_check} windows per trial (min_windows_per_trial={min_win})")
+        print()
+
         total = self.skip_stats['total_trials']
         valid = self.skip_stats['valid_trials']
         skipped_total = total - valid
@@ -1456,6 +1484,8 @@ class DatasetBuilder:
             print(f"  - Sequence too short (< {self.max_length} samples): {self.skip_stats['skipped_too_short']}")
             print(f"  - Preprocessing errors: {self.skip_stats['skipped_preprocessing_error']}")
             print(f"  - DTW length mismatch (acc-gyro diff > 10): {self.skip_stats['skipped_dtw_length_mismatch']}")
+            if self.enable_kalman_fusion:
+                print(f"  - Kalman fusion failed: {self.skip_stats['skipped_kalman_fusion']}")
             if self.enable_simple_truncation:
                 print(f"  - Truncation diff too large (> {self.max_truncation_diff}): {self.skip_stats['skipped_truncation_too_large']}")
             if self.enable_timestamp_alignment:
