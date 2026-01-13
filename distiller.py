@@ -118,7 +118,7 @@ class Distiller(Trainer):
         super().__init__(arg)
         self.teacher_model = self.load_model(arg.teacher_model, arg.teacher_args)
         self.cross_aligner  = self.load_aligner()
-        self.early_stop = EarlyStopping(patience=15, min_delta=.001)
+        self.early_stop = EarlyStopping(patience=15, min_delta=0.0001)
 
     
     def load_aligner(self):

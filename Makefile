@@ -80,6 +80,13 @@ full-pipeline:
 	echo "Analyzing results from: $$LATEST_RESULTS"; \
 	$(MAKE) analyze-thresholds FOLD_RESULTS=$$LATEST_RESULTS/fold_results.pkl
 
+# Generate experiment summary
+MIN_F1 ?= 89.0
+summary:
+	@echo "Generating experiment summary (min F1: $(MIN_F1)%)..."
+	python3 scripts/generate_experiment_summary.py --results-dir $(RESULTS_DIR) --min-f1 $(MIN_F1) -o $(RESULTS_DIR)/summary_experiments.md
+	@echo "Summary saved to $(RESULTS_DIR)/summary_experiments.md"
+
 # Clean results
 clean:
 	@echo "Cleaning temporary files..."
