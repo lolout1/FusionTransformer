@@ -31,7 +31,7 @@ from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, precisio
 #local import
 from utils.dataset import prepare_smartfallmm, split_by_subjects
 from utils.callbacks import EarlyStopping
-from utils.loss import BinaryFocalLoss
+from utils.loss import BinaryFocalLoss, ClassBalancedFocalLoss
 from utils.metrics_report import (save_enhanced_results, generate_text_report,
                                   create_scores_csv_compatible)
 
@@ -75,9 +75,9 @@ def get_args():
     #loss args
     parser.add_argument('--loss', default='loss.BCE' , help = 'Name of loss function to use' )
     parser.add_argument('--loss-args', default ="{}", type = str,  help = 'A dictionary for loss')
-    parser.add_argument('--loss-type', default='bce', type=str, choices=['bce', 'focal'],
-                        help='Loss function type: bce (BCEWithLogitsLoss) or focal (BinaryFocalLoss)')
-    parser.add_argument('--loss_type', default='bce', type=str, choices=['bce', 'focal'],
+    parser.add_argument('--loss-type', default='bce', type=str, choices=['bce', 'focal', 'cb_focal'],
+                        help='Loss function type: bce, focal, or cb_focal (class-balanced focal)')
+    parser.add_argument('--loss_type', default='bce', type=str, choices=['bce', 'focal', 'cb_focal'],
                         help='Loss function type (yaml-style alias for --loss-type)')
     parser.add_argument('--loss_args', default={}, type=dict, help='Dictionary of loss function arguments')
     
@@ -253,9 +253,10 @@ class Trainer():
                 pass
             else:
                 self.arg.work_dir = f"{self.arg.work_dir}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-        os.makedirs(self.arg.work_dir, exist_ok=True) 
-        self.model_path = f'{self.arg.work_dir}/{self.arg.model_saved_name}'                    
-        self.save_config(arg.config, arg.work_dir)
+        os.makedirs(self.arg.work_dir, exist_ok=True)
+        self.model_path = f'{self.arg.work_dir}/{self.arg.model_saved_name}'
+        if arg.config is not None:
+            self.save_config(arg.config, arg.work_dir)
         if self.arg.phase == 'train':
             self.model = self.load_model(arg.model, arg.model_args)
         else: 
@@ -488,22 +489,42 @@ class Trainer():
         '''
         # Determine loss type from both arg styles
         loss_type = getattr(self.arg, 'loss_type', 'bce')
-        if loss_type == 'bce':
-            loss_type = getattr(self.arg, 'loss_type', 'bce')
+
+        # Get loss args from config
+        loss_args = getattr(self.arg, 'loss_args', {})
+        if isinstance(loss_args, str):
+            import ast
+            try:
+                loss_args = ast.literal_eval(loss_args) if loss_args else {}
+            except:
+                loss_args = {}
 
         if loss_type == 'focal':
-            # Get loss args from config
-            loss_args = getattr(self.arg, 'loss_args', {})
-            if isinstance(loss_args, str):
-                import ast
-                try:
-                    loss_args = ast.literal_eval(loss_args) if loss_args else {}
-                except:
-                    loss_args = {}
             alpha = loss_args.get('alpha', 0.75)
             gamma = loss_args.get('gamma', 2.0)
             self.criterion = BinaryFocalLoss(alpha=alpha, gamma=gamma)
             self.print_log(f'Using BinaryFocalLoss with alpha={alpha}, gamma={gamma}')
+
+        elif loss_type == 'cb_focal':
+            # Class-Balanced Focal Loss - auto-computes weights from data
+            beta = loss_args.get('beta', 0.9999)
+            gamma = loss_args.get('gamma', 2.0)
+            self.criterion = ClassBalancedFocalLoss(beta=beta, gamma=gamma)
+
+            # Compute class counts from training data if available
+            if hasattr(self, 'data_loader') and 'train' in self.data_loader:
+                n_pos = sum(1 for _, targets, _ in self.data_loader['train'] for t in targets if t == 1)
+                n_neg = sum(1 for _, targets, _ in self.data_loader['train'] for t in targets if t == 0)
+                if n_pos > 0 and n_neg > 0:
+                    w_pos, w_neg = self.criterion.set_class_counts(n_pos, n_neg)
+                    self.print_log(f'Using ClassBalancedFocalLoss: beta={beta}, gamma={gamma}')
+                    self.print_log(f'  Class counts: pos={n_pos}, neg={n_neg}')
+                    self.print_log(f'  Computed weights: w_pos={w_pos:.4f}, w_neg={w_neg:.4f}')
+                else:
+                    self.print_log(f'Using ClassBalancedFocalLoss: beta={beta}, gamma={gamma} (batch-computed weights)')
+            else:
+                self.print_log(f'Using ClassBalancedFocalLoss: beta={beta}, gamma={gamma} (batch-computed weights)')
+
         else:
             self.criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weights)
             self.print_log('Using BCEWithLogitsLoss with pos_weight')
@@ -930,19 +951,21 @@ class Trainer():
         plt.close()
 
     def cal_prediction(self, logits):
-        return (torch.sigmoid(logits)>THRESHOLD).int().squeeze(1)
+        return (torch.sigmoid(logits)>=THRESHOLD).int().squeeze(1)
         #return torch.argmax(F.log_softmax(logits,dim =1), 1)
 
-    def cal_metrics(self, targets, predictions): 
+    def cal_metrics(self, targets, predictions, probabilities=None):
         targets = np.array(targets)
         predictions = np.array(predictions)
         f1 = f1_score(targets, predictions, zero_division=0)
         precision = precision_score(targets, predictions, zero_division=0)
         recall = recall_score(targets, predictions, zero_division=0)
-        if np.unique(targets).size < 2 or np.unique(predictions).size < 2:
+        if probabilities is not None and np.unique(targets).size >= 2:
+            auc_score = roc_auc_score(targets, np.array(probabilities))
+        elif np.unique(targets).size < 2:
             auc_score = 0.5
         else:
-            auc_score = roc_auc_score(targets, predictions)
+            auc_score = 0.5
         accuracy = accuracy_score(targets, predictions)
         return accuracy*100, f1*100, recall*100, precision*100, auc_score*100
 
@@ -1029,6 +1052,7 @@ class Trainer():
         cnt = 0
         label_list = []
         pred_list = []
+        prob_list = []
         wrong_idx = []
 
         process = tqdm(self.data_loader[loader_name], ncols=80)
@@ -1049,12 +1073,14 @@ class Trainer():
                 logits, _ = self.model(acc_data.float(), skl_tensor.float() if skl_tensor is not None else None)
                 batch_loss = self.criterion(logits.squeeze(1), targets.float())
                 loss_accum += batch_loss.item()
+                probs = torch.sigmoid(logits).cpu().numpy().ravel()
+                prob_list.extend(probs.tolist())
                 preds = self.cal_prediction(logits)
                 label_list.extend(targets.tolist())
                 pred_list.extend(preds.tolist())
                 cnt += len(targets)
             avg_loss = loss_accum / cnt if cnt else 0.0
-            accuracy, f1, recall, precision, auc_score = self.cal_metrics(label_list, pred_list)
+            accuracy, f1, recall, precision, auc_score = self.cal_metrics(label_list, pred_list, prob_list)
 
         if result_file is not None:
             predict = pred_list
@@ -1066,17 +1092,35 @@ class Trainer():
         epoch_label = epoch + 1 if loader_name != 'test' else 'best'
         self._record_epoch_metrics(loader_name, epoch_label, metrics)
         self.print_log('{} Loss: {:4f}. {} Acc: {:2f}% F1 score: {:2f}%, Precision: {:2f}%, Recall: {:2f}%, AUC: {:2f}%'.format(loader_name.capitalize(), avg_loss, loader_name.capitalize(), accuracy, f1, precision, recall, auc_score))
+
+        # Threshold analysis for test set
+        threshold_analysis = None
+        if loader_name == 'test' and len(prob_list) > 0:
+            try:
+                from utils.threshold_analysis import ThresholdAnalyzer
+                analyzer = ThresholdAnalyzer(label_list, prob_list)
+                threshold_analysis = analyzer.summary()
+                # Store raw data for global threshold recomputation across folds
+                threshold_analysis['targets'] = label_list
+                threshold_analysis['probabilities'] = prob_list
+                opt = threshold_analysis['optimal_f1_threshold']
+                self.print_log(f"Threshold Analysis: Optimal={opt['threshold']:.2f} "
+                              f"(F1={opt['f1']*100:.1f}%, P={opt['precision']*100:.1f}%, R={opt['recall']*100:.1f}%)")
+            except Exception as e:
+                self.print_log(f"Threshold analysis failed: {e}")
+
         if loader_name == 'val':
             self.current_fold_metrics['val'] = metrics
             if avg_loss < self.best_loss :
                     self.best_loss = avg_loss
                     self.best_val_metrics = metrics
-                    # Handle both single and grouped test subjects
                     test_subject_str = '_'.join(map(str, sorted(self.test_subject))) if self.test_subject else 'unknown'
                     torch.save(deepcopy(self.model.state_dict()), f'{self.model_path}_{test_subject_str}.pth')
                     self.print_log('Weights Saved')
         elif loader_name == 'test':
             self.current_fold_metrics['test'] = metrics
+            if threshold_analysis:
+                self.current_fold_metrics['threshold_analysis'] = threshold_analysis
             self.test_accuracy = metrics['accuracy']
             self.test_f1 = metrics['f1_score']
             self.test_recall = metrics['recall']

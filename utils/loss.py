@@ -82,10 +82,89 @@ class BinaryFocalLoss(nn.Module):
         """
         prob = torch.sigmoid(logits)
         targets = targets.float()
-        
+
         pt = torch.where(targets == 1, prob, 1 - prob)
         alpha_t = torch.where(targets == 1, self.alpha, 1 - self.alpha)
         loss = -alpha_t * (1 - pt) ** self.gamma * torch.log(pt + 1e-8)
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
+
+
+class ClassBalancedFocalLoss(nn.Module):
+    """
+    Class-Balanced Focal Loss (Cui et al., CVPR 2019)
+
+    Automatically computes class weights based on effective number of samples.
+    Better than fixed alpha when class distribution varies across folds.
+
+    Paper: "Class-Balanced Loss Based on Effective Number of Samples"
+    """
+    def __init__(self, beta=0.9999, gamma=2, reduction='mean'):
+        """
+        :param beta: Hyperparameter for effective number calculation (0.9-0.9999)
+                     Higher beta = more emphasis on rare class
+        :param gamma: Focal loss focusing parameter
+        :param reduction: 'none' | 'mean' | 'sum'
+        """
+        super(ClassBalancedFocalLoss, self).__init__()
+        self.beta = beta
+        self.gamma = gamma
+        self.reduction = reduction
+        self._class_weights = None
+
+    def _compute_effective_num(self, n_samples):
+        """Compute effective number of samples: (1 - β^n) / (1 - β)"""
+        return (1.0 - self.beta ** n_samples) / (1.0 - self.beta)
+
+    def set_class_counts(self, n_pos, n_neg):
+        """
+        Set class counts to compute weights. Call before training.
+
+        :param n_pos: Number of positive samples (falls)
+        :param n_neg: Number of negative samples (ADLs)
+        """
+        eff_pos = self._compute_effective_num(n_pos)
+        eff_neg = self._compute_effective_num(n_neg)
+
+        # Weights inversely proportional to effective number
+        w_pos = 1.0 / eff_pos
+        w_neg = 1.0 / eff_neg
+
+        # Normalize so weights sum to 2 (like alpha + (1-alpha))
+        total = w_pos + w_neg
+        self._class_weights = (2.0 * w_pos / total, 2.0 * w_neg / total)
+
+        return self._class_weights
+
+    def forward(self, logits, targets):
+        """
+        :param logits: raw predictions (before sigmoid), shape [batch_size]
+        :param targets: binary ground truth (0 or 1), shape [batch_size]
+        """
+        if self._class_weights is None:
+            # Fallback: compute from batch (less accurate but works)
+            n_pos = targets.sum().item() + 1e-6
+            n_neg = (targets.numel() - targets.sum()).item() + 1e-6
+            self.set_class_counts(n_pos, n_neg)
+
+        prob = torch.sigmoid(logits)
+        targets = targets.float()
+
+        pt = torch.where(targets == 1, prob, 1 - prob)
+
+        # Class-balanced weights
+        w_pos, w_neg = self._class_weights
+        cb_weight = torch.where(targets == 1, w_pos, w_neg)
+
+        # Focal modulation
+        focal_weight = (1 - pt) ** self.gamma
+
+        loss = -cb_weight * focal_weight * torch.log(pt + 1e-8)
 
         if self.reduction == 'mean':
             return loss.mean()

@@ -26,7 +26,8 @@ SmartFallMM-Dataset/
 results/
 logs/
 experiments/
-scripts/
+scripts/*
+!scripts/analyze_thresholds.py
 
 # Exclude utility subdirectories that shouldn't be tracked
 utils/kalman/
