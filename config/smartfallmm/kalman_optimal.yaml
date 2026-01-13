@@ -1,7 +1,10 @@
-# Kalman Linear Filter (Tuned) - 7 Channel
-# Parameters optimized via scripts/tune_kalman_params.py with subject-level LOSO CV
+# Kalman Optimal Config - 91.5% F1 Baseline
+# Parameters validated via ray distributed LOSO CV
 #
-# Update parameters below with values from results/kalman_tuning/best_params_linear.json
+# Key differences from kalman_linear_tuned.yaml:
+#   - embed_dim: 64 (was 48)
+#   - adl_stride: 64 (was 32)
+#   - loss_type: focal (was BCE default)
 
 model: Models.imu_transformer_kalman.KalmanTransformer
 dataset: smartfallmm
@@ -18,7 +21,7 @@ model_args:
   num_classes: 1
   num_heads: 4
   num_layers: 2
-  embed_dim: 48
+  embed_dim: 64
   dropout: 0.5
   activation: relu
   norm_first: True
@@ -34,7 +37,7 @@ dataset_args:
   sensors: [watch]
   stride: 32
   use_skeleton: False
-  #loss_type: focal
+  loss_type: focal
   enable_normalization: True
   normalize_modalities: acc_only
 
@@ -42,7 +45,7 @@ dataset_args:
   enable_motion_filtering: False
   enable_class_aware_stride: True
   fall_stride: 16
-  adl_stride: 32
+  adl_stride: 64
 
   convert_gyro_to_rad: True
 
@@ -60,7 +63,6 @@ dataset_args:
   filter_fs: 30.0
 
   # TUNED PARAMETERS (from results/kalman_tuning_1201_2145/best_params_linear.json)
-  # Best F1: 0.8475 ± 0.1720 (via LOSO CV with LogisticRegression)
   kalman_Q_orientation: 0.005
   kalman_Q_rate: 0.01
   kalman_R_acc: 0.05
