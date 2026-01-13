@@ -105,9 +105,25 @@ We are developing a distillation framework to transfer knowledge from a **skelet
 
 ---
 
+## Best Results
+
+| Metric | Value |
+|--------|-------|
+| **Test F1** | 91.38% ± 6.67 |
+| **Accuracy** | 88.44% |
+| **Precision** | 89.22% |
+| **Recall** | 94.14% |
+| **AUC** | 94.30% |
+
+Achieved with `KalmanConv1dLinear` model (22 LOSO folds). See `best_config/` for optimal configuration.
+
+---
+
 ## Architecture
 
-### FusionTransformer Pipeline
+### Best Architecture: KalmanConv1dLinear
+
+The optimal architecture uses **asymmetric encoders**: Conv1D for accelerometer (captures temporal transients) and Linear for orientation (sufficient for Kalman-smoothed signals).
 
 ```
 Input: Raw IMU Window (128 samples @ ~32Hz)
@@ -125,19 +141,23 @@ Input: Raw IMU Window (128 samples @ ~32Hz)
 │ Stream │   │ Stream │
 │ (4ch)  │   │ (3ch)  │
 └───┬────┘   └───┬────┘
-    │ Conv1D     │ Conv1D
-    │ Projection │ Projection
+    │ Conv1D     │ Linear      ◄── Asymmetric encoders
+    │ (k=8)      │ Projection
+    │ 31d        │ 17d
     ▼            ▼
-┌────────┐   ┌────────┐
-│ Trans- │   │ Trans- │
-│ former │   │ former │
-│ Encoder│   │ Encoder│
-└───┬────┘   └───┬────┘
-    │            │
     └─────┬──────┘
-          │ Concatenation
+          │ Concatenation (48d)
           ▼
     ┌──────────────┐
+    │ LayerNorm    │
+    └──────┬───────┘
+          ▼
+    ┌──────────────┐
+    │ Transformer  │  2 layers, 4 heads
+    │   Encoder    │
+    └──────┬───────┘
+           │
+    ┌──────▼───────┐
     │   SE Block   │  Channel Attention
     └──────┬───────┘
            │
@@ -151,6 +171,12 @@ Input: Raw IMU Window (128 samples @ ~32Hz)
     │  Classifier  │──────▶ Fall / Non-Fall
     └──────────────┘
 ```
+
+**Key Design Decisions**:
+- **Conv1D for accelerometer**: Captures high-frequency transients during falls
+- **Linear for orientation**: Kalman-filtered Euler angles are already temporally smooth
+- **Asymmetric capacity**: 65% (31d) for acc, 35% (17d) for ori
+- **embed_dim=48**: Smaller capacity reduces overfitting
 
 ---
 
@@ -191,31 +217,28 @@ SmartFallMM-Dataset/
 FusionTransformer/
 │
 ├── Models/
-│   ├── kalman_transformer.py      # Main Kalman fusion model
-│   ├── imu_dual_stream.py         # Dual-stream architecture
+│   ├── encoder_ablation.py        # Best model: KalmanConv1dLinear
 │   ├── imu_transformer_se.py      # SE-enhanced transformer
-│   └── st_transformer.py          # Skeleton teacher model
+│   └── dual_stream_se.py          # Dual-stream architecture
 │
 ├── Feeder/
-│   ├── Make_Dataset.py            # Data loading pipeline
-│   └── kalman_fusion.py           # Kalman filter implementation
+│   └── Make_Dataset.py            # PyTorch Dataset (UTD_mm)
+│
+├── best_config/
+│   └── kalman_conv1d_linear_optimal.yaml  # Optimal configuration
 │
 ├── config/
-│   └── smartfallmm/
-│       ├── kalman_dual.yaml       # Recommended configuration
-│       └── distill.yaml           # Knowledge distillation config
+│   └── smartfallmm/               # Experimental configs
 │
 ├── utils/
-│   ├── alignment.py               # IMU timestamp alignment
-│   ├── preprocessing.py           # Z-score normalization
-│   └── metrics_report.py          # Evaluation utilities
+│   ├── loader.py                  # DatasetBuilder with Kalman fusion
+│   ├── ray_distributed.py         # Ray actors for distributed training
+│   ├── callbacks.py               # Early stopping
+│   └── threshold_analysis.py      # Post-hoc threshold optimization
 │
-├── experiments/
-│   ├── run_loso_cv.py             # Leave-One-Subject-Out CV
-│   └── ablation_study.py          # Architectural ablations
-│
-├── latex_report/                  # Technical documentation
-└── main.py                        # Training entry point
+├── ray_train.py                   # Distributed LOSO training entry point
+├── main.py                        # Single-fold training
+└── CLAUDE.md                      # Codebase documentation
 ```
 
 ---
@@ -233,33 +256,38 @@ pip install -r requirements.txt
 ### Training
 
 ```bash
-# Train with Kalman fusion + dual-stream (recommended)
-python main.py --config config/smartfallmm/kalman_dual.yaml
+# Distributed LOSO training (recommended, 3 GPUs)
+python ray_train.py --config best_config/kalman_conv1d_linear_optimal.yaml --num-gpus 3
 
-# Run full LOSO cross-validation
-python experiments/run_loso_cv.py --config config/smartfallmm/kalman_dual.yaml
+# Quick test (2 folds, 1 GPU)
+python ray_train.py --config best_config/kalman_conv1d_linear_optimal.yaml --num-gpus 1 --max-folds 2
+
+# Single-fold training
+python main.py --config best_config/kalman_conv1d_linear_optimal.yaml
 ```
 
 ### Configuration
 
-Key hyperparameters in `config/smartfallmm/kalman_dual.yaml`:
+Key hyperparameters in `best_config/kalman_conv1d_linear_optimal.yaml`:
 
 ```yaml
-model: Models.kalman_transformer.KalmanDualStreamBalanced
+model: Models.encoder_ablation.KalmanConv1dLinear
 
 model_args:
-  input_channels: 7        # [smv, ax, ay, az, roll, pitch, yaw]
-  embed_dim: 64
+  imu_channels: 7          # [smv, ax, ay, az, roll, pitch, yaw]
+  embed_dim: 48            # Smaller = less overfitting
   num_heads: 4
   num_layers: 2
-  acc_ratio: 0.5           # Balanced capacity allocation
-  use_se: true             # Squeeze-and-Excitation
-  use_tap: true            # Temporal Attention Pooling
+  acc_ratio: 0.65          # 65% capacity for accelerometer
 
-preprocessing:
-  kalman_fusion: true
-  z_score_normalization: true
-  class_aware_stride: true
+dataset_args:
+  enable_kalman_fusion: True
+  enable_normalization: True
+  normalize_modalities: acc_only
+  loss_type: focal
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 64
 ```
 
 ---
