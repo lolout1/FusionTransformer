@@ -31,3 +31,7 @@ scripts/*
 
 # Exclude utility subdirectories that shouldn't be tracked
 utils/kalman/
+
+# Analysis and report files (local only)
+comprehensive_analysis/
+*.tex
