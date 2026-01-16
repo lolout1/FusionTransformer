@@ -1,0 +1,61 @@
+# UP-FALL Dual-Stream Raw - Fixed Stride 32
+# Consistent stride for fair comparison across datasets
+
+model: Models.dual_stream_robust.DualStreamRobust
+dataset: upfall
+
+subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]
+validation_subjects: [15, 16]
+
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  acc_frames: 128
+  acc_coords: 4
+  gyro_coords: 3
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 48
+  dropout: 0.5
+  activation: relu
+  norm_first: True
+  se_reduction: 4
+  acc_ratio: 0.65
+
+dataset_args:
+  csv_path: other_datasets/CompleteDataSet.csv
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  stride: 32
+  loss_type: focal
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  age_group: [all]
+  use_skeleton: False
+  enable_normalization: True
+  normalize_modalities: acc_only
+  # Disabled class-aware stride - fixed 32 for all
+  enable_class_aware_stride: False
+  convert_gyro_to_rad: True
+  enable_kalman_fusion: False
+  filter_fs: 50.0
+
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.external_datasets.ExternalFallDataset
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

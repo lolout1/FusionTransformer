@@ -53,6 +53,33 @@ from .quaternion import (
     euler_to_quat,
     acc_to_euler
 )
+from .noise_analysis import (
+    NoiseCharacteristics,
+    extract_stationary_segments,
+    compute_allan_variance,
+    estimate_noise_floor,
+    analyze_sensor_noise,
+    analyze_dataset_noise,
+    get_sensor_profile,
+    scale_params_for_sample_rate,
+)
+from .bayesian_tuner import (
+    BayesianKalmanTuner,
+    TuningConfig,
+    TuningResult,
+)
+from .upfall_tuner import (
+    UPFallKalmanTuner,
+    UPFALL_SEARCH_SPACE,
+    create_upfall_tuning_config,
+    tune_upfall_kalman,
+)
+from .wedafall_tuner import (
+    WEDAFallKalmanTuner,
+    WEDAFALL_SEARCH_SPACE,
+    create_wedafall_tuning_config,
+    tune_wedafall_kalman,
+)
 
 __all__ = [
     # Filters
@@ -88,4 +115,29 @@ __all__ = [
     'quat_to_euler',
     'euler_to_quat',
     'acc_to_euler',
+
+    # Noise analysis
+    'NoiseCharacteristics',
+    'extract_stationary_segments',
+    'compute_allan_variance',
+    'estimate_noise_floor',
+    'analyze_sensor_noise',
+    'analyze_dataset_noise',
+    'get_sensor_profile',
+    'scale_params_for_sample_rate',
+
+    # Bayesian tuning
+    'BayesianKalmanTuner',
+    'TuningConfig',
+    'TuningResult',
+
+    # Dataset-specific tuners
+    'UPFallKalmanTuner',
+    'UPFALL_SEARCH_SPACE',
+    'create_upfall_tuning_config',
+    'tune_upfall_kalman',
+    'WEDAFallKalmanTuner',
+    'WEDAFALL_SEARCH_SPACE',
+    'create_wedafall_tuning_config',
+    'tune_wedafall_kalman',
 ]

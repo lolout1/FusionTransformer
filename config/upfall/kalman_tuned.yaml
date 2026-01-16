@@ -1,0 +1,29 @@
+kalman_Q_orientation: 0.02680157650861388
+kalman_Q_rate: 0.022020697338547012
+kalman_R_acc: 0.15791623524710038
+kalman_R_gyro: 0.35300748885154165
+tuning_best_f1: !!python/object/apply:numpy.core.multiarray.scalar
+- !!python/object/apply:numpy.dtype
+  args:
+  - f8
+  - false
+  - true
+  state: !!python/tuple
+  - 3
+  - <
+  - null
+  - null
+  - null
+  - -1
+  - -1
+  - 0
+- !!binary |
+  cTO31Egk4j8=
+tuning_holdout_f1: 0.485031123406778
+tuning_iterations: 4
+'# Tuning info':
+  dataset: upfall
+  n_iterations: 2
+  holdout_subjects:
+  - 15
+  - 16

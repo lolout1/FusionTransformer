@@ -39,17 +39,28 @@ from utils.kalman_smoothing import kalman_smoothing_for_loader
 
 def csvloader(file_path: str, **kwargs):
     '''
-    Loads csv data
+    Loads csv data. Raises ValueError for malformed files to enable skip logic.
     '''
-    file_data = pd.read_csv(file_path, index_col=False, header = 0).dropna().bfill()
-    # num_col = file_data.shape[1]
-    # num_extra_col = num_col % 
-    # cols_to_select = num_col - num_extra_col
-    if 'skeleton' in file_path: 
+    try:
+        file_data = pd.read_csv(file_path, index_col=False, header=0).dropna().bfill()
+    except Exception as e:
+        raise ValueError(f"CSV parse error: {e}")
+
+    if 'skeleton' in file_path:
         cols = 96
-    else: 
-        cols  = 3
-    activity_data = file_data.iloc[2:, -cols:].to_numpy(dtype=np.float32)
+    else:
+        cols = 3
+
+    try:
+        # Select last `cols` columns starting from row 2
+        activity_data = file_data.iloc[2:, -cols:].to_numpy(dtype=np.float32)
+    except ValueError as e:
+        # Handle non-numeric data (e.g., UUIDs in data columns)
+        raise ValueError(f"Non-numeric data in CSV: {e}")
+
+    if activity_data.size == 0:
+        raise ValueError("Empty data after parsing")
+
     return activity_data
 
 def matloader(file_path: str, **kwargs):
@@ -389,11 +400,30 @@ def align_gyro_to_acc(data: Dict[str, np.ndarray], use_fast_dtw: bool = True, ma
 
 
 def butterworth_filter(data, cutoff, fs, order=4, filter_type='low'):
-    '''Function to fitter noise '''
-    nyquist = 0.5 * fs  # Nyquist frequency
-    normal_cutoff = cutoff / nyquist  # Normalized cutoff frequency
-    b, a = butter(order, normal_cutoff, btype=filter_type, analog=False)
-    return filtfilt(b, a, data, axis=0)
+    """
+    Apply Butterworth filter with padlen safety check.
+
+    Handles short sequences gracefully by returning original data
+    if sequence is too short for the filter.
+    """
+    # Minimum length for filtfilt: 3 * max(len(a), len(b)) = 3 * (order + 1)
+    min_length = 3 * (order + 1)
+    if len(data) < min_length:
+        return data  # Too short to filter, return unchanged
+
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff / nyquist
+
+    # Ensure cutoff is valid (0 < normal_cutoff < 1)
+    if normal_cutoff <= 0 or normal_cutoff >= 1:
+        return data
+
+    try:
+        b, a = butter(order, normal_cutoff, btype=filter_type, analog=False)
+        return filtfilt(b, a, data, axis=0)
+    except ValueError:
+        # Fallback if filter fails (e.g., padlen issues)
+        return data
 
 def convert_gyro_to_radians(data: np.ndarray) -> np.ndarray:
     """
@@ -498,6 +528,7 @@ class DatasetBuilder:
             'skipped_length_mismatch': 0,
             'skipped_too_short': 0,
             'skipped_preprocessing_error': 0,
+            'skipped_file_load_error': 0,
             'skipped_dtw_length_mismatch': 0,
             'skipped_poor_gyro_hard': 0,
             'skipped_poor_gyro_adaptive': 0,
@@ -598,6 +629,7 @@ class DatasetBuilder:
             'skipped_length_mismatch': 0,
             'skipped_too_short': 0,
             'skipped_preprocessing_error': 0,
+            'skipped_file_load_error': 0,
             'skipped_dtw_length_mismatch': 0,
             'skipped_poor_gyro_hard': 0,
             'skipped_poor_gyro_adaptive': 0,
@@ -981,11 +1013,16 @@ class DatasetBuilder:
                         # if modality == 'skeleton':
                         #     print(unimodal_data.shape)
 
-                    except Exception as e :
+                    except Exception as e:
                         executed = False
-                        print(e)
-                # trial_difference = self.get_size_diff(trial_data)
-                # self.store_trial_diff(trial_difference)
+                        # Track file loading errors silently (like other preprocessing errors)
+                        error_msg = f"File load error: {str(e)[:100]}"
+                        self.preprocessing_error_details[error_msg] += 1
+                        self.skip_stats['skipped_file_load_error'] = self.skip_stats.get('skipped_file_load_error', 0) + 1
+                        self.subject_modality_stats[subject_id]['skipped_file_load_error'] = \
+                            self.subject_modality_stats[subject_id].get('skipped_file_load_error', 0) + 1
+                        if self.debug:
+                            print(f"Skipping S{subject_id}A{action_id} modality={modality}: {e}")
 
                 if executed :
                     # Track which modalities were loaded for this subject
@@ -1483,6 +1520,8 @@ class DatasetBuilder:
             print(f"  - Length mismatch between modalities: {self.skip_stats['skipped_length_mismatch']}")
             print(f"  - Sequence too short (< {self.max_length} samples): {self.skip_stats['skipped_too_short']}")
             print(f"  - Preprocessing errors: {self.skip_stats['skipped_preprocessing_error']}")
+            if self.skip_stats.get('skipped_file_load_error', 0) > 0:
+                print(f"  - File load errors (malformed CSV/data): {self.skip_stats['skipped_file_load_error']}")
             print(f"  - DTW length mismatch (acc-gyro diff > 10): {self.skip_stats['skipped_dtw_length_mismatch']}")
             if self.enable_kalman_fusion:
                 print(f"  - Kalman fusion failed: {self.skip_stats['skipped_kalman_fusion']}")

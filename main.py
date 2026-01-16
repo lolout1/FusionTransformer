@@ -595,17 +595,128 @@ class Trainer():
         plt.ylabel('Count')
         plt.savefig( work_dir + '/' + '{}_Label_Distribution'.format(mode.capitalize()))
         plt.close()
-        
+
+    def _compute_class_weights(self, labels):
+        """Compute class weights for imbalanced dataset."""
+        unique, counts = np.unique(labels, return_counts=True)
+        total = len(labels)
+        weights = {int(c): total / (len(unique) * count) for c, count in zip(unique, counts)}
+        return weights
+
+    def _load_external_dataset(self) -> bool:
+        """
+        Load external dataset (UP-FALL or WEDA-FALL) for training.
+
+        Uses dedicated loaders that handle Kalman fusion, windowing,
+        and LOSO fold preparation internally.
+
+        Returns:
+            bool: True if data loaded successfully, False otherwise
+        """
+        dataset_type = self.arg.dataset.lower()
+        dataset_args = self.arg.dataset_args
+
+        # Import and create appropriate loader
+        if dataset_type == 'upfall':
+            from utils.upfall_loader import UPFallLoader
+            loader = UPFallLoader(
+                csv_path=dataset_args.get('csv_path', 'other_datasets/CompleteDataSet.csv'),
+                window_size=dataset_args.get('max_length', 128),
+                stride=dataset_args.get('stride', 32),
+                enable_kalman=dataset_args.get('enable_kalman_fusion', True),
+                enable_class_aware_stride=dataset_args.get('enable_class_aware_stride', True),
+                fall_stride=dataset_args.get('fall_stride', 16),
+                adl_stride=dataset_args.get('adl_stride', 64),
+                convert_gyro_to_rad=dataset_args.get('convert_gyro_to_rad', True),
+                normalize=dataset_args.get('enable_normalization', True),
+                normalize_modalities=dataset_args.get('normalize_modalities', 'acc_only'),
+            )
+        elif dataset_type == 'wedafall':
+            from utils.wedafall_loader import WEDAFallLoader
+            loader = WEDAFallLoader(
+                base_path=dataset_args.get('base_path', 'other_datasets/WEDA-FALL/dataset'),
+                frequency=dataset_args.get('frequency', '50Hz'),
+                window_size=dataset_args.get('max_length', 128),
+                stride=dataset_args.get('stride', 32),
+                enable_kalman=dataset_args.get('enable_kalman_fusion', True),
+                enable_class_aware_stride=dataset_args.get('enable_class_aware_stride', True),
+                fall_stride=dataset_args.get('fall_stride', 16),
+                adl_stride=dataset_args.get('adl_stride', 64),
+                convert_gyro_to_rad=dataset_args.get('convert_gyro_to_rad', True),
+                normalize=dataset_args.get('enable_normalization', True),
+                normalize_modalities=dataset_args.get('normalize_modalities', 'acc_only'),
+                include_elderly=dataset_args.get('include_elderly', False),
+            )
+        else:
+            raise ValueError(f"Unknown external dataset: {dataset_type}")
+
+        # Get validation and test subjects from config
+        val_subjects = self.val_subject if isinstance(self.val_subject, list) else [self.val_subject]
+        test_subject = self.test_subject[0] if isinstance(self.test_subject, list) else self.test_subject
+
+        # Load LOSO fold data
+        fold_data = loader.prepare_loso_fold(
+            test_subject=test_subject,
+            val_subjects=val_subjects,
+        )
+
+        # Import ExternalFallDataset feeder
+        from Feeder.external_datasets import ExternalFallDataset
+
+        # Create data loaders
+        self.data_loader['train'] = torch.utils.data.DataLoader(
+            dataset=ExternalFallDataset(fold_data['train']),
+            batch_size=self.arg.batch_size,
+            shuffle=True,
+            num_workers=self.arg.num_worker
+        )
+
+        self.data_loader['val'] = torch.utils.data.DataLoader(
+            dataset=ExternalFallDataset(fold_data['val']),
+            batch_size=self.arg.batch_size,
+            shuffle=False,
+            num_workers=self.arg.num_worker
+        )
+
+        self.data_loader['test'] = torch.utils.data.DataLoader(
+            dataset=ExternalFallDataset(fold_data['test']),
+            batch_size=self.arg.test_batch_size,
+            shuffle=False,
+            num_workers=self.arg.num_worker
+        )
+
+        # Set class weights for focal loss
+        train_labels = fold_data['train']['labels']
+        self.class_weights = self._compute_class_weights(train_labels)
+
+        # Set pos_weights for BCE loss
+        label_count = Counter(train_labels)
+        self.pos_weights = torch.Tensor([label_count[0] / label_count[1]])
+        self.pos_weights = self.pos_weights.to(self._get_device_str())
+
+        # Log dataset info
+        print(f"\n{dataset_type.upper()} Dataset Loaded:")
+        print(f"  Train: {len(fold_data['train']['labels'])} samples")
+        print(f"  Val: {len(fold_data['val']['labels'])} samples")
+        print(f"  Test: {len(fold_data['test']['labels'])} samples")
+        print(f"  Class weights: {self.class_weights}")
+
+        return True
+
     def load_data(self):
         '''
         Loads different datasets
         '''
+        # Route to appropriate loader based on dataset type
+        dataset_type = getattr(self.arg, 'dataset', 'smartfallmm').lower()
+
+        if dataset_type in ['upfall', 'wedafall']:
+            return self._load_external_dataset()
+
+        # SmartFallMM path (original behavior)
         Feeder = import_class(self.arg.feeder)
-   
 
         if self.arg.phase == 'train':
-            # if self.arg.dataset == 'smartfallmm':
-
             # dataset class for futher processing
             self.builder = prepare_smartfallmm(self.arg)
 

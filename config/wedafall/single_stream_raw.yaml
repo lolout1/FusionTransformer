@@ -1,0 +1,79 @@
+# WEDA-FALL SingleStream Transformer Configuration
+# Dataset: WEDA-FALL (Marques et al.)
+# Uses raw accelerometer + gyroscope with SMV prepended
+#
+# Input format: 7 channels [SMV, ax, ay, az, gx, gy, gz]
+# Single projection (no modality separation)
+
+model: Models.single_stream_transformer.SingleStreamTransformerSE
+dataset: wedafall
+
+# Young subjects only (elderly have no fall data)
+subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14]
+validation_subjects: [13, 14]
+
+# Model architecture for raw 7-channel input
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: silu
+  norm_first: True
+  se_reduction: 4
+
+# Dataset preprocessing
+dataset_args:
+  base_path: other_datasets/WEDA-FALL/dataset
+  frequency: 50Hz
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  stride: 32
+  loss_type: focal
+
+  # Required by Trainer (compatibility)
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  age_group: [young]
+  use_skeleton: False
+
+  # Exclude elderly subjects
+  include_elderly: False
+
+  # Normalization
+  enable_normalization: True
+  normalize_modalities: acc_only
+
+  # Class-aware stride
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 64
+
+  # Gyroscope conversion
+  convert_gyro_to_rad: True
+
+  # NO Kalman fusion - use raw data
+  enable_kalman_fusion: False
+  filter_fs: 50.0
+
+# Training parameters
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.external_datasets.ExternalFallDataset
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

@@ -495,24 +495,36 @@ class KalmanEncoderAblation(nn.Module):
 class KalmanConv1dConv1d(KalmanEncoderAblation):
     """Baseline: Conv1D for both streams (current best)."""
     def __init__(self, **kwargs):
+        # Remove encoder overrides - this class defines fixed encoders
+        kwargs.pop('acc_encoder', None)
+        kwargs.pop('ori_encoder', None)
         super().__init__(acc_encoder='conv1d', ori_encoder='conv1d', **kwargs)
 
 
 class KalmanConv1dLinear(KalmanEncoderAblation):
     """Hybrid: Conv1D for acc, Linear for ori (hypothesis under test)."""
     def __init__(self, **kwargs):
+        # Remove encoder overrides - this class defines fixed encoders
+        kwargs.pop('acc_encoder', None)
+        kwargs.pop('ori_encoder', None)
         super().__init__(acc_encoder='conv1d', ori_encoder='linear', **kwargs)
 
 
 class KalmanLinearConv1d(KalmanEncoderAblation):
     """Control: Linear for acc, Conv1D for ori."""
     def __init__(self, **kwargs):
+        # Remove encoder overrides - this class defines fixed encoders
+        kwargs.pop('acc_encoder', None)
+        kwargs.pop('ori_encoder', None)
         super().__init__(acc_encoder='linear', ori_encoder='conv1d', **kwargs)
 
 
 class KalmanLinearLinear(KalmanEncoderAblation):
     """Full ablation: Linear for both streams."""
     def __init__(self, **kwargs):
+        # Remove encoder overrides - this class defines fixed encoders
+        kwargs.pop('acc_encoder', None)
+        kwargs.pop('ori_encoder', None)
         super().__init__(acc_encoder='linear', ori_encoder='linear', **kwargs)
 
 
@@ -527,6 +539,9 @@ class KalmanMultiKernelLinear(KalmanEncoderAblation):
     Expected improvement: +0.3-0.8% F1 over single-kernel Conv1D.
     """
     def __init__(self, **kwargs):
+        # Remove encoder overrides - this class defines fixed encoders
+        kwargs.pop('acc_encoder', None)
+        kwargs.pop('ori_encoder', None)
         super().__init__(acc_encoder='multikernel', ori_encoder='linear', **kwargs)
 
 

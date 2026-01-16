@@ -45,15 +45,18 @@ def process_trial_kalman(acc_data: np.ndarray,
 
     Raises:
         ValueError: If acc_data and gyro_data have different lengths
-        ValueError: If gyro appears to be in deg/s (values > 10 rad/s)
+        ValueError: If gyro appears to be in deg/s (values > 30 rad/s)
     """
     # Validation
     if len(acc_data) != len(gyro_data):
         raise ValueError(f"acc_data ({len(acc_data)}) and gyro_data ({len(gyro_data)}) "
                         "have different lengths")
 
+    # Note: Fall detection can produce extreme angular velocities (10-15 rad/s = 573-860 deg/s)
+    # during rapid rotational movements. Using 30 rad/s (1718 deg/s) as threshold which is
+    # well beyond any physically realistic human movement.
     gyro_max = np.abs(gyro_data).max()
-    if gyro_max > 10:
+    if gyro_max > 30:
         raise ValueError(f"Gyroscope max value is {gyro_max:.1f} rad/s, which suggests "
                         "input may be in deg/s. Convert to rad/s first.")
 
@@ -225,16 +228,21 @@ def assemble_kalman_features(trial_data: Dict[str, np.ndarray],
     return np.hstack(features)
 
 
-def validate_gyro_units(gyro_data: np.ndarray, threshold: float = 10.0) -> bool:
+def validate_gyro_units(gyro_data: np.ndarray, threshold: float = 30.0) -> bool:
     """
     Check if gyroscope data appears to be in rad/s.
 
     Args:
         gyro_data: (T, 3) gyroscope data
-        threshold: Maximum expected rad/s for valid data
+        threshold: Maximum expected rad/s for valid data (default 30, suitable for fall detection)
 
     Returns:
         True if data appears to be in rad/s
+
+    Note:
+        Fall detection can produce extreme angular velocities (10-15 rad/s) during
+        rapid rotational movements. The default threshold of 30 rad/s accommodates
+        these extreme cases while still detecting deg/s input.
     """
     max_val = np.abs(gyro_data).max()
     return max_val < threshold
