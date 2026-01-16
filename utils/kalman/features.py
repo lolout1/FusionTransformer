@@ -260,8 +260,10 @@ def build_kalman_features(acc_data: np.ndarray,
                         "must have same length")
 
     # Check if gyro might be in deg/s (sanity check)
+    # Note: Fall detection can produce extreme angular velocities (10-15 rad/s = 573-860 deg/s)
+    # during rapid rotational movements. Using 30 rad/s threshold.
     gyro_max = np.abs(gyro_data).max()
-    if gyro_max > 10:
+    if gyro_max > 30:
         raise ValueError(f"Gyroscope max value is {gyro_max:.1f}, which suggests deg/s. "
                         "Kalman filter expects rad/s. Set convert_gyro_to_rad=True.")
 

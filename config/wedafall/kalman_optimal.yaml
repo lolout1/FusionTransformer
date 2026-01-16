@@ -1,0 +1,99 @@
+# WEDA-FALL Optimal Configuration
+# Dataset: WEDA-FALL (Marques et al.)
+# Wrist Elderly Daily Activity and Fall Dataset
+#
+# Dataset Info:
+#   - 25 subjects (14 young: 1-14, 11 elderly: 21-31)
+#   - Falls (F01-F08): Young subjects only
+#   - ADLs (D01-D11): All subjects
+#   - 50Hz sampling rate (also 40Hz, 25Hz, 10Hz, 5Hz available)
+#
+# Note: For LOSO, use young subjects only (elderly have no fall data)
+
+model: Models.encoder_ablation.KalmanConv1dLinear
+dataset: wedafall
+
+# Young subjects only for LOSO (elderly didn't perform falls)
+subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14]
+validation_subjects: [13, 14]
+
+# Model architecture (same as SmartFallMM optimal)
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  acc_frames: 128
+  acc_coords: 7
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 48
+  dropout: 0.5
+  activation: relu
+  norm_first: True
+  se_reduction: 4
+  acc_ratio: 0.65
+
+# Dataset preprocessing
+dataset_args:
+  base_path: other_datasets/WEDA-FALL/dataset
+  frequency: 50Hz
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  stride: 32
+  loss_type: focal
+
+  # Required by Trainer (compatibility with SmartFallMM)
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  age_group: [young]
+  use_skeleton: False
+
+  # Exclude elderly subjects (no fall data)
+  include_elderly: False
+
+  # Normalization
+  enable_normalization: True
+  normalize_modalities: acc_only
+
+  # Class-aware stride
+  enable_class_aware_stride: True
+  fall_stride: 16
+  adl_stride: 64
+
+  # Gyroscope conversion
+  convert_gyro_to_rad: True
+
+  # Kalman fusion (scaled for 50Hz)
+  enable_kalman_fusion: True
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: True
+  kalman_include_uncertainty: False
+  kalman_include_innovation: False
+  filter_fs: 50.0
+
+  # Q/R scaled for 50Hz
+  kalman_Q_orientation: 0.003
+  kalman_Q_rate: 0.006
+  kalman_R_acc: 0.05
+  kalman_R_gyro: 0.1
+
+# Training parameters
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.external_datasets.ExternalFallDataset
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

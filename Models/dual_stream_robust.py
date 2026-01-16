@@ -279,6 +279,8 @@ class DualStreamRobust(nn.Module):
         use_cross_modal_gate: Enable cross-modal gating (default: True)
         activation: Activation function (default: 'gelu')
         norm_first: Pre-norm in transformer (default: True)
+        gyro_stream_drop_prob: Probability of dropping entire gyro stream during training (default: 0.0)
+                               Set to 0.3-0.5 for datasets with noisy gyroscope sensors
     """
 
     def __init__(self,
@@ -303,8 +305,13 @@ class DualStreamRobust(nn.Module):
                  norm_first: bool = True,
                  acc_in_channels: int = None,
                  gyro_in_channels: int = None,
+                 gyro_stream_drop_prob: float = 0.0,
                  **kwargs):
         super().__init__()
+
+        # Gyro stream dropout: randomly drop entire gyro stream during training
+        # Forces acc stream to learn independently, improving robustness on noisy sensors
+        self.gyro_stream_drop_prob = gyro_stream_drop_prob
 
         # Handle parameter aliasing for compatibility
         self.imu_frames = imu_frames if imu_frames else acc_frames
@@ -474,6 +481,13 @@ class DualStreamRobust(nn.Module):
 
         # Mean pooling for gyro (simpler than attention)
         gyro_pooled = gyro.mean(dim=1)  # (B, gyro_dim)
+
+        # Gyro stream dropout: randomly drop entire gyro stream during training
+        # This forces the acc stream to learn to work independently,
+        # improving robustness on datasets with noisy gyroscope sensors
+        if self.training and self.gyro_stream_drop_prob > 0:
+            if torch.rand(1).item() < self.gyro_stream_drop_prob:
+                gyro_pooled = torch.zeros_like(gyro_pooled)
 
         # ================== FUSION ==================
         # Cross-modal gating

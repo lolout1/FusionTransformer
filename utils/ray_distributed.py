@@ -800,6 +800,7 @@ class RayDistributedTrainer:
         ray_address: Optional[str] = None,
         max_folds: Optional[int] = None,
         seed: int = 2,
+        **kwargs,  # For extensibility: preprocessing/encoder overrides
     ):
         """
         Initialize the distributed trainer.
@@ -819,6 +820,15 @@ class RayDistributedTrainer:
             ray_address: Ray cluster address (None for local)
             max_folds: Maximum number of folds to run (for testing)
             seed: Random seed
+            **kwargs: Additional overrides for preprocessing/encoder:
+                - remove_gravity_override (bool): Enable gravity removal
+                - gravity_cutoff_override (float): Gravity filter cutoff Hz
+                - include_smv_override (bool): Include SMV in features
+                - fall_stride_override (int): Fall stride for class-aware windowing
+                - acc_encoder_override (str): Accelerometer encoder type
+                - ori_encoder_override (str): Orientation encoder type
+                - acc_kernel_override (int): Accelerometer kernel size
+                - ori_kernel_override (int): Orientation kernel size
         """
         self.config_path = config_path
         self.num_gpus = num_gpus
@@ -863,6 +873,9 @@ class RayDistributedTrainer:
             dataset_args['adl_stride'] = adl_stride_override
             self.config['dataset_args'] = dataset_args
 
+        # Apply preprocessing overrides from kwargs (extensible design)
+        self._apply_preprocessing_overrides(kwargs)
+
         # Compute test candidates
         self.test_candidates = self._compute_test_candidates()
         if max_folds and max_folds < len(self.test_candidates):
@@ -904,6 +917,51 @@ class RayDistributedTrainer:
         candidates = [s for s in subjects
                      if s not in validation and s not in train_only]
         return candidates
+
+    def _apply_preprocessing_overrides(self, kwargs: Dict[str, Any]) -> None:
+        """
+        Apply preprocessing and encoder overrides from kwargs.
+
+        Modular design: add new overrides by extending the mappings below.
+        """
+        # Dataset args overrides (preprocessing)
+        dataset_overrides = {
+            'remove_gravity_override': 'remove_gravity',
+            'gravity_cutoff_override': 'gravity_filter_cutoff',
+            'include_smv_override': 'kalman_include_smv',
+            'fall_stride_override': 'fall_stride',
+            'adl_stride_override': 'adl_stride',  # Also handled in __init__ for backwards compatibility
+        }
+
+        # Model args overrides (encoder architecture)
+        model_overrides = {
+            'acc_encoder_override': 'acc_encoder',
+            'ori_encoder_override': 'ori_encoder',
+            'acc_kernel_override': 'acc_kernel_size',
+            'ori_kernel_override': 'ori_kernel_size',
+        }
+
+        # Apply dataset_args overrides
+        for kwarg_key, config_key in dataset_overrides.items():
+            if kwarg_key in kwargs and kwargs[kwarg_key] is not None:
+                dataset_args = self.config.get('dataset_args', {})
+                dataset_args[config_key] = kwargs[kwarg_key]
+                self.config['dataset_args'] = dataset_args
+
+        # Apply model_args overrides
+        for kwarg_key, config_key in model_overrides.items():
+            if kwarg_key in kwargs and kwargs[kwarg_key] is not None:
+                model_args = self.config.get('model_args', {})
+                model_args[config_key] = kwargs[kwarg_key]
+                self.config['model_args'] = model_args
+
+        # Handle SMV channel count adjustment
+        # When SMV is disabled, reduce imu_channels from 7 to 6
+        if kwargs.get('include_smv_override') is False:
+            model_args = self.config.get('model_args', {})
+            model_args['imu_channels'] = 6
+            model_args['acc_coords'] = 6
+            self.config['model_args'] = model_args
 
     def _aggregate_results(self, results: List[Dict]) -> pd.DataFrame:
         """
