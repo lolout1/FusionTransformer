@@ -184,15 +184,15 @@ def register_builtin_models() -> None:
         _logger.debug(f"Could not register DualStreamBase: {e}")
 
     try:
-        from Models.dual_stream_robust import DualStreamRobust
+        from Models.dual_stream_baseline import DualStreamBaseline
         MODEL_REGISTRY.register_class(
-            name='dual_stream_robust',
-            cls=DualStreamRobust,
-            aliases=['Models.dual_stream_robust.DualStreamRobust'],
+            name='dual_stream_baseline',
+            cls=DualStreamBaseline,
+            aliases=['Models.dual_stream_baseline.DualStreamBaseline'],
             tags=['dual-stream', 'imu', 'robust']
         )
     except Exception as e:
-        _logger.debug(f"Could not register DualStreamRobust: {e}")
+        _logger.debug(f"Could not register DualStreamBaseline: {e}")
 
     try:
         from Models.dual_stream_se import DualStreamSE

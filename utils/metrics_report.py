@@ -110,9 +110,12 @@ def generate_text_report(fold_metrics: List[Dict], model_name: str) -> str:
     # Calculate key statistics
     test_f1_mean = df['test_f1_score'].mean()
     test_f1_std = df['test_f1_score'].std()
+    test_macro_f1_mean = df['test_macro_f1'].mean() if 'test_macro_f1' in df.columns else test_f1_mean
+    test_macro_f1_std = df['test_macro_f1'].std() if 'test_macro_f1' in df.columns else test_f1_std
     test_acc_mean = df['test_accuracy'].mean()
     test_acc_std = df['test_accuracy'].std()
     val_f1_mean = df['val_f1_score'].mean()
+    val_macro_f1_mean = df['val_macro_f1'].mean() if 'val_macro_f1' in df.columns else val_f1_mean
     val_acc_mean = df['val_accuracy'].mean()
 
     overfitting_gap_f1 = val_f1_mean - test_f1_mean
@@ -130,8 +133,10 @@ def generate_text_report(fold_metrics: List[Dict], model_name: str) -> str:
 
     lines.append("Average Performance:")
     lines.append(f"  Test F1:       {test_f1_mean:.2f} ± {test_f1_std:.2f}%")
+    lines.append(f"  Test Macro-F1: {test_macro_f1_mean:.2f} ± {test_macro_f1_std:.2f}%")
     lines.append(f"  Test Accuracy: {test_acc_mean:.2f} ± {test_acc_std:.2f}%")
     lines.append(f"  Val F1:        {val_f1_mean:.2f}%")
+    lines.append(f"  Val Macro-F1:  {val_macro_f1_mean:.2f}%")
     lines.append(f"  Val Accuracy:  {val_acc_mean:.2f}%")
     lines.append("")
 
@@ -158,8 +163,8 @@ def generate_text_report(fold_metrics: List[Dict], model_name: str) -> str:
 def generate_per_fold_summary_table(df: pd.DataFrame) -> str:
     """Render a compact table of key metrics per subject."""
     # Select key columns for display
-    display_cols = ['test_subject', 'test_accuracy', 'test_f1_score',
-                   'test_precision', 'test_recall', 'val_accuracy', 'val_f1_score']
+    display_cols = ['test_subject', 'test_accuracy', 'test_f1_score', 'test_macro_f1',
+                   'test_precision', 'test_recall', 'val_accuracy', 'val_f1_score', 'val_macro_f1']
 
     # Check which columns exist
     display_cols = [col for col in display_cols if col in df.columns]

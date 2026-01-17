@@ -70,6 +70,7 @@ class WEDAFallLoader:
         normalize: bool = True,
         normalize_modalities: str = 'acc_only',
         include_elderly: bool = False,
+        **kwargs
     ):
         """
         Initialize WEDA-FALL loader.
@@ -87,6 +88,12 @@ class WEDAFallLoader:
             normalize: Apply z-score normalization
             normalize_modalities: 'all', 'acc_only', or 'none'
             include_elderly: Include elderly subjects (ADL only, no falls)
+            **kwargs: Additional Kalman config options:
+                - kalman_include_smv: bool
+                - kalman_exclude_yaw: bool
+                - kalman_include_raw_gyro: bool
+                - kalman_orientation_only: bool
+                - kalman_Q_orientation, kalman_Q_rate, kalman_R_acc, kalman_R_gyro: float
         """
         self.base_path = base_path
         self.frequency = frequency
@@ -102,8 +109,12 @@ class WEDAFallLoader:
         self.normalize_modalities = normalize_modalities
         self.include_elderly = include_elderly
 
-        # Kalman config scaled for frequency
+        # Kalman config: start with defaults, then override with kwargs
         self.kalman_config = get_kalman_config_for_rate(self.sampling_rate)
+        # Merge any kalman-related kwargs
+        for key, value in kwargs.items():
+            if key.startswith('kalman_') or key in ('filter_fs',):
+                self.kalman_config[key] = value
 
         # Load trials
         self.data_path = os.path.join(base_path, frequency)

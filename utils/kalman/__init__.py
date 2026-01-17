@@ -80,6 +80,13 @@ from .wedafall_tuner import (
     create_wedafall_tuning_config,
     tune_wedafall_kalman,
 )
+from .smartfallmm_tuner import (
+    SmartFallMMKalmanTuner,
+    SMARTFALLMM_SEARCH_SPACES,
+    AVAILABLE_SENSORS,
+    create_smartfallmm_tuning_config,
+    tune_smartfallmm_kalman,
+)
 
 __all__ = [
     # Filters
@@ -140,4 +147,9 @@ __all__ = [
     'WEDAFALL_SEARCH_SPACE',
     'create_wedafall_tuning_config',
     'tune_wedafall_kalman',
+    'SmartFallMMKalmanTuner',
+    'SMARTFALLMM_SEARCH_SPACES',
+    'AVAILABLE_SENSORS',
+    'create_smartfallmm_tuning_config',
+    'tune_smartfallmm_kalman',
 ]
