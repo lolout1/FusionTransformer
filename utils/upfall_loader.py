@@ -47,7 +47,9 @@ class UPFallLoader:
     WRIST_GYRO_COLS = [32, 33, 34]  # x, y, z angular velocity (deg/s)
 
     # Dataset properties
-    SAMPLING_RATE = 50.0  # Hz
+    # Actual measured rate: mean=19.04Hz, median=20.78Hz (NOT 50Hz as originally assumed)
+    # Using 18Hz as conservative estimate based on timestamp analysis
+    SAMPLING_RATE = 18.0  # Hz (measured from CompleteDataSet.csv timestamps)
     N_SUBJECTS = 17
 
     def __init__(
@@ -62,6 +64,7 @@ class UPFallLoader:
         convert_gyro_to_rad: bool = True,
         normalize: bool = True,
         normalize_modalities: str = 'acc_only',
+        **kwargs
     ):
         """
         Initialize UP-FALL loader.
@@ -77,6 +80,12 @@ class UPFallLoader:
             convert_gyro_to_rad: Convert gyro from deg/s to rad/s
             normalize: Apply z-score normalization
             normalize_modalities: 'all', 'acc_only', or 'none'
+            **kwargs: Additional Kalman config options:
+                - kalman_include_smv: bool
+                - kalman_exclude_yaw: bool
+                - kalman_include_raw_gyro: bool
+                - kalman_orientation_only: bool
+                - kalman_Q_orientation, kalman_Q_rate, kalman_R_acc, kalman_R_gyro: float
         """
         self.csv_path = csv_path
         self.window_size = window_size
@@ -89,8 +98,12 @@ class UPFallLoader:
         self.normalize = normalize
         self.normalize_modalities = normalize_modalities
 
-        # Kalman config scaled for 50Hz
+        # Kalman config: start with defaults for 50Hz, then override with kwargs
         self.kalman_config = get_kalman_config_for_rate(self.SAMPLING_RATE)
+        # Merge any kalman-related kwargs
+        for key, value in kwargs.items():
+            if key.startswith('kalman_') or key in ('filter_fs',):
+                self.kalman_config[key] = value
 
         # Load and group data by subject/activity
         self.data = self._load_csv(csv_path)

@@ -1,34 +1,4 @@
-"""
-Encoder Ablation Study: Conv1D vs Linear Input Encoders.
-
-This module provides a configurable KalmanTransformer variant for ablation studies
-comparing different encoder architectures for accelerometer and orientation streams.
-
-Experiment Design:
-    1. conv1d_conv1d:  Conv1D(acc) + Conv1D(ori)  - Current baseline
-    2. conv1d_linear:  Conv1D(acc) + Linear(ori)  - Hypothesis: Linear sufficient for smooth ori
-    3. linear_conv1d:  Linear(acc) + Conv1D(ori)  - Control: verify acc needs Conv1D
-    4. linear_linear:  Linear(acc) + Linear(ori)  - Ablation: both linear
-
-Scientific Rationale:
-    - Accelerometer: High-frequency transients, sharp impacts during falls
-      → Conv1D's local temporal kernel captures these patterns effectively
-    - Orientation (Kalman-filtered): Low-frequency, smooth signals
-      → Linear projection may be sufficient; Conv1D might be overkill
-
-References:
-    - Zeng et al. (2022) "Are Transformers Effective for Time Series Forecasting?" AAAI
-      - Simple linear models match complex architectures for smooth signals
-    - Madgwick (2010) "An efficient orientation filter..."
-      - Kalman-filtered orientation has different spectral properties than raw sensors
-
-Usage:
-    model = KalmanEncoderAblation(
-        acc_encoder='conv1d',  # 'conv1d' or 'linear'
-        ori_encoder='linear',  # 'conv1d' or 'linear'
-        ...
-    )
-"""
+"""Dual-stream Kalman transformer with configurable encoders (Conv1D/Linear)."""
 
 import torch
 from torch import nn

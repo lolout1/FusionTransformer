@@ -1,0 +1,101 @@
+# =============================================================================
+# WEDA-FALL: OPTIMAL KALMAN FUSION CONFIGURATION
+# =============================================================================
+# Best F1: 91.52% ± 4.52% (from hyperparameter ablation study)
+# Accuracy: 88.86%
+#
+# Key hyperparameters:
+#   - Window: 192 samples (3.84 seconds at 50Hz)
+#   - Stride: aggressive (fall=8, adl=32) for class imbalance
+#   - Embed dim: 48 (smaller dataset benefits from less capacity)
+#   - Model: KalmanConv1dConv1d (Conv1D for both acc and orientation)
+#   - Kalman fusion: enabled (7ch output: smv, ax, ay, az, roll, pitch, yaw)
+#
+# Dataset: WEDA-FALL (consumer Fitbit, 14 young subjects, 50Hz)
+# =============================================================================
+
+model: Models.encoder_ablation.KalmanConv1dConv1d
+dataset: wedafall
+
+# Subject configuration
+subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14]
+validation_subjects: [13, 14]
+
+# Model architecture
+model_args:
+  imu_frames: 192
+  imu_channels: 7
+  acc_frames: 192
+  acc_coords: 7
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 48
+  dropout: 0.5
+  activation: relu
+  norm_first: true
+  se_reduction: 4
+  acc_ratio: 0.65  # 65% capacity for accelerometer
+
+# Dataset preprocessing
+dataset_args:
+  base_path: other_datasets/WEDA-FALL/dataset
+  frequency: 50Hz
+  mode: sliding_window
+  max_length: 192
+  task: fd
+  stride: 32
+  loss_type: focal
+
+  # Sensors
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  age_group: [young]
+  use_skeleton: false
+  include_elderly: false
+
+  # Normalization
+  enable_normalization: true
+  normalize_modalities: acc_only  # Only normalize accelerometer
+
+  # Class-aware stride (CRITICAL for class imbalance)
+  enable_class_aware_stride: true
+  fall_stride: 8    # Aggressive oversampling of falls
+  adl_stride: 32    # Standard sampling for ADL
+
+  # Gyroscope conversion
+  convert_gyro_to_rad: true
+
+  # KALMAN FUSION ENABLED
+  enable_kalman_fusion: true
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: true
+  kalman_include_uncertainty: false
+  kalman_include_innovation: false
+
+  # Kalman filter parameters (tuned for WEDA-FALL 50Hz)
+  filter_fs: 50.0
+  kalman_Q_orientation: 0.0124
+  kalman_Q_rate: 0.1315
+  kalman_R_acc: 0.2395
+  kalman_R_gyro: 0.2822
+
+# Training configuration
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.external_datasets.ExternalFallDataset
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

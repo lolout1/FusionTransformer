@@ -139,12 +139,16 @@ class ProgressTracker:
 
         if successful_results:
             test_f1s = [r['test']['f1_score'] for r in successful_results if r.get('test')]
+            test_macro_f1s = [r['test'].get('macro_f1', r['test'].get('f1_score', 0)) for r in successful_results if r.get('test')]
             test_accs = [r['test']['accuracy'] for r in successful_results if r.get('test')]
             val_f1s = [r['val']['f1_score'] for r in successful_results if r.get('val')]
+            val_macro_f1s = [r['val'].get('macro_f1', r['val'].get('f1_score', 0)) for r in successful_results if r.get('val')]
         else:
             test_f1s = []
+            test_macro_f1s = []
             test_accs = []
             val_f1s = []
+            val_macro_f1s = []
 
         return {
             'total_folds': self.total,
@@ -154,9 +158,12 @@ class ProgressTracker:
             'std_test_f1': float(np.std(test_f1s)) if test_f1s else 0.0,
             'min_test_f1': float(np.min(test_f1s)) if test_f1s else 0.0,
             'max_test_f1': float(np.max(test_f1s)) if test_f1s else 0.0,
+            'mean_test_macro_f1': float(np.mean(test_macro_f1s)) if test_macro_f1s else 0.0,
+            'std_test_macro_f1': float(np.std(test_macro_f1s)) if test_macro_f1s else 0.0,
             'mean_test_acc': float(np.mean(test_accs)) if test_accs else 0.0,
             'std_test_acc': float(np.std(test_accs)) if test_accs else 0.0,
             'mean_val_f1': float(np.mean(val_f1s)) if val_f1s else 0.0,
+            'mean_val_macro_f1': float(np.mean(val_macro_f1s)) if val_macro_f1s else 0.0,
             'total_time_min': (time.time() - self.start_time) / 60,
         }
 
@@ -972,7 +979,7 @@ class RayDistributedTrainer:
         rows = []
 
         # Define expected metrics
-        expected_metrics = ['loss', 'accuracy', 'f1_score', 'precision', 'recall', 'auc']
+        expected_metrics = ['loss', 'accuracy', 'f1_score', 'macro_f1', 'precision', 'recall', 'auc']
 
         for result in results:
             if result.get('status') == 'failed':
@@ -1017,7 +1024,7 @@ class RayDistributedTrainer:
         # Also add std for key metrics
         std_row = {'test_subject': 'Std'}
         for col in numeric_cols:
-            if any(m in col for m in ['f1_score', 'accuracy']):
+            if any(m in col for m in ['f1_score', 'macro_f1', 'accuracy']):
                 std_row[col] = round(df[col].std(), 2)
             else:
                 std_row[col] = None
@@ -1186,9 +1193,11 @@ class RayDistributedTrainer:
         print(f"Failed:             {summary['failed']}")
         print("-" * 40)
         print(f"Mean Test F1:       {summary['mean_test_f1']:.2f} +/- {summary['std_test_f1']:.2f}%")
+        print(f"Mean Test Macro-F1: {summary['mean_test_macro_f1']:.2f} +/- {summary['std_test_macro_f1']:.2f}%")
         print(f"Min/Max Test F1:    {summary['min_test_f1']:.2f}% / {summary['max_test_f1']:.2f}%")
         print(f"Mean Test Accuracy: {summary['mean_test_acc']:.2f} +/- {summary['std_test_acc']:.2f}%")
         print(f"Mean Val F1:        {summary['mean_val_f1']:.2f}%")
+        print(f"Mean Val Macro-F1:  {summary['mean_val_macro_f1']:.2f}%")
         print("-" * 40)
         print(f"Total time:         {summary['total_time_min']:.1f} minutes")
         print("=" * 70)

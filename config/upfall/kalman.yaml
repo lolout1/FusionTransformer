@@ -1,0 +1,99 @@
+# =============================================================================
+# UP-FALL: OPTIMAL KALMAN FUSION CONFIGURATION
+# =============================================================================
+# Best F1: 94.90% ± 3.72% (from hyperparameter ablation study)
+# Accuracy: 96.21%
+#
+# Key hyperparameters:
+#   - Window: 160 samples (8.9 seconds at 18Hz)
+#   - Stride: aggressive (fall=8, adl=32) for class imbalance
+#   - Embed dim: 64
+#   - Model: KalmanConv1dConv1d (Conv1D for both acc and orientation)
+#   - Kalman fusion: enabled (7ch output: smv, ax, ay, az, roll, pitch, yaw)
+#
+# Dataset: UP-FALL (research-grade IMU, 17 subjects, 18Hz)
+# =============================================================================
+
+model: Models.encoder_ablation.KalmanConv1dConv1d
+dataset: upfall
+
+# Subject configuration
+subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]
+validation_subjects: [15, 16]
+
+# Model architecture
+model_args:
+  imu_frames: 160
+  imu_channels: 7
+  acc_frames: 160
+  acc_coords: 7
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: relu
+  norm_first: true
+  se_reduction: 4
+  acc_ratio: 0.65  # 65% capacity for accelerometer
+
+# Dataset preprocessing
+dataset_args:
+  csv_path: other_datasets/CompleteDataSet.csv
+  mode: sliding_window
+  max_length: 160
+  task: fd
+  stride: 32
+  loss_type: focal
+
+  # Sensors
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  age_group: [all]
+  use_skeleton: false
+
+  # Normalization
+  enable_normalization: true
+  normalize_modalities: acc_only  # Only normalize accelerometer
+
+  # Class-aware stride (CRITICAL for class imbalance)
+  enable_class_aware_stride: true
+  fall_stride: 8    # Aggressive oversampling of falls
+  adl_stride: 32    # Standard sampling for ADL
+
+  # Gyroscope conversion
+  convert_gyro_to_rad: true
+
+  # KALMAN FUSION ENABLED
+  enable_kalman_fusion: true
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: true
+  kalman_include_uncertainty: false
+  kalman_include_innovation: false
+
+  # Kalman filter parameters (tuned for UP-FALL 18Hz)
+  filter_fs: 18.0
+  kalman_Q_orientation: 0.032
+  kalman_Q_rate: 0.071
+  kalman_R_acc: 0.1312
+  kalman_R_gyro: 0.1074
+
+# Training configuration
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.external_datasets.ExternalFallDataset
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

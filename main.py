@@ -303,11 +303,12 @@ class Trainer():
         results = pd.concat([results, pd.DataFrame([average_row])], ignore_index=True)
         return results
 
-    def _format_metrics(self, loss, accuracy, f1, precision, recall, auc_score):
+    def _format_metrics(self, loss, accuracy, f1, macro_f1, precision, recall, auc_score):
         return {
             'loss': float(loss),
             'accuracy': float(accuracy),
             'f1_score': float(f1),
+            'macro_f1': float(macro_f1),
             'precision': float(precision),
             'recall': float(recall),
             'auc': float(auc_score)
@@ -616,6 +617,10 @@ class Trainer():
         dataset_type = self.arg.dataset.lower()
         dataset_args = self.arg.dataset_args
 
+        # Extract Kalman-related config options to pass to loader
+        kalman_kwargs = {k: v for k, v in dataset_args.items()
+                        if k.startswith('kalman_') or k == 'filter_fs'}
+
         # Import and create appropriate loader
         if dataset_type == 'upfall':
             from utils.upfall_loader import UPFallLoader
@@ -630,6 +635,7 @@ class Trainer():
                 convert_gyro_to_rad=dataset_args.get('convert_gyro_to_rad', True),
                 normalize=dataset_args.get('enable_normalization', True),
                 normalize_modalities=dataset_args.get('normalize_modalities', 'acc_only'),
+                **kalman_kwargs,
             )
         elif dataset_type == 'wedafall':
             from utils.wedafall_loader import WEDAFallLoader
@@ -646,6 +652,7 @@ class Trainer():
                 normalize=dataset_args.get('enable_normalization', True),
                 normalize_modalities=dataset_args.get('normalize_modalities', 'acc_only'),
                 include_elderly=dataset_args.get('include_elderly', False),
+                **kalman_kwargs,
             )
         else:
             raise ValueError(f"Unknown external dataset: {dataset_type}")
@@ -1067,9 +1074,9 @@ class Trainer():
         if columns is None:
             columns = [
                 'test_subject',
-                'train_loss', 'train_accuracy', 'train_f1_score', 'train_precision', 'train_recall', 'train_auc',
-                'val_loss', 'val_accuracy', 'val_f1_score', 'val_precision', 'val_recall', 'val_auc',
-                'test_loss', 'test_accuracy', 'test_f1_score', 'test_precision', 'test_recall', 'test_auc'
+                'train_loss', 'train_accuracy', 'train_f1_score', 'train_macro_f1', 'train_precision', 'train_recall', 'train_auc',
+                'val_loss', 'val_accuracy', 'val_f1_score', 'val_macro_f1', 'val_precision', 'val_recall', 'val_auc',
+                'test_loss', 'test_accuracy', 'test_f1_score', 'test_macro_f1', 'test_precision', 'test_recall', 'test_auc'
             ]
         df = pd.DataFrame(columns=columns)
         return df
@@ -1101,6 +1108,7 @@ class Trainer():
         targets = np.array(targets)
         predictions = np.array(predictions)
         f1 = f1_score(targets, predictions, zero_division=0)
+        macro_f1 = f1_score(targets, predictions, average='macro', zero_division=0)
         precision = precision_score(targets, predictions, zero_division=0)
         recall = recall_score(targets, predictions, zero_division=0)
         if probabilities is not None and np.unique(targets).size >= 2:
@@ -1110,7 +1118,7 @@ class Trainer():
         else:
             auc_score = 0.5
         accuracy = accuracy_score(targets, predictions)
-        return accuracy*100, f1*100, recall*100, precision*100, auc_score*100
+        return accuracy*100, f1*100, macro_f1*100, recall*100, precision*100, auc_score*100
 
     def train(self, epoch):
         '''
@@ -1161,7 +1169,7 @@ class Trainer():
             timer['stats'] += self.split_time()
 
         train_loss = loss_accum / cnt if cnt else 0.0
-        accuracy, f1, recall, precision, auc_score = self.cal_metrics(label_list, pred_list)
+        accuracy, f1, macro_f1, recall, precision, auc_score = self.cal_metrics(label_list, pred_list)
 
         self.train_loss_summary.append(train_loss)
         proportion = {
@@ -1169,10 +1177,10 @@ class Trainer():
             for k, v in timer.items()
         }
         self.print_log(
-            '\tTraining Loss: {:4f},  Acc: {:2f}%, F1 score: {:2f}%, Precision: {:2f}%, Recall: {:2f}%, AUC: {:2f}%  '.format(train_loss, accuracy, f1, precision, recall, auc_score)
+            '\tTraining Loss: {:4f},  Acc: {:2f}%, F1: {:2f}%, Macro-F1: {:2f}%, Prec: {:2f}%, Rec: {:2f}%, AUC: {:2f}%'.format(train_loss, accuracy, f1, macro_f1, precision, recall, auc_score)
         )
         self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
-        train_metrics = self._format_metrics(train_loss, accuracy, f1, precision, recall, auc_score)
+        train_metrics = self._format_metrics(train_loss, accuracy, f1, macro_f1, precision, recall, auc_score)
         self.current_fold_metrics['train'] = train_metrics
         self._record_epoch_metrics('train', epoch + 1, train_metrics)
         val_loss = self.eval(epoch, loader_name='val', result_file=self.arg.result_file)
@@ -1223,7 +1231,7 @@ class Trainer():
                 pred_list.extend(preds.tolist())
                 cnt += len(targets)
             avg_loss = loss_accum / cnt if cnt else 0.0
-            accuracy, f1, recall, precision, auc_score = self.cal_metrics(label_list, pred_list, prob_list)
+            accuracy, f1, macro_f1, recall, precision, auc_score = self.cal_metrics(label_list, pred_list, prob_list)
 
         if result_file is not None:
             predict = pred_list
@@ -1231,10 +1239,10 @@ class Trainer():
 
             for i, x in enumerate(predict):
                 f_r.write(str(x) +  '==>' + str(true[i]) + '\n')
-        metrics = self._format_metrics(avg_loss, accuracy, f1, precision, recall, auc_score)
+        metrics = self._format_metrics(avg_loss, accuracy, f1, macro_f1, precision, recall, auc_score)
         epoch_label = epoch + 1 if loader_name != 'test' else 'best'
         self._record_epoch_metrics(loader_name, epoch_label, metrics)
-        self.print_log('{} Loss: {:4f}. {} Acc: {:2f}% F1 score: {:2f}%, Precision: {:2f}%, Recall: {:2f}%, AUC: {:2f}%'.format(loader_name.capitalize(), avg_loss, loader_name.capitalize(), accuracy, f1, precision, recall, auc_score))
+        self.print_log('{} Loss: {:4f}. {} Acc: {:2f}% F1: {:2f}%, Macro-F1: {:2f}%, Prec: {:2f}%, Rec: {:2f}%, AUC: {:2f}%'.format(loader_name.capitalize(), avg_loss, loader_name.capitalize(), accuracy, f1, macro_f1, precision, recall, auc_score))
 
         # Threshold analysis for test set
         threshold_analysis = None
@@ -1551,7 +1559,7 @@ class Trainer():
 
                 if self.epoch_logs:
                     log_df = pd.DataFrame(self.epoch_logs)
-                    log_columns = ['fold', 'test_subject', 'phase', 'epoch', 'loss', 'accuracy', 'f1_score', 'precision', 'recall', 'auc']
+                    log_columns = ['fold', 'test_subject', 'phase', 'epoch', 'loss', 'accuracy', 'f1_score', 'macro_f1', 'precision', 'recall', 'auc']
                     log_df = log_df.reindex(columns=log_columns)
                     log_df.to_csv(f'{self.arg.work_dir}/training_log.csv', index=False)
 

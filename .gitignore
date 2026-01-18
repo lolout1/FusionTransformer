@@ -1,37 +1,58 @@
+# Python
 __pycache__/
+*.pyc
+*.pyo
 .ipynb_checkpoints/
-data_mnist/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Data directories (large files, not tracked)
 data/
+data_mnist/
+SmartFallMM-Dataset/
+other_datasets/
+
+# Model weights and experiments
 weights/
 exps/
-/config.py
-.DS_Store
-.venv
-*.md
-*.out
-.vscoode
 work_dir/
-SmartFallMM-Dataset/
-
-# Only keep main.py, distiller.py, and train.sh in root
-# Exclude all other .py, .sh, .csv files in root
-/*.py
-!main.py
-!distiller.py
-/*.sh
-!train.sh
-/*.csv
-
-# Exclude experiment results and logs
 results/
 logs/
 experiments/
-scripts/*
-!scripts/analyze_thresholds.py
+results_backup_*/
 
-# Exclude utility subdirectories that shouldn't be tracked
-utils/kalman/
+# Development files
+tests/
+simple/
+modality_exps/
+conf/
 
-# Analysis and report files (local only)
-comprehensive_analysis/
+# Distributed pipeline - exclude results and docs
+distributed_dataset_pipeline/results/
+distributed_dataset_pipeline/*.md
+
+# Output files
+*.out
+*.csv
 *.tex
+
+# Legacy configs (not needed for publication)
+config/*
+!config/smartfallmm/
+!config/upfall/
+!config/wedafall/
+config/smartfallmm/*
+config/upfall/*
+config/wedafall/*
+!config/smartfallmm/kalman.yaml
+!config/upfall/kalman.yaml
+!config/upfall/raw.yaml
+!config/wedafall/kalman.yaml
+!config/wedafall/raw.yaml

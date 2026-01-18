@@ -6,6 +6,7 @@ as neural network inputs.
 
 Output Configurations:
     - 7 channels:  [smv, ax, ay, az, roll, pitch, yaw]
+    - 6 channels:  [smv, ax, ay, az, roll, pitch] (exclude_yaw=True)
     - 10 channels: [smv, ax, ay, az, roll, pitch, yaw, sigma_r, sigma_p, sigma_y]
     - 11 channels: + innovation_magnitude
 """
@@ -24,8 +25,10 @@ class KalmanFeatureExtractor:
                  include_smv: bool = True,
                  include_uncertainty: bool = False,
                  include_innovation: bool = False,
+                 exclude_yaw: bool = False,
                  Q_params: Optional[Dict] = None,
-                 R_params: Optional[Dict] = None):
+                 R_params: Optional[Dict] = None,
+                 adaptive_params: Optional[Dict] = None):
         """
         Initialize feature extractor.
 
@@ -35,14 +38,24 @@ class KalmanFeatureExtractor:
             include_smv: Include signal magnitude vector as first channel
             include_uncertainty: Include orientation uncertainty as features
             include_innovation: Include innovation magnitude as feature
+            exclude_yaw: Exclude yaw from orientation (euler only, reduces to roll+pitch)
             Q_params: Process noise parameters
             R_params: Measurement noise parameters
+            adaptive_params: Adaptive estimation parameters (optional)
+                - adaptive_enabled: bool
+                - adaptive_alpha: float
+                - adaptive_scale_min: float
+                - adaptive_scale_max: float
+                - adaptive_ema_alpha: float
+                - adaptive_warmup: int
         """
         self.filter_type = filter_type
         self.output_format = output_format
         self.include_smv = include_smv
         self.include_uncertainty = include_uncertainty
         self.include_innovation = include_innovation
+        self.exclude_yaw = exclude_yaw
+        self.adaptive_params = adaptive_params or {}
 
         # Build filter parameters
         filter_params = {}
@@ -50,6 +63,8 @@ class KalmanFeatureExtractor:
             filter_params.update(Q_params)
         if R_params:
             filter_params.update(R_params)
+        # Merge adaptive params
+        filter_params.update(self.adaptive_params)
         self.filter_params = filter_params
 
     def process_trial(self,
@@ -124,14 +139,15 @@ class KalmanFeatureExtractor:
         if self.output_format == 'quaternion' and self.filter_type == 'ekf':
             channels += 4
         else:
-            channels += 3
+            # Euler: roll, pitch, yaw (or just roll, pitch if exclude_yaw)
+            channels += 2 if self.exclude_yaw else 3
 
         # Uncertainty
         if self.include_uncertainty:
             if self.output_format == 'quaternion':
                 channels += 4
             else:
-                channels += 3
+                channels += 2 if self.exclude_yaw else 3
 
         # Innovation
         if self.include_innovation:
@@ -151,13 +167,19 @@ class KalmanFeatureExtractor:
         if self.output_format == 'quaternion' and self.filter_type == 'ekf':
             names.extend(['q0', 'q1', 'q2', 'q3'])
         else:
-            names.extend(['roll', 'pitch', 'yaw'])
+            if self.exclude_yaw:
+                names.extend(['roll', 'pitch'])
+            else:
+                names.extend(['roll', 'pitch', 'yaw'])
 
         if self.include_uncertainty:
             if self.output_format == 'quaternion':
                 names.extend(['sigma_q0', 'sigma_q1', 'sigma_q2', 'sigma_q3'])
             else:
-                names.extend(['sigma_roll', 'sigma_pitch', 'sigma_yaw'])
+                if self.exclude_yaw:
+                    names.extend(['sigma_roll', 'sigma_pitch'])
+                else:
+                    names.extend(['sigma_roll', 'sigma_pitch', 'sigma_yaw'])
 
         if self.include_innovation:
             names.append('innovation_mag')
@@ -244,13 +266,20 @@ def build_kalman_features(acc_data: np.ndarray,
             - kalman_include_smv: bool
             - kalman_include_uncertainty: bool
             - kalman_include_innovation: bool
+            - kalman_exclude_yaw: bool (exclude yaw, keep only roll+pitch)
+            - kalman_include_raw_gyro: bool (append raw gyro after orientation)
+            - kalman_orientation_only: bool (exclude acc, output orientation only)
             - kalman_Q_params: dict (optional)
             - kalman_R_params: dict (optional)
             - filter_fs: sampling frequency in Hz
 
     Returns:
         features: (T, C) where C depends on config
-            7ch:  [smv, ax, ay, az, roll, pitch, yaw]
+            7ch:  [smv, ax, ay, az, roll, pitch, yaw] (default)
+            6ch:  [smv, ax, ay, az, roll, pitch] (exclude_yaw=True)
+            9ch:  [smv, ax, ay, az, roll, pitch, gx, gy, gz] (exclude_yaw + raw_gyro)
+            3ch:  [roll, pitch, yaw] (orientation_only=True)
+            2ch:  [roll, pitch] (orientation_only + exclude_yaw)
             10ch: [smv, ax, ay, az, roll, pitch, yaw, sigma_r, sigma_p, sigma_y]
             11ch: + innovation_magnitude
     """
@@ -273,6 +302,9 @@ def build_kalman_features(acc_data: np.ndarray,
     include_smv = config.get('kalman_include_smv', True)
     include_uncertainty = config.get('kalman_include_uncertainty', False)
     include_innovation = config.get('kalman_include_innovation', False)
+    exclude_yaw = config.get('kalman_exclude_yaw', False)
+    include_raw_gyro = config.get('kalman_include_raw_gyro', False)
+    orientation_only = config.get('kalman_orientation_only', False)
 
     # Filter parameters
     Q_params = {}
@@ -291,6 +323,22 @@ def build_kalman_features(acc_data: np.ndarray,
     if 'kalman_R_gyro' in config:
         R_params['R_gyro'] = config['kalman_R_gyro']
 
+    # R multiplier for mis-tuned R experiments (default 1.0 = no change)
+    R_multiplier = config.get('kalman_R_multiplier', 1.0)
+    if R_multiplier != 1.0:
+        R_params['R_multiplier'] = R_multiplier
+
+    # Adaptive estimation parameters (optional, backwards compatible)
+    adaptive_params = {}
+    if config.get('adaptive_kalman_enabled', False):
+        adaptive_params['adaptive_enabled'] = True
+        adaptive_params['adaptive_mode'] = config.get('adaptive_mode', 'nis')  # 'nis', 'signal', 'hybrid', 'none'
+        adaptive_params['adaptive_alpha'] = config.get('adaptive_alpha', 0.5)
+        adaptive_params['adaptive_scale_min'] = config.get('adaptive_scale_min', 0.3)
+        adaptive_params['adaptive_scale_max'] = config.get('adaptive_scale_max', 3.0)
+        adaptive_params['adaptive_ema_alpha'] = config.get('adaptive_ema_alpha', 0.1)
+        adaptive_params['adaptive_warmup'] = config.get('adaptive_warmup_samples', 10)
+
     # Sampling frequency
     fs = config.get('filter_fs', 30.0)
     dt = 1.0 / fs
@@ -302,8 +350,10 @@ def build_kalman_features(acc_data: np.ndarray,
         include_smv=include_smv,
         include_uncertainty=include_uncertainty,
         include_innovation=include_innovation,
+        exclude_yaw=exclude_yaw,
         Q_params=Q_params,
-        R_params=R_params
+        R_params=R_params,
+        adaptive_params=adaptive_params
     )
 
     # Process trial
@@ -313,20 +363,33 @@ def build_kalman_features(acc_data: np.ndarray,
     T = len(acc_data)
     feature_list = []
 
-    # SMV
-    if include_smv:
-        smv = compute_smv(acc_data).reshape(-1, 1)
-        feature_list.append(smv)
+    # For orientation_only mode, skip SMV and accelerometer
+    if not orientation_only:
+        # SMV
+        if include_smv:
+            smv = compute_smv(acc_data).reshape(-1, 1)
+            feature_list.append(smv)
 
-    # Accelerometer
-    feature_list.append(acc_data)
+        # Accelerometer
+        feature_list.append(acc_data)
 
-    # Orientation
-    feature_list.append(result['orientation'])
+    # Orientation (optionally exclude yaw)
+    orientation = result['orientation']
+    if exclude_yaw and output_format == 'euler':
+        # Euler is [roll, pitch, yaw], take only first 2
+        orientation = orientation[:, :2]
+    feature_list.append(orientation)
 
-    # Uncertainty
+    # Raw gyroscope (optional, appended after orientation)
+    if include_raw_gyro:
+        feature_list.append(gyro_data)
+
+    # Uncertainty (optionally exclude yaw uncertainty)
     if include_uncertainty:
-        feature_list.append(result['uncertainty'])
+        uncertainty = result['uncertainty']
+        if exclude_yaw and output_format == 'euler':
+            uncertainty = uncertainty[:, :2]
+        feature_list.append(uncertainty)
 
     # Innovation
     if include_innovation:

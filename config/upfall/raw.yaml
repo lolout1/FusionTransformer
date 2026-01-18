@@ -1,0 +1,93 @@
+# =============================================================================
+# UP-FALL: RAW IMU CONFIGURATION (No Kalman Fusion)
+# =============================================================================
+# Comparison baseline for Kalman vs Raw study
+# Same hyperparameters as upfall_kalman_optimal.yaml
+#
+# Key hyperparameters (IDENTICAL to Kalman):
+#   - Window: 160 samples (8.9 seconds at 18Hz)
+#   - Stride: aggressive (fall=8, adl=32) for class imbalance
+#   - Embed dim: 64
+#   - Model: DualStreamBaseline (raw acc + gyro, no Kalman preprocessing)
+#
+# Only difference: enable_kalman_fusion=false, different model architecture
+# Dataset: UP-FALL (research-grade IMU, 17 subjects, 18Hz)
+# =============================================================================
+
+model: Models.dual_stream_baseline.DualStreamBaseline
+dataset: upfall
+
+# Subject configuration (SAME as Kalman)
+subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]
+validation_subjects: [15, 16]
+
+# Model architecture
+model_args:
+  imu_frames: 160
+  imu_channels: 7
+  acc_frames: 160
+  acc_coords: 7
+  # Raw model channel split
+  acc_in_channels: 4   # smv + ax + ay + az
+  gyro_in_channels: 3  # gx + gy + gz
+  acc_dim: 48          # ~75% of 64 for acc stream
+  gyro_dim: 16         # ~25% of 64 for gyro stream
+  num_classes: 1
+  num_heads: 4
+  num_layers: 1        # Single layer for raw (less complex features)
+  embed_dim: 64
+  dropout: 0.5
+  activation: gelu
+  norm_first: true
+  se_reduction: 4
+  acc_ratio: 0.65
+
+# Dataset preprocessing (SAME as Kalman except enable_kalman_fusion)
+dataset_args:
+  csv_path: other_datasets/CompleteDataSet.csv
+  mode: sliding_window
+  max_length: 160
+  task: fd
+  stride: 32
+  loss_type: focal
+
+  # Sensors
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  age_group: [all]
+  use_skeleton: false
+
+  # Normalization (SAME as Kalman)
+  enable_normalization: true
+  normalize_modalities: acc_only
+
+  # Class-aware stride (SAME as Kalman - CRITICAL)
+  enable_class_aware_stride: true
+  fall_stride: 8
+  adl_stride: 32
+
+  # Gyroscope conversion (SAME as Kalman)
+  convert_gyro_to_rad: true
+
+  # KALMAN FUSION DISABLED - raw IMU data
+  enable_kalman_fusion: false
+  filter_fs: 18.0
+
+# Training configuration (SAME as Kalman)
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.external_datasets.ExternalFallDataset
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

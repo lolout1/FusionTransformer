@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
-"""
-External Dataset Ablation Study for KalmanTransformer.
-
-Runs comprehensive hyperparameter sweep on UP-FALL and WEDA-FALL datasets
-to validate model generalization beyond SmartFallMM.
-
-Experiment Groups:
-    A: Kalman Fusion Models (current best architecture)
-    B: Dual-Stream Transformer (raw acc+gyro, no Kalman)
-    C: Mamba/S4 State-Space Models (raw acc+gyro)
-    D: Threshold optimization sweep
-
-Usage:
-    python run_external_ablation.py --num-gpus 3
-    python run_external_ablation.py --num-gpus 3 --dry-run
-    python run_external_ablation.py --num-gpus 3 --group kalman --dataset upfall
-    python run_external_ablation.py --num-gpus 1 --max-folds 2  # Quick test
-"""
+"""External dataset ablation study for UP-FALL and WEDA-FALL."""
 
 import argparse
 import json
@@ -134,13 +117,13 @@ def define_experiments() -> List[ExternalExperiment]:
     # GROUP B: Dual-Stream Transformer (Raw Acc+Gyro) (10 experiments)
     # ========================================================================
     for dataset in ['upfall', 'wedafall']:
-        # B1-B3: DualStreamRobust with different normalization
+        # B1-B3: DualStreamBaseline with different normalization
         for norm in ['acc_only', 'both', 'none']:
             experiments.append(ExternalExperiment(
-                name=f'{dataset}_dualstream_robust_{norm}',
+                name=f'{dataset}_dualstream_baseline_{norm}',
                 group='dualstream',
                 dataset=dataset,
-                model='Models.dual_stream_robust.DualStreamRobust',
+                model='Models.dual_stream_baseline.DualStreamBaseline',
                 normalize_mode=norm,
                 enable_kalman=False,
             ))

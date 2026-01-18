@@ -138,10 +138,22 @@ def get_kalman_config_for_rate(sampling_rate: float) -> dict:
         'kalman_include_smv': True,
         'kalman_include_uncertainty': False,
         'kalman_include_innovation': False,
+        'kalman_exclude_yaw': False,      # Include yaw by default (7ch output)
+        'kalman_include_raw_gyro': False, # Exclude raw gyro by default
         'kalman_Q_orientation': REF_Q_ORI * scale,
         'kalman_Q_rate': REF_Q_RATE * scale,
         'kalman_R_acc': 0.05,  # Sensor noise (unchanged)
         'kalman_R_gyro': 0.1,  # Sensor noise (unchanged)
+        'kalman_R_multiplier': 1.0,  # R scale factor (1.0 = no change, >1 = more smoothing)
+
+        # Adaptive Kalman estimation (disabled by default for backward compatibility)
+        'adaptive_kalman_enabled': False,
+        'adaptive_mode': 'nis',         # 'nis', 'signal', 'hybrid', or 'none'
+        'adaptive_alpha': 0.5,          # Sensitivity: 0=no adaptation, 1=full
+        'adaptive_scale_min': 0.3,      # Min R scale (max trust in measurements)
+        'adaptive_scale_max': 3.0,      # Max R scale (min trust in measurements)
+        'adaptive_ema_alpha': 0.1,      # EMA smoothing for scale factor
+        'adaptive_warmup_samples': 10,  # Samples before adaptation kicks in
     }
 
 
@@ -158,25 +170,24 @@ def apply_kalman_fusion(
     Args:
         acc: (T, 3) accelerometer data [ax, ay, az] in m/s² or g
         gyro: (T, 3) gyroscope data [gx, gy, gz] in rad/s
-        config: Kalman configuration dict
+        config: Kalman configuration dict with keys:
+            - kalman_include_smv: bool (default True)
+            - kalman_exclude_yaw: bool (default False)
+            - kalman_include_raw_gyro: bool (default False)
+            - kalman_orientation_only: bool (default False)
 
     Returns:
-        fused: (T, 7) Kalman features [smv, ax, ay, az, roll, pitch, yaw]
+        fused: (T, C) Kalman features where C depends on config:
+            7ch:  [smv, ax, ay, az, roll, pitch, yaw] (default)
+            6ch:  [smv, ax, ay, az, roll, pitch] (exclude_yaw=True)
+            9ch:  [smv, ax, ay, az, roll, pitch, gx, gy, gz] (exclude_yaw + raw_gyro)
+            3ch:  [roll, pitch, yaw] (orientation_only=True)
+            2ch:  [roll, pitch] (orientation_only + exclude_yaw)
     """
-    from utils.kalman.preprocessing import kalman_fusion_for_loader, assemble_kalman_features
+    from utils.kalman.features import build_kalman_features
 
-    # Prepare trial data in expected format
-    trial_data = {
-        'accelerometer': acc,
-        'gyroscope': gyro
-    }
-
-    # Apply Kalman fusion
-    fused_data = kalman_fusion_for_loader(trial_data, config)
-
-    # Assemble features
-    include_smv = config.get('kalman_include_smv', True)
-    features = assemble_kalman_features(fused_data, include_smv=include_smv)
+    # build_kalman_features handles all config options
+    features = build_kalman_features(acc, gyro, config)
 
     return features
 
