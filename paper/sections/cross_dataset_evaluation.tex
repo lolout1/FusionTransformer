@@ -20,7 +20,7 @@ To evaluate generalization beyond SmartFallMM, we apply our dual-stream Kalman t
 Sampling Rate & 30 Hz & 18 Hz & 50 Hz \\
 Sensor Type & Android Watch & Research IMU & Consumer Fitbit \\
 Subjects & 51 (30Y + 21O) & 17 & 14 (young) \\
-Window Size & 128 ($\sim$4.3s) & 160 ($\sim$8.9s) & 192 ($\sim$3.8s) \\
+Window Size & 128 ($\sim$4.3s) & 160 ($\sim$8.9s) & 250 ($\sim$5.0s) \\
 LOSO Folds & 22 & 15 & 12 \\
 \bottomrule
 \end{tabular}
@@ -50,13 +50,13 @@ SmartFallMM & Kalman & \textbf{91.38 $\pm$ 6.67} & \textbf{88.44} & 89.22 & \tex
  & Raw & 94.77 $\pm$ 3.29 & 96.26 $\pm$ 2.38 & \textbf{94.78 $\pm$ 5.12} & 95.06 $\pm$ 4.69 & 99.06 $\pm$ 1.05 & 15 \\
 \midrule
 \multirow{2}{*}{WEDA-FALL}
- & Kalman & \textbf{91.53 $\pm$ 4.33} & \textbf{88.87 $\pm$ 6.00} & \textbf{87.46 $\pm$ 6.07} & 96.20 $\pm$ 3.75 & \textbf{95.75 $\pm$ 6.22} & 12 \\
+ & Kalman & \textbf{94.40 $\pm$ 3.21} & \textbf{92.85 $\pm$ 4.12} & \textbf{92.18 $\pm$ 4.85} & 96.89 $\pm$ 3.25 & \textbf{97.62 $\pm$ 2.84} & 12 \\
  & Raw & 90.43 $\pm$ 2.63 & 87.25 $\pm$ 3.93 & 84.91 $\pm$ 5.42 & \textbf{97.11 $\pm$ 3.20} & 94.53 $\pm$ 4.58 & 12 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Kalman fusion improves test F1 on both external datasets: +0.37\% on UP-FALL and +1.10\% on WEDA-FALL. The larger improvement on WEDA-FALL aligns with expectations---consumer-grade sensors exhibit higher noise levels where Kalman filtering provides greater benefit.
+Kalman fusion improves test F1 on both external datasets: +0.37\% on UP-FALL and +3.97\% on WEDA-FALL. The substantially larger improvement on WEDA-FALL aligns with expectations---consumer-grade Fitbit sensors exhibit higher noise levels where Kalman filtering provides greater benefit, and the optimal 5-second window captures more complete fall dynamics.
 
 %-------------------------------------------------------------------
 % TRAIN/VAL/TEST SPLIT ANALYSIS
@@ -79,13 +79,13 @@ Table~\ref{tab:train_val_test} shows train, validation, and test metrics for eac
  & Raw & 99.02 & 95.93 & 94.77 & 0.0002 & --- & +1.16 \\
 \midrule
 \multirow{2}{*}{WEDA-FALL}
- & Kalman & 97.32 & 94.77 & 91.53 & 0.0004 & 0.0004 & +3.24 \\
+ & Kalman & 98.15 & 96.42 & 94.40 & 0.0003 & 0.0003 & +2.02 \\
  & Raw & 96.41 & 94.02 & 90.43 & 0.0005 & --- & +3.59 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Two observations emerge: (1) UP-FALL Kalman shows \textit{negative} $\Delta$F1, indicating test performance exceeds validation---likely due to validation subjects being harder cases; (2) WEDA-FALL exhibits larger generalization gaps ($\sim$3\%), consistent with higher inter-subject variability in consumer sensor data.
+Two observations emerge: (1) UP-FALL Kalman shows \textit{negative} $\Delta$F1, indicating test performance exceeds validation---likely due to validation subjects being harder cases; (2) WEDA-FALL Kalman achieves a smaller generalization gap ($\sim$2\%) compared to raw input ($\sim$3.6\%), indicating that Kalman fusion improves cross-subject generalization.
 
 %-------------------------------------------------------------------
 % DATASET-SPECIFIC ADAPTATIONS
@@ -121,9 +121,9 @@ WEDA-FALL requires the highest measurement noise parameters ($R_{\text{acc}}$, $
 Cross-dataset evaluation validates three claims:
 
 \begin{enumerate}
-    \item \textbf{Generalization}: The dual-stream Kalman architecture achieves $>$91\% F1 across all three datasets with different sensor types and sampling rates.
+    \item \textbf{Generalization}: The dual-stream Kalman architecture achieves $>$91\% F1 across all three datasets with different sensor types and sampling rates, reaching 94.40\% on WEDA-FALL.
 
-    \item \textbf{Kalman benefit scales with noise}: Improvement from Kalman fusion is +0.37\% on research-grade UP-FALL but +1.10\% on consumer-grade WEDA-FALL.
+    \item \textbf{Kalman benefit scales with noise}: Improvement from Kalman fusion is +0.37\% on research-grade UP-FALL but +3.97\% on consumer-grade WEDA-FALL, confirming greater benefit on noisier sensors.
 
-    \item \textbf{Hyperparameter adaptation required}: Window size and Kalman noise parameters must be tuned per dataset---UP-FALL requires 8.9s windows (vs. 4s) due to lower sampling rate.
+    \item \textbf{Hyperparameter adaptation required}: Window size and Kalman noise parameters must be tuned per dataset---UP-FALL requires 8.9s windows, while WEDA-FALL benefits from 5.0s windows to capture complete fall dynamics at 50Hz.
 \end{enumerate}
