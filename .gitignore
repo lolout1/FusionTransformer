@@ -29,7 +29,6 @@ experiments/
 results_backup_*/
 
 # Development files
-tests/
 simple/
 modality_exps/
 conf/

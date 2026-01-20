@@ -37,13 +37,9 @@ jobs:
         pip install torch --index-url https://download.pytorch.org/whl/cpu
         pip install einops
 
-    - name: Run CUDA preprocessing tests
+    - name: Run all tests
       run: |
-        pytest utils/cuda_preprocessing/test_preprocessing.py -v --tb=short -x
-
-    - name: Run Kalman filter tests
-      run: |
-        pytest tests/ -v --tb=short -x --ignore=tests/test_integration.py || true
+        pytest tests/ utils/cuda_preprocessing/test_preprocessing.py -v --tb=short
 
   lint:
     runs-on: ubuntu-latest
