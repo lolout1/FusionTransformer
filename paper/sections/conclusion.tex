@@ -1,0 +1,7 @@
+This paper presented a dual-stream Kalman transformer architecture for wearable fall detection that achieves state-of-the-art performance on the SmartFallMM dataset. Our key finding is that gyroscope data, which degrades performance when added as raw signals in single-stream architectures, substantially improves detection when transformed through Kalman sensor fusion and processed in a dual-stream architecture.
+
+The proposed approach achieves 91.10\% F1 score on rigorous 21-fold LOSO-CV evaluation, representing a +2.14\% improvement over single-stream raw transformer baselines (88.96\%) and +1.30\% over single-stream Kalman baselines (89.80\%). Ablation studies confirm the contribution of each component: Kalman fusion enables +3.52\% F1 improvement in dual-stream architectures, dual-stream processing contributes +1.30\% F1, and SE+TAP attention mechanisms contribute +1.28\% F1.
+
+Analysis of failure modes reveals that subjects exhibiting gentle, controlled falls with lower peak accelerations account for the majority of misclassifications. Future work will address this through targeted data augmentation for gentle falls, subject-specific calibration, and multi-modal fusion incorporating contextual information such as activity history.
+
+The compact model size (approximately 73,400 parameters) enables deployment on resource-constrained wearable devices, making this approach suitable for real-world fall detection applications in elder care and health monitoring.

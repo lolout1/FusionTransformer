@@ -1,0 +1,229 @@
+% Appendix - BDCC Format
+% Supplementary tables and ablation details (transformer only)
+
+\section{Detailed Experimental Results}
+\label{app:detailed}
+
+This appendix provides comprehensive metrics and supplementary ablation studies for all experiments reported in the main text.
+
+%-------------------------------------------------------------------
+\subsection{Complete Metrics: Attention Ablation}
+\label{app:se_tap_full}
+
+Table~\ref{tab:se_tap_full} presents complete training, validation, and test metrics for the attention mechanism ablation study (Section~\ref{subsec:baseline}).
+
+\begin{table}[H]
+\caption{Complete metrics for SE/TAP ablation. All models use single-stream Kalman architecture with embed\_dim=64, 21-fold LOSO-CV.}
+\label{tab:se_tap_full}
+\centering
+\small
+\begin{tabular}{lcccccccc}
+\toprule
+& \multicolumn{2}{c}{\textbf{Train}} & \multicolumn{3}{c}{\textbf{Validation}} & \multicolumn{3}{c}{\textbf{Test}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-6} \cmidrule(lr){7-9}
+\textbf{Config} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Acc} & \textbf{Loss} & \textbf{F1} & \textbf{Acc} & \textbf{Loss} \\
+\midrule
+No SE/TAP & 90.21 & 0.00043 & 94.21 & 91.42 & 0.00035 & 88.52 & 83.67 & 0.00131 \\
+SE only & 91.45 & 0.00038 & 94.89 & 91.89 & 0.00032 & 89.15 & 84.23 & 0.00107 \\
+TAP only & 90.12 & 0.00042 & 93.95 & 91.18 & 0.00036 & 88.34 & 83.41 & 0.00108 \\
+\textbf{SE+TAP} & \textbf{92.06} & \textbf{0.00034} & 95.97 & 92.02 & 0.00033 & \textbf{89.80} & \textbf{84.96} & \textbf{0.00083} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%-------------------------------------------------------------------
+\subsection{Complete Metrics: Embedding Ratio Ablation}
+\label{app:embed_full}
+
+Tables~\ref{tab:embed_kalman_full} and~\ref{tab:embed_raw_full} present complete metrics for embedding ratio experiments with Kalman-fused and raw gyroscope inputs respectively.
+
+\begin{table}[H]
+\caption{Complete metrics for dual-stream embedding ratio ablation with Kalman-fused input.}
+\label{tab:embed_kalman_full}
+\centering
+\small
+\begin{tabular}{lccccccc}
+\toprule
+& & \multicolumn{2}{c}{\textbf{Train}} & \multicolumn{2}{c}{\textbf{Val}} & \multicolumn{2}{c}{\textbf{Test}} \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6} \cmidrule(lr){7-8}
+\textbf{Split} & \textbf{Dim} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Loss} \\
+\midrule
+32:32 & 64 & 92.06 & 0.00034 & 96.10 & 0.00033 & \textbf{91.10} & 0.00083 \\
+48:48 & 96 & 92.79 & 0.00032 & 95.81 & 0.00027 & 89.58 & 0.00587 \\
+48:24 & 72 & 92.56 & 0.00033 & 96.08 & 0.00028 & 89.05 & 0.00568 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\caption{Complete metrics for dual-stream embedding ratio ablation with raw gyroscope input.}
+\label{tab:embed_raw_full}
+\centering
+\small
+\begin{tabular}{lccccccc}
+\toprule
+& & \multicolumn{2}{c}{\textbf{Train}} & \multicolumn{2}{c}{\textbf{Val}} & \multicolumn{2}{c}{\textbf{Test}} \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6} \cmidrule(lr){7-8}
+\textbf{Split} & \textbf{Dim} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Loss} \\
+\midrule
+48:48 & 96 & 95.74 & 0.00022 & 92.47 & 0.00059 & 87.58 & 0.01259 \\
+48:24 & 72 & 95.27 & 0.00023 & 92.54 & 0.00062 & 87.63 & 0.01140 \\
+24:48 & 72 & 95.16 & 0.00024 & 92.33 & 0.00066 & 88.06 & 0.00977 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%-------------------------------------------------------------------
+\subsection{Complete Metrics: Single-Stream Baselines}
+\label{app:single_full}
+
+\begin{table}[H]
+\caption{Complete metrics for single-stream architectures (embed\_dim=64).}
+\label{tab:single_full}
+\centering
+\small
+\begin{tabular}{lccccccc}
+\toprule
+& \multicolumn{2}{c}{\textbf{Train}} & \multicolumn{2}{c}{\textbf{Val}} & \multicolumn{2}{c}{\textbf{Test}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7}
+\textbf{Input} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Loss} & \textbf{F1} & \textbf{Loss} \\
+\midrule
+Kalman & 92.28 & 0.00034 & 95.97 & 0.00025 & 89.80 & 0.00699 \\
+Raw & 94.34 & 0.00028 & 92.83 & 0.00058 & 88.96 & 0.00994 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%-------------------------------------------------------------------
+\section{Supplementary Ablation Studies}
+\label{app:supplementary}
+
+%-------------------------------------------------------------------
+\subsection{Kalman Filter Design}
+\label{app:kalman_design}
+
+Table~\ref{tab:kalman_ablation} presents ablation studies on Kalman filter design choices.
+
+\begin{table}[H]
+\caption{Kalman filter design ablation. All experiments use dual-stream transformer with SE+TAP.}
+\label{tab:kalman_ablation}
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Configuration} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
+\midrule
+\multicolumn{3}{l}{\textit{Filter Type}} \\
+\quad No fusion (raw gyro) & 87.58 & --- \\
+\quad Linear Kalman Filter & \textbf{91.10} & +3.52 \\
+\quad Extended Kalman Filter & 90.12 & +2.54 \\
+\midrule
+\multicolumn{3}{l}{\textit{Process Noise ($Q_\phi$)}} \\
+\quad 0.001 (very smooth) & 89.92 & -1.18 \\
+\quad 0.005 (default) & \textbf{91.10} & --- \\
+\quad 0.01 (responsive) & 90.21 & -0.89 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%-------------------------------------------------------------------
+\subsection{Normalization Strategy}
+\label{app:normalization}
+
+\begin{table}[H]
+\caption{Normalization strategy comparison. ``Channel-aware'' applies z-score to accelerometer only, preserves radians for orientation.}
+\label{tab:norm_ablation}
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Normalization} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
+\midrule
+None & 88.23 & -2.87 \\
+Unified z-score & 89.45 & -1.65 \\
+\textbf{Channel-aware} & \textbf{91.10} & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Channel-aware normalization preserves orientation angles in radians, maintaining their physical meaning ($\phi = 0$ represents upright position).
+
+%-------------------------------------------------------------------
+\subsection{Transformer Architecture}
+\label{app:architecture}
+
+\begin{table}[H]
+\caption{Transformer architecture ablation. Default: 2 layers, 4 heads, 64 embed dim.}
+\label{tab:arch_ablation}
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Configuration} & \textbf{Params} & \textbf{F1 (\%)} & \textbf{$\Delta$F1} \\
+\midrule
+\multicolumn{4}{l}{\textit{Number of Layers}} \\
+\quad 1 layer & 45K & 89.34 & -1.76 \\
+\quad 2 layers (default) & 73K & \textbf{91.10} & --- \\
+\quad 4 layers & 130K & 89.78 & -1.32 \\
+\midrule
+\multicolumn{4}{l}{\textit{Positional Encoding}} \\
+\quad Sinusoidal & 73K & 90.12 & -0.98 \\
+\quad \textbf{None} (default) & 73K & \textbf{91.10} & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Positional encoding is not beneficial for fall detection. We hypothesize this occurs because: (1) fall signatures (impact spikes, orientation changes) are translation-invariant within windows---a fall occurring at the start or middle of a window has similar features; (2) our 4.3-second windows are short enough that long-range temporal dependencies are less critical than in sequence-to-sequence tasks; (3) the Conv1D projection already captures local temporal context (kernel size 8 $\approx$ 0.27s). This finding may not generalize to longer windows or non-impact activities where temporal position matters.
+
+\textbf{SE+TAP Architecture Details.} The SE and TAP modules operate as follows:
+\begin{itemize}
+    \item \textbf{SE input:} Tensor of shape $(B, T, 64)$ after transformer encoder, where $B$ is batch size and $T=128$ timesteps
+    \item \textbf{SE pooling:} Global average pooling over temporal dimension $\rightarrow$ $(B, 64)$
+    \item \textbf{SE output:} Channel weights $(B, 64)$ broadcast to $(B, T, 64)$ via element-wise multiplication
+    \item \textbf{TAP input:} SE-reweighted tensor $(B, T, 64)$
+    \item \textbf{TAP output:} Attention-weighted temporal pooling $\rightarrow$ $(B, 64)$ for classification
+\end{itemize}
+This ordering (SE before TAP) allows channel reweighting to inform which features are emphasized during temporal attention.
+
+%-------------------------------------------------------------------
+\section{Experimental Configuration}
+\label{app:config}
+
+All experiments use the following configuration unless otherwise noted:
+
+\textbf{Dataset \& Evaluation:}
+\begin{itemize}
+    \item SmartFallMM dataset, 21 young subjects (ages 18--35)
+    \item 21-fold Leave-One-Subject-Out Cross-Validation
+    \item Validation subjects: 48, 57 (held constant across folds)
+\end{itemize}
+
+\textbf{Preprocessing:}
+\begin{itemize}
+    \item Window: 128 frames ($\approx$4.3 seconds at 30 Hz)
+    \item Stride: ADL=64 frames, Fall=16 frames (class-aware)
+    \item Normalization: Channel-aware (z-score for acc only)
+\end{itemize}
+
+\textbf{Model Architecture:}
+\begin{itemize}
+    \item Transformer: 2 layers, 4 heads, embed\_dim=64
+    \item Dual-stream: Conv1D projection with 32:32 split
+    \item SE reduction ratio: 4
+    \item Dropout: 0.5
+\end{itemize}
+
+\textbf{Training:}
+\begin{itemize}
+    \item Optimizer: AdamW, lr=$10^{-3}$, weight\_decay=$5\times10^{-4}$
+    \item Batch size: 64, Epochs: 80
+    \item Loss: Focal ($\alpha=0.75$, $\gamma=2.0$)
+\end{itemize}
+
+\textbf{Kalman Filter:}
+\begin{itemize}
+    \item Type: Linear Kalman Filter with adaptive measurement noise
+    \item Process noise: $Q_\phi=0.005$, $Q_{\dot\phi}=0.01$
+    \item Measurement noise: $R_\text{acc}=0.05$, $R_\text{gyro}=0.1$
+    \item Adaptive threshold: $\tau=2.0g$, $R_\text{max}=10.0$
+    \item Output: Euler angles $[\phi, \theta, \psi]$ in radians
+\end{itemize}
+
+

@@ -1,0 +1,113 @@
+%-------------------------------------------------------------------
+% 2.1 DATASET
+%-------------------------------------------------------------------
+\subsection{Dataset}
+\label{subsec:dataset}
+
+We evaluate on the SmartFallMM dataset~\cite{ngu2022personalized}, comprising 51 participants (30 young adults ages 18--35, 21 older adults ages 65+) performing 14 activities: 9 ADLs (drinking water, picking up objects, putting on jacket, sweeping, hand washing, waving, walking, sitting, standing) and 5 fall types (forward, backward, left, right, rotational). Commodity smartwatches capture triaxial accelerometer and gyroscope data at 30~Hz.
+
+\subsubsection{Subject Selection and Data Splits}
+
+Table~\ref{tab:subjects} presents our subject selection criteria. \textbf{Training uses data from all available subjects} (both young and older adults) to maximize training diversity. However, \textbf{validation and testing are restricted to young subjects} because older adults did not perform simulated falls for safety reasons---their data contains only ADL samples. This design enables evaluation of fall detection generalization while leveraging older adult ADL patterns during training.
+
+\begin{table}[H]
+\caption{Subject selection for evaluation. Training includes all subjects; validation/test restricted to young adults (ages 18--35) who performed both ADLs and falls.}
+\label{tab:subjects}
+\centering
+\small
+\begin{tabular}{llcc}
+\toprule
+\textbf{Role} & \textbf{Population} & \textbf{Subject IDs} & \textbf{Count} \\
+\midrule
+Training & Young + Older & All available & 51 \\
+Test (LOSO-CV rotation) & Young only & 31, 34, 36--38, 43--44, 46, 49--56, 58, 60--63 & 21 \\
+Validation (fixed) & Young only & 48, 57 & 2 \\
+Excluded (incomplete data) & Young & 29, 30, 32, 35, 39, 45, 59 & 7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Why older adults are excluded from test/validation.} The older adult subset (21 subjects, ages 65+) contains only ADL recordings---no simulated falls were collected due to safety and ethical considerations. Falls appear only in the young subset; older subjects contribute additional ADL variability to training. Including older adults in test sets would artificially inflate specificity (correct ADL classification) without measuring fall detection sensitivity. Future work will address cross-population generalization through domain adaptation techniques.
+
+\textbf{Validation protocol clarification.} The fixed validation subjects (48, 57) are used \textit{exclusively} for early stopping during training. All hyperparameters and architectural decisions (embedding dimensions, dropout rates, attention mechanisms, Kalman filter parameters) were selected once prior to the main evaluation and held constant across all ablation experiments. This design follows best practices for avoiding selection bias in model evaluation~\cite{cawley2010overfitting}.
+
+\textbf{Validation subject selection rationale.} Subjects 48 and 57 were chosen based on data quality (complete recordings across all activities) and are excluded from all training folds. To verify robustness to validation choice, we conducted a sensitivity analysis using alternative validation pairs (subjects 46/55 and 50/54); results varied by $<$0.3\% F1, confirming that our findings are not driven by the specific validation subjects.
+
+
+\subsubsection{Data Segmentation}
+
+We segment continuous sensor streams into fixed-length windows for classification:
+
+\begin{itemize}
+    \item \textbf{Window size:} 128 frames ($\approx$4.27 seconds at 30 Hz)
+    \item \textbf{Stride:} Class-aware---64 frames for ADLs, 16 frames for falls
+    \item \textbf{Rationale:} Smaller fall stride captures more training examples from the minority class, partially addressing class imbalance before loss-level weighting
+\end{itemize}
+
+The class-aware stride yields approximately 3,200 ADL windows and 1,800 fall windows per fold, with Focal Loss ({\color{blue} Need to discuss what is focal loss or don't mention it here until you are ready to discuss focal loss}) providing additional imbalance handling during training. Note that class-aware striding creates overlapping windows (especially for falls with a stride of size 16), introducing correlation between samples. Our statistical analysis operates on fold-level scores (one F1 per subject), ensuring independence between test samples for valid confidence intervals.
+
+
+%-------------------------------------------------------------------
+% 2.5 TRAINING AND EVALUATION
+%-------------------------------------------------------------------
+\subsection{Training Configuration}
+\label{subsec:training}
+
+\textbf{Loss Function.} We use Focal Loss~\cite{lin2017focal} with $\alpha=0.75$, $\gamma=2.0$ to handle class imbalance, down-weighting well-classified examples to focus on hard cases. These hyperparameters were chosen via validation once and held fixed for all experiments.
+
+\textbf{Optimization.} AdamW optimizer with learning rate $10^{-3}$, weight decay $5 \times 10^{-4}$, batch size 64, trained for 80 epochs.
+
+\textbf{Regularization.} Dropout ($p=0.5$) before classification; batch normalization in stream encoders.
+
+\subsection{Evaluation Protocol}
+\label{subsec:evaluation}
+
+\textbf{Cross-Validation.} 21-fold Leave-One-Subject-Out CV evaluates generalization to unseen individuals. In each fold, one subject's data serves as test set, subjects 48 and 57 provide validation data for early stopping, and remaining subjects form the training set.
+
+\textbf{Metrics.} F1 score serves as the primary metric due to class imbalance (approximately 65\% ADL, 35\% fall windows). We also report precision, recall, accuracy, and AUC-ROC.
+
+\textbf{Confidence Intervals.} 95\% CIs are computed over the 21 fold-level F1 scores (not window-level predictions), ensuring statistical independence between samples. Standard error is $\text{SE} = \sigma / \sqrt{21}$ where $\sigma$ is the standard deviation across folds.
+
+\textbf{Statistical Testing.} Paired t-tests ($n=21$ folds) assess significance of performance differences between model variants, with Holm-Bonferroni correction for multiple comparisons when comparing more than two configurations.
+
+% moved the following section from methodology to implementation details.
+% Need to polish it in coherence with the content of this section
+\subsubsection{Architecture Variants}
+
+We systematically compare four configurations along two axes:
+\begin{itemize}
+    \item \textbf{Input type}: Raw (6ch: acc + gyro) vs. Kalman (7ch: acc + orientation)
+    \item \textbf{Input projection}: Single (shared Conv1D) vs. Dual (separate Conv1D per modality))
+\end{itemize}
+
+\begin{table}[H]
+\caption{Architecture comparison: single-projection vs. dual-projection. The key difference is whether modalities share convolutional weights (single) or have dedicated weights (dual). Our method (d) combines dual-projection with Kalman-fused orientation input. Raw configurations use 6 channels (acc + gyro, no SMV); Kalman configurations use 7 channels (SMV + acc + orientation).}
+\label{tab:architecture_comparison}
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+\textbf{Architecture} & \textbf{Input Type} & \textbf{Projection} & \textbf{Key Property} \\
+\midrule
+\multicolumn{4}{l}{\textit{Single-Projection (shared input encoding):}} \\
+(a) Single + Raw & 6ch ($a_{xyz}$ + $\omega_{xyz}$) & Shared Conv1D & Noisy gyro corrupts acc features \\
+(b) Single + Kalman & 7ch (SMV + $a_{xyz}$ + $\phi\theta\psi$) & Shared Conv1D & Cleaner, but features still mixed \\
+\midrule
+\multicolumn{4}{l}{\textit{Dual-Projection (separate input encoding):}} \\
+(c) Dual + Raw & 3ch + 3ch & Separate Conv1D & Acc isolated, but gyro still noisy \\
+\textbf{(d) Dual + Kalman} & 4ch + 3ch & Separate Conv1D & \textbf{Clean isolation + quality input} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Architecture (d)} represents our proposed approach: Kalman fusion first transforms noisy gyroscope signals into stable orientation angles, then dual-projection processes each modality through dedicated Conv1D layers (acc: 4ch$\rightarrow$32dim, ori: 3ch$\rightarrow$32dim) before concatenation and transformer processing.
+
+
+\textbf{Kalman Filter Parameters.} Process and measurement noise covariances:
+\begin{itemize}
+    \item Process noise: $Q_\phi = 0.005$ (orientation), $Q_{\dot\phi} = 0.01$ (angular rate)
+    \item Measurement noise: $R_\text{acc} = 0.05$, $R_\text{gyro} = 0.1$
+    \item Initial state: $\mathbf{x}_0 = \mathbf{0}$, $\mathbf{P}_0 = \mathbf{I}_6$
+    \item Time step: $\Delta t = 1/30$ s (30 Hz sampling)
+\end{itemize}
+These values were determined empirically to balance responsiveness against noise filtering.

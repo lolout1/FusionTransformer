@@ -1,0 +1,122 @@
+% Discussion - BDCC Format
+% NeurIPS-quality analysis and interpretation
+
+%-------------------------------------------------------------------
+% 4.1 KEY FINDINGS
+%-------------------------------------------------------------------
+\subsection{Principal Mechanisms}
+\label{subsec:findings}
+
+Our experiments reveal three principal mechanisms enabling effective IMU-based fall detection with commodity sensors:
+
+\textbf{(1) Signal transformation outperforms noise filtering.} Rather than attempting to denoise raw gyroscope signals---a challenging task given the low signal-to-noise ratio of consumer MEMS sensors---we transform them into orientation estimates via Kalman fusion. This produces semantically meaningful features (body pose angles) that enable discriminative learning. The key insight is that \textit{what position the body is in} matters more for fall classification than \textit{how fast it is rotating}.
+
+\textbf{(2) Modality isolation during feature extraction.} Dual-stream architecture prevents gradient flow from orientation channels from affecting accelerometer representations during early network layers. This isolation is critical because acceleration features (impact magnitude, trajectory) are highly discriminative but susceptible to corruption when jointly processed with noisier orientation estimates. By dedicating separate Conv1D weights to each modality, the accelerometer stream learns specialized impact detection filters.
+
+\textbf{(3) Quality-gated fusion benefits.} The benefit of dual-stream processing depends critically on input quality. With raw gyroscope input, dedicating separate capacity to the orientation stream allows the network to learn noise patterns rather than useful features, actually \textit{degrading} performance ($-$1.38\% F1). With Kalman-fused orientation, the high-quality pose features justify dedicated encoding capacity, yielding +1.30\% F1 improvement. This interaction effect suggests that multi-stream architectures require preprocessing strategies matched to input signal quality.
+
+%-------------------------------------------------------------------
+% 4.2 WHY KALMAN FUSION WORKS
+%-------------------------------------------------------------------
+\subsection{Mechanistic Interpretation of Kalman Fusion Benefits}
+\label{subsec:kalman_interpretation}
+
+The effectiveness of Kalman fusion derives from three complementary mechanisms:
+\begin{itemize}
+    
+
+\item \textbf{Noise filtering.} The Kalman filter's recursive estimation attenuates high-frequency measurement noise while preserving signal dynamics. We computed SNR {\color{blue} Needs to spell out the acronym} as the ratio of signal variance during activity to noise variance during stationary periods; many subjects exhibited gyroscope SNR below 1.0 during quiet standing, indicating noise-dominated measurements. For such data, Kalman filtering is essential for extracting usable orientation information. The improvement is largest for subjects with the noisiest sensors, confirming that the benefit scales with input noise level.
+
+\item \textbf{Drift correction.} Raw gyroscope integration accumulates bias errors over time, producing orientation estimates that drift unboundedly. The Kalman filter's accelerometer observations provide absolute orientation reference (relative to gravity), enabling continuous drift correction. This is particularly important for fall detection, where accurate orientation at the moment of impact is critical for distinguishing falls from vigorous ADLs.
+
+\item \textbf{Semantic representation.} Angular velocities ($\omega_x$, $\omega_y$, $\omega_z$) describe instantaneous rotation rates, which are difficult to interpret and vary based on sensor mounting. Orientation angles ($\phi$, $\theta$, $\psi$) directly encode body pose in an interpretable coordinate frame. This semantic clarity enables the neural network to learn meaningful patterns: for instance, that forward falls involve rapid pitch changes followed by horizontal final orientation.
+\end{itemize}
+%-------------------------------------------------------------------
+% 4.3 DUAL-STREAM ADVANTAGES
+%-------------------------------------------------------------------
+\subsection{Architectural Implications}
+\label{subsec:architecture_implications}
+
+Our results demonstrate that modality-specific processing pathways are essential when fusing sensors with heterogeneous noise characteristics. The dual-stream architecture offers three advantages:
+\begin{itemize}
+\item \textbf{Separate normalization.} Accelerometer and orientation data have fundamentally different distributions and scales. Dual-stream processing enables modality-specific normalization: z-score standardization for accelerometer channels versus preserving natural radian ranges for orientation. Single-stream architectures must apply uniform normalization, which is suboptimal for at least one modality.
+
+\item \textbf{Capacity allocation.} Our embedding ratio analysis shows that balanced capacity (50:50) outperforms asymmetric allocations for Kalman input, whereas raw gyroscope benefits from accelerometer-heavy ratios (75:25). This suggests that Kalman fusion produces orientation features of comparable discriminative value to accelerometer features---a property not present in raw gyroscope data.
+
+\item \textbf{Gradient isolation.} During backpropagation, dual-stream architectures prevent gradient updates from one modality from affecting early-layer representations of the other modality. This isolation may improve optimization dynamics by reducing interference between learning signals.
+\end{itemize}
+%-------------------------------------------------------------------
+% 4.4 ATTENTION MECHANISM ROLES
+%-------------------------------------------------------------------
+\subsection{Role of Attention Mechanisms}
+\label{subsec:attention_roles}
+
+Squeeze-and-Excitation (SE) and Temporal Attention Pooling (TAP) provide complementary benefits:
+\begin{itemize}
+\item \textbf{SE attention} recalibrates channel importance, enabling the model to suppress uninformative channels dynamically. Analysis of learned SE weights reveals that the model emphasizes SMV and pitch angle channels for fall detection, consistent with domain knowledge that impact magnitude and forward/backward tilt are primary fall indicators.
+
+\item \textbf{TAP attention} localizes discriminative temporal regions within each window. Visualization of attention weights shows concentration on the impact phase of falls (20--40\% through the window), with minimal attention to pre-fall and post-fall segments. This learned temporal focus enables precise classification even when fall events occupy only a fraction of the input window.
+\end{itemize}
+SE and TAP provide complementary gains: SE alone yields +0.63\% F1 while TAP alone shows marginal degradation ($-$0.18\%), but combined they achieve +1.28\% improvement over the no-attention baseline. This suggests TAP benefits from channel-recalibrated features, making the mechanisms complementary rather than redundant.
+
+%-------------------------------------------------------------------
+% 4.5 FAILURE MODE ANALYSIS
+%-------------------------------------------------------------------
+\subsection{Limitations and Failure Modes}
+\label{subsec:limitations}
+
+Despite strong overall performance, our approach exhibits systematic failures for specific fall types:
+\begin{itemize}
+\item \textbf{Gentle falls.} Subjects executing slow, controlled falls with notably lower peak accelerations account for the majority of false negatives. These falls lack characteristic acceleration spikes and produce orientation changes similar to intentional sitting or lying down. Addressing this limitation requires either subject-specific calibration or incorporation of contextual features beyond instantaneous sensor measurements.
+
+\item \textbf{Vigorous ADLs.} Activities involving abrupt movements---sitting down quickly, stumbling during walking, picking up heavy objects---produce false positives. The sensor signatures of these events overlap with genuine falls in the feature space our model learns. Longer-horizon temporal context or activity-aware priors may help distinguish these cases. {\color{blue} The orientation of those activities would have been different; couldn't gyroscope data solve that? do we need to use hip sensor to resolve that? }
+
+\item \textbf{Yaw observability and contribution.} Our Kalman filter cannot observe yaw (rotation about the vertical axis) from gravity-referenced accelerometer measurements; yaw is estimated via gyroscope integration only and accumulates drift over time. To quantify yaw's contribution, we conducted an ablation using only roll and pitch (5-channel input: SMV, $a_x$, $a_y$, $a_z$, $\phi$, $\theta$). Results show yaw contributes only +0.14\% F1 improvement (90.96\% $\rightarrow$ 91.10\%), suggesting that pitch and roll capture the dominant fall signatures for wrist-mounted sensors. Rotational falls that primarily involve yaw changes may be systematically harder to detect than pitch/roll-dominated falls, though such falls are rare in our dataset.
+
+\item \textbf{Sensor placement variability.} All training data was collected with sensors on the left  wrist. Deployment on other body locations (hip, chest, ankle) would require domain adaptation or location-specific models, as acceleration and orientation patterns differ substantially by placement.
+\end{itemize}
+%-------------------------------------------------------------------
+% 4.6 COMPARISON WITH RELATED WORK
+%-------------------------------------------------------------------
+\subsection{Relation to Prior Work}
+\label{subsec:related}
+
+Our work builds on and extends several research directions:
+\begin{itemize}
+\item \textbf{Sensor fusion for IMU.} The Madgwick filter~\cite{madgwick2010efficient} and complementary filters~\cite{sabatini2011estimating} are widely used for IMU orientation estimation in robotics and motion capture. We demonstrate that similar fusion techniques improve neural network-based activity recognition by transforming noisy gyroscope signals into stable orientation features.
+
+\item \textbf{Dual-stream architectures.} Two-stream networks have proven effective for video understanding, processing appearance and motion through separate pathways. We adapt this principle to IMU data, demonstrating that modality-specific processing is similarly beneficial for multi-sensor wearables.
+
+\item \textbf{Attention for time series.} Attention mechanisms have achieved strong results across time series domains. Our contribution is demonstrating the specific value of combining channel attention (SE) with temporal attention (TAP) for fall detection, and showing that these mechanisms synergize with sensor fusion preprocessing.
+\end{itemize}
+%-------------------------------------------------------------------
+% 4.7 DEPLOYMENT CONSIDERATIONS
+%-------------------------------------------------------------------
+\subsection{Practical Deployment Considerations}
+\label{subsec:deployment}
+
+For real-world deployment, several factors merit consideration:
+
+\textbf{Computational efficiency.} Our model requires approximately 73,400 parameters, a compact footprint amenable to deployment on resource-constrained wearable devices. The simple architecture (Conv1D projections, 2-layer transformer, linear classifier) avoids operations that are expensive on embedded hardware (e.g., recurrent layers, large attention spans). Quantization to INT8 precision could further reduce memory and latency; we leave on-device benchmarking to future work.
+
+\textbf{Kalman filter initialization.} The Kalman filter may require brief initialization to converge from arbitrary initial state estimates; we did not benchmark convergence time on-device. Deployment systems should consider accelerometer-only fallback during initialization or delay classification until filter convergence.
+
+\textbf{Calibration requirements.} Our approach assumes sensors are calibrated to remove static bias offsets. Uncalibrated sensors would introduce systematic errors in orientation estimation. Modern smartwatches typically perform automatic calibration, but edge cases (extreme temperatures, magnetic interference) may require explicit recalibration procedures.
+
+\textbf{Alert latency.} With 128-sample windows at 30 Hz (4.3 seconds) and 16-sample stride for fall detection, the theoretical lower bound on detection latency is approximately 0.5 seconds, assuming the fall event begins early in a window. Actual alert latency depends on implementation and was not measured in this study.
+
+%-------------------------------------------------------------------
+% 4.8 GENERALIZATION TO OLDER ADULTS
+%-------------------------------------------------------------------
+\subsection{Generalization to Older Adults}
+\label{subsec:older_adults}
+
+Our evaluation focuses on young adult subjects (ages 18--35) performing simulated falls, which represents a limitation for real-world deployment targeting older adults. Several considerations affect cross-population generalization:
+
+\textbf{Biomechanical differences.} Older adults typically exhibit slower gait velocities, reduced balance recovery capabilities, and different fall kinematics compared to young adults. Our ``gentle fall'' failure mode analysis (Section~\ref{subsec:limitations}) suggests that falls with lower peak accelerations are systematically harder to detect---a pattern that may be more prevalent in older populations.
+
+\textbf{Activity pattern differences.} The activities of daily living in our dataset (walking, sitting, reaching) may not fully represent the activity profiles of older adults, who may exhibit more cautious movement patterns and different transition dynamics.
+
+\textbf{Sensor placement considerations.} All training data was collected with wrist-worn sensors. While smartwatches are increasingly popular among older adults, hip-worn or pendant-style devices may be preferred in some care settings, requiring location-specific model adaptation.
+
+Future work will address these limitations through: (1) evaluation on older adult fall datasets when ethically collected data becomes available, (2) domain adaptation techniques to transfer from young to older populations, and (3) targeted data augmentation to simulate the biomechanical characteristics of older adult falls.

@@ -1,0 +1,259 @@
+% Materials and Methods - BDCC Format
+% Structure: Dataset → Sensor Fusion Strategy → Dual-Stream Architecture → Training → Evaluation
+% Written in top ML conference style (NeurIPS/ICML)
+Add short intro of entire pipeline for Figure~\ref{fig:flowchart}...
+
+\begin{figure}[htb!]
+\centering
+    \includegraphics[width=\textwidth]{figures/flowchart.pdf}
+    \caption{caption will go here.}
+    \label{fig:flowchart}
+\end{figure}
+
+%-------------------------------------------------------------------
+% 2.1 Kalman Fusion
+%-------------------------------------------------------------------
+\subsection{Kalman Fusion for Orientation Features}\label{subsec:kalman_fusion}
+% {\color{blue} Need a general introduction to Kalman Fusion before writing the algorithmic steps} {\color{red} will add it...}
+Our Kalman fusion technique introduces two key modifications to vanilla approaches. First, we adaptively scale accelerometer measurement noise during high-acceleration events, when impacts interfere with gravity measurements, the filter down-weights accelerometer-based orientation estimates to prevent corruption. Second, we use Kalman filtering to transform raw gyroscope angular velocities into stable orientation angles as semantically meaningful input features for deep learning. The following steps detail our implementation.
+
+\noindent \textbf{Step 1: Sensor Acquisition:} At discrete time step $k$, the inertial measurement unit (IMU) provides an accelerometer sample $\mathbf{a}_k = [a_x, a_y, a_z] \in \mathbb{R}^3$, representing linear accelerations along the sensor axes, and a gyroscope sample $\boldsymbol{\omega}_k = [\omega_x, \omega_y, \omega_z] \in \mathbb{R}^3$, representing angular velocities in rad/s. 
+
+\noindent \textbf{Step 2: State Definition:} We apply Kalman fusion exclusively to orientation estimation, with the state vector defined as $\mathbf{x}_k = [\phi_k, \theta_k, \psi_k, \dot{\phi}_k, \dot{\theta}_k, \dot{\psi}_k]^\top$, where $\phi_k$, $\theta_k$, and $\psi_k$ denote roll, pitch, and yaw angles, respectively, and $\dot{\phi}_k$, $\dot{\theta}_k$, and $\dot{\psi}_k$ denote the corresponding angular rates. 
+
+\noindent \textbf{Step 3: State Prediction:} Based on the linear Kalman filter, the prediction step propagates the state using gyroscope measurements according to $\mathbf{x}k^- = \mathbf{F}\mathbf{x}{k-1} + \mathbf{w}_k$, where $\mathbf{w}_k \sim \mathcal{N}(\mathbf{0}, \mathbf{Q})$ is zero-mean process noise and the state transition matrix $\mathbf{F} \in \mathbb{R}^{6 \times 6}$ is defined as
+\begin{equation}
+    \mathbf{F} =
+    \begin{bmatrix}
+    1 & 0 & 0 & \Delta t & 0 & 0 \\
+    0 & 1 & 0 & 0 & \Delta t & 0 \\
+    0 & 0 & 1 & 0 & 0 & \Delta t \\
+    0 & 0 & 0 & 1 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 1 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 1
+    \end{bmatrix},
+\end{equation}
+where $\Delta t$ denotes the sampling interval. 
+
+\noindent \textbf{Step 4: Accelerometer-based Orientation Observation:} Roll and pitch observations are obtained from the accelerometer via a gravity-based mapping $(\phi_k^{\text{acc}}, \theta_k^{\text{acc}}) = f(\mathbf{a}_k)$ using the four-quadrant inverse tangent: 
+\begin{align}
+    \phi_k^{\text{acc}} = \operatorname{atan2}(a_y, a_z), \\
+    \theta_k^{\text{acc}} = \operatorname{atan2}(-a_x, \sqrt{a_y^2 + a_z^2}),
+\end{align}
+
+Yaw remains unobservable from accelerometer measurements because gravity is invariant to rotations about the vertical axis. Therefore, in the implementation, yaw is computed solely by integrating angular velocity about the vertical axis of the gyroscope during the prediction step, such that:
+\begin{equation}
+    \psi_k = \psi_{k-1} + \dot{\psi}{k-1}\Delta t,
+\end{equation}
+where $\psi_k$ denotes the yaw angle at time step $k$, $\dot{\psi}{k-1}$ is the gyroscope-measured angular rate about the vertical axis, and $\Delta t$ is the sampling interval. 
+
+\noindent \textbf{Step 5: Measurement Model Correction and Adaptive Noise Scaling:} The measurement vector is defined as $\mathbf{z}_k = [\phi_k^{\text{acc}}, \theta_k^{\text{acc}}, \omega_x, \omega_y, \omega_z]^\top$, and is modeled as a noisy linear observation of the state through:
+\begin{equation}
+    \mathbf{z}_k = \mathbf{H}\mathbf{x}_k + \mathbf{v}_k,
+\end{equation}
+where $\mathbf{v}_k \sim \mathcal{N}(\mathbf{0}, \mathbf{R})$ is measurement noise and the observation matrix $\mathbf{H} \in \mathbb{R}^{5 \times 6}$ is defined as:
+\begin{equation}
+    \mathbf{H} =
+    \begin{bmatrix}
+    1 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 1 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 1 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 1 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 1
+    \end{bmatrix}.
+\end{equation}
+The state estimate is updated using the standard Kalman correction:
+\begin{equation}
+    \mathbf{x}_k = \mathbf{x}_k^- + \mathbf{K}_k(\mathbf{z}_k - \mathbf{H}\mathbf{x}_k^-),
+\end{equation}
+where $\mathbf{x}_k$ denotes the updated state estimate at time step $k$, $\mathbf{x}_k^-$ is the predicted (prior) state estimate, and the matrix $\mathbf{K}_k$ is the Kalman gain, which weights the influence of the innovation on the state update.
+\begin{equation}
+    \mathbf{K}_k = \mathbf{P}_k^- \mathbf{H}^\top (\mathbf{H}\mathbf{P}_k^- \mathbf{H}^\top + \mathbf{R})^{-1},
+\end{equation}
+where $\mathbf{P}_k^-$ is the predicted state covariance matrix, and $\mathbf{H}^\top$ denotes the transpose of the observation matrix. $\mathbf{R}$ is the measurement noise covariance matrix, which encodes the uncertainty associated with sensor-derived measurements. In this work, the accelerometer-related noise component $R_{\text{acc}}$ is adaptively scaled based on the magnitude of the measured acceleration to reduce the influence of unreliable gravity estimates during high-dynamic events. Specifically, at each time step, $R_{\text{acc}}$ is adjusted as
+\begin{equation}
+    R'_{\text{acc}} =
+        \begin{cases}
+        R_{\text{acc}} \cdot \min\!\left(\left(\dfrac{\lVert \mathbf{a} \rVert}{g}\right)^2, R_{\text{max}}\right), & \lVert \mathbf{a} \rVert > \tau g, \\
+        R_{\text{acc}}, & \text{otherwise},
+        \end{cases}
+\end{equation}
+where $\lVert \mathbf{a} \rVert$ denotes the acceleration magnitude, $g$ is the gravitational acceleration, $\tau$ is an activation threshold, and $R_{\text{max}}$ limits the maximum scaling factor. The modified noise term $R'_{\text{acc}}$ is incorporated into  $\mathbf{R}$ before computing the Kalman gain.
+ 
+\noindent \textbf{Step 6. Final Output:} The final output of the Kalman fusion is the orientation vector $\mathbf{o}_k = [\phi_k, \theta_k, \psi_k] = \mathbf{x}_k[0:3]$, which is subsequently used as the orientation input to the learning model.
+
+
+
+%-------------------------------------------------------------------
+% 2.2 Acceleration Features
+%-------------------------------------------------------------------
+\subsection{Acceleration Features}\label{subsec:acc_features}
+
+From the triaxial accelerometer measurement
+$\mathbf{a}_k = [a_x, a_y, a_z] \in \mathbb{R}^{1 \times 3}$,
+we compute the signal magnitude (SM) to capture overall acceleration intensity independent of sensor orientation. The signal magnitude is defined as $\text{SM}_k = \sqrt{a_x^2 + a_y^2 + a_z^2}$, which is appended to the original $\mathbf{a}_k$ components to form the signal magnitude vector (SMV)
+\begin{equation}
+    \mathbf{a}_k^{\text{SMV}} = [\text{SMV}_k, a_x, a_y, a_z] \in \mathbb{R}^{1 \times 4}.
+\label{eq:smv_vector}
+\end{equation}
+This vector representation combines directional acceleration with overall impact intensity and is used as the input to the second stream of the neural network.
+
+%-------------------------------------------------------------------
+% 2.3 Acceleration Features
+%-------------------------------------------------------------------
+\subsection{Feature-specific Normalization}\label{subsec:feats_norm}
+
+We apply different normalization strategies to acceleration and orientation features to preserve their physical interpretation. Specifically, we standardize $\mathbf{a}_k^{\text{SMV}}$ using z-score normalization computed from the training set. We keep orientation features ($\phi$, $\theta$, $\psi$) in raw radians because these angles carry inherent physical interpretation that normalization would distort. By preserving the original angular scale, the network learns meaningful pose-related patterns, such as large pitch deviations during forward falls.
+
+
+
+
+
+
+%-------------------------------------------------------------------
+% 2.3 DUAL-STREAM ARCHITECTURE
+%-------------------------------------------------------------------
+\subsection{Dual-Stream Network Architecture}
+\label{subsec:architecture} 
+% {\color{blue} Might be better to use just Dual-Stream and ignore the Input Projection}
+\begin{figure}[htb!]
+\centering
+    \includegraphics[width=\textwidth]{figures/dual_stream_arch.pdf}
+    \caption{caption will go here.}
+    \label{fig:dual_stream_arch}
+\end{figure}
+
+%-------------------------------------------------------------------
+\noindent \textbf{Step 1: Window-Level Input Definition:}
+% {\color{blue} We always do an average over 10 or 20 predictions to indicate the final prediction, shouldn't we apply the same method here?} {\color{red} This is a different phenomenon from maintaining a queue of windows and aggregating the prediction scores, which is part of the app. But the model, at one time, takes one window as input and classifies it as fall or no-fall.} 
+The proposed model performs \emph{window-by-window} fall detection, where $T$ denotes the window length in samples, and $k \in \{1, \dots, T\}$ represents individual time steps within a window.
+Stacking samples from $\mathbf{a}_k^{\text{SMV}}$ and Kalman-fused $\mathbf{o}_k$ over the window yields two sequences:
+\begin{equation}
+    \mathbf{O} = [\mathbf{o}_1, \dots, \mathbf{o}_T] \in \mathbb{R}^{T \times 3},
+\end{equation}
+\begin{equation}
+    \mathbf{A} = [\mathbf{a}_1^{\text{SMV}}, \dots, \mathbf{a}_T^{\text{SMV}}]
+\in \mathbb{R}^{T \times 4}.
+\end{equation}
+
+%-------------------------------------------------------------------
+\noindent \textbf{Step 2: Dual-Stream Temporal Projections:}
+The $\mathbf{O}$ and $\mathbf{A}$ sequences are processed by two parallel
+temporal projection streams with identical structure but independent
+parameters. Each stream applies a one-dimensional temporal convolution (Conv1D)
+with kernel size $8$ and same-padding to preserve temporal resolution,
+followed by batch normalization (BN), a Sigmoid Linear Unit (SiLU) activation 
+function ($\varphi$), and dropout (Drop). 
+
+For the acceleration stream, the projection is given by:
+\begin{equation}
+    \mathbf{U}^{\text{acc}} =
+    \mathrm{Drop}_{\text{acc}}(
+    \varphi(\mathrm{BN}(\mathrm{Conv1D}_{\text{acc}}(\mathbf{A}))))
+    \in \mathbb{R}^{T \times 32},
+\end{equation}
+where $\mathrm{Conv1D}_{\text{acc}}: \mathbb{R}^{T \times 4} \rightarrow \mathbb{R}^{T \times 32}$ projects the $4$-channel acceleration input, and dropout is applied with rate $0.1$ (i.e., $0.2p$ where $p=0.5$ is the global dropout probability). 
+
+Similarly, the orientation stream is projected as:
+\begin{equation}
+    \mathbf{U}^{\text{ori}} = \mathrm{Drop}_{\text{ori}} \!\left( \varphi \!\left( \mathrm{BN} \!\left( \mathrm{Conv1D}_{\text{ori}}(\mathbf{O}) \right) \right) \right) \in \mathbb{R}^{T \times 32},
+\end{equation}
+where $\mathrm{Conv1D}_{\text{ori}}: \mathbb{R}^{T \times 3} \rightarrow \mathbb{R}^{T \times 32}$ projects the $3$-channel orientation input, and dropout is applied with rate $0.15$ (i.e., $0.3p$).
+
+%-------------------------------------------------------------------
+\noindent \textbf{Step 3: Feature Fusion and Normalization.}
+The projected features $\mathbf{U}^{\text{acc}}$ and $\mathbf{U}^{\text{ori}}$ are fused by concatenation, followed by layer normalization (LN) to stabilize
+the combined representation across modalities. The fusion operation is defined
+as:
+\begin{equation}
+    \mathbf{U}_0 = \text{LN} \left( [\mathbf{U}^{\text{acc}} \,\|\, \mathbf{U}^{\text{ori}}] \right) \in \mathbb{R}^{T \times 64},
+\end{equation}
+where $[\cdot \,\|\, \cdot]$ denotes concatenation along the feature dimension. At this point, the two streams are fully merged into a shared temporal representation.
+
+%-------------------------------------------------------------------
+\noindent \textbf{Step 4: Transformer Encoder for Temporal Modeling:}
+The fused representation $\mathbf{U}_0$ is further processed by a stack
+of transformer encoder layers to model long-range temporal dependencies
+across the window. The encoder applies pre-normalized multi-head self-attention (MSA)
+and position-wise feed-forward network (FFN) at each layer. The encoder output is computed by:
+\begin{equation}
+    \mathbf{U} = \mathcal{E}(\mathbf{U}_0),
+\end{equation}
+where $\mathcal{E}(\cdot)$ denotes a stack of $L$ transformer encoder layers and
+$\mathbf{U} = [\mathbf{U}_1, \dots, \mathbf{U}_T]$ is the resulting sequence of
+contextualized representations.
+
+Each encoder layer $l \in \{1, \dots, L\}$ performs the following operations:
+\begin{equation}
+    \tilde{\mathbf{U}}^{(l)} = \mathbf{U}^{(l)} + \mathrm{MSA} \big( \mathrm{LN}(\mathbf{U}^{(l)}) \big),
+\end{equation}
+\begin{equation}
+    \mathbf{U}^{(l+1)} = \tilde{\mathbf{U}}^{(l)} + \mathrm{FFN} \big( \mathrm{LN} (\tilde{\mathbf{U}}^{(l)}) \big),
+\end{equation}
+where $\mathcal{E}(\cdot)$ denotes a stack of $L=2$ transformer encoder layers with $4$ attention heads and feed-forward dimension $128$.
+
+%-------------------------------------------------------------------
+\noindent \textbf{Step 5: Channel Attention via Squeeze-Excitation:}
+The contextualized representation $\mathbf{U}$ from the transformer encoder 
+is recalibrated using a squeeze-excitation (SE) mechanism to emphasize 
+informative feature channels while suppressing less relevant ones.
+The SE module first aggregates temporal information via global average pooling:
+\begin{equation}
+    \mathbf{c} = \frac{1}{T} \sum_{k=1}^{T} \mathbf{U}_k \in \mathbb{R}^{64},
+\end{equation}
+yielding a global channel descriptor. Channel importance weights are then 
+computed through a two-layer bottleneck with reduction ratio $r=4$, 
+yielding a bottleneck dimension of $64/r = 16$:
+\begin{equation}
+    \mathbf{s} = \sigma \big( \mathbf{W}_2 \, \delta(\mathbf{W}_1 \mathbf{c}) \big) \in \mathbb{R}^{64},
+\end{equation}
+where $\mathbf{W}_1 \in \mathbb{R}^{16 \times 64}$ reduces dimensionality, 
+$\mathbf{W}_2 \in \mathbb{R}^{64 \times 16}$ restores it, $\delta(\cdot)$ 
+denotes ReLU activation, and $\sigma(\cdot)$ denotes the sigmoid function. 
+The recalibrated features are obtained by channel-wise scaling:
+\begin{equation}
+    \tilde{\mathbf{U}}_k = \mathbf{U}_k \odot \mathbf{s}, \quad k = 1, \dots, T,
+\end{equation}
+where $\odot$ denotes element-wise multiplication, producing $\tilde{\mathbf{U}} = [\tilde{\mathbf{U}}_1, \dots, \tilde{\mathbf{U}}_T] \in \mathbb{R}^{T \times 64}$ sequence.
+
+%-------------------------------------------------------------------
+\noindent \textbf{Step 6: Temporal Attention Pooling:}
+To aggregate the recalibrated sequence $\tilde{\mathbf{U}}$ into a fixed-length 
+window-level representation, temporal attention pooling (TAP) is applied. Unlike 
+global average pooling, TAP learns to selectively weight timesteps based on their 
+relevance to fall detection, focusing on transient impact events while 
+down-weighting surrounding background motion.
+
+The attention mechanism computes normalized importance scores via a two-layer network:
+\begin{equation}
+    \alpha_k = \frac{ \exp \left( \mathbf{v}^\top \tanh(\mathbf{W}_a \tilde{\mathbf{U}}_k) \right) }{ \sum_{t=1}^{T} \exp \left( \mathbf{v}^\top \tanh(\mathbf{W}_a  \tilde{\mathbf{U}}_t) \right) }, \quad k = 1, \dots, T,
+\end{equation}
+where $\mathbf{W}_a \in \mathbb{R}^{32 \times 64}$ projects features to an intermediate 
+attention space, $\tanh(\cdot)$ applies nonlinearity, and $\mathbf{v} \in \mathbb{R}^{32}$  maps to scalar attention scores that are normalized via softmax. The window-level representation is obtained by weighted aggregation:
+\begin{equation}
+    \mathbf{z} = \sum_{k=1}^{T} \alpha_k \tilde{\mathbf{U}}_k \in \mathbb{R}^{64},
+\end{equation}
+yielding a fixed-dimensional descriptor that encodes both temporal dynamics and 
+spatial patterns discriminative for fall detection.
+
+%-------------------------------------------------------------------
+\noindent \textbf{Step 7: Window-Level Classification:}
+The pooled representation $\mathbf{z}$ is passed through a dropout layer 
+with a rate $p=0.5$ for regularization, then mapped to a scalar logit via 
+a fully connected layer (FC):
+\begin{equation}
+o = \mathbf{w}_o^\top \text{Drop}(\mathbf{z}) + b_o \in \mathbb{R},
+\end{equation}
+where $\mathbf{w}_o \in \mathbb{R}^{64}$ and $b_o \in \mathbb{R}$ are learnable 
+parameters of the FC layer. A sigmoid activation function produces 
+the final window-level fall probability:
+\begin{equation}
+    \hat{y} = \sigma(o) \in (0,1),
+\end{equation}
+where $\hat{y} \geq 0.5$ indicates a predicted fall and $\hat{y} < 0.5$ 
+indicates a predicted ADL.
+%-------------------------------------------------------------------
+
+
+
+
