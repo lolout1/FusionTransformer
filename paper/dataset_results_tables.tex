@@ -1,0 +1,128 @@
+% Comprehensive Results Tables for UP-FALL and WEDA-FALL
+% All metrics: F1, Accuracy, Precision, Recall, AUC
+% Professional format for top-tier publication
+
+%------------------------------------------------------------------------------
+% UP-FALL COMPREHENSIVE RESULTS
+%------------------------------------------------------------------------------
+\begin{table}[htbp]
+\centering
+\caption{UP-FALL Dataset: Comprehensive Performance Metrics. Results from 15-fold LOSO cross-validation on research-grade IMU data (18~Hz). Values reported as mean $\pm$ std.}
+\label{tab:upfall_comprehensive}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}l c c c c c@{}}
+\toprule
+\textbf{Model} & \textbf{F1 (\%)}$\uparrow$ & \textbf{Accuracy (\%)}$\uparrow$ & \textbf{Precision (\%)}$\uparrow$ & \textbf{Recall (\%)}$\uparrow$ & \textbf{AUC}$\uparrow$ \\
+\midrule
+\rowcolor{gray!10}
+Kalman & \textbf{95.11 $\pm$ 3.36} & \textbf{96.36 $\pm$ 2.63} & 94.08 $\pm$ 6.09 & \textbf{96.53 $\pm$ 3.83} & \textbf{99.14 $\pm$ 0.88} \\
+Raw & 94.77 $\pm$ 3.29 & 96.26 $\pm$ 2.38 & \textbf{94.78 $\pm$ 5.12} & 95.06 $\pm$ 4.69 & 99.06 $\pm$ 1.05 \\
+\midrule
+$\Delta$ (Kalman$-$Raw) & \textbf{+0.34} & \textbf{+0.10} & $-$0.70 & \textbf{+1.47} & \textbf{+0.08} \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+
+\footnotesize
+\textit{Note:} Kalman fusion provides modest improvement (+0.34\% F1) on research-grade sensors with low inherent noise.
+\end{table}
+
+%------------------------------------------------------------------------------
+% WEDA-FALL COMPREHENSIVE RESULTS
+%------------------------------------------------------------------------------
+\begin{table}[htbp]
+\centering
+\caption{WEDA-FALL Dataset: Comprehensive Performance Metrics. Results from 12-fold LOSO cross-validation on consumer-grade Fitbit data (50~Hz). Values reported as mean $\pm$ std.}
+\label{tab:wedafall_comprehensive}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}l c c c c c@{}}
+\toprule
+\textbf{Model} & \textbf{F1 (\%)}$\uparrow$ & \textbf{Accuracy (\%)}$\uparrow$ & \textbf{Precision (\%)}$\uparrow$ & \textbf{Recall (\%)}$\uparrow$ & \textbf{AUC}$\uparrow$ \\
+\midrule
+\rowcolor{gray!10}
+Kalman & \textbf{94.40 $\pm$ 3.21} & \textbf{92.85 $\pm$ 4.12} & \textbf{92.18 $\pm$ 4.85} & 96.89 $\pm$ 3.25 & \textbf{97.62 $\pm$ 2.84} \\
+Raw & 90.43 $\pm$ 2.63 & 87.25 $\pm$ 3.93 & 84.91 $\pm$ 5.42 & \textbf{97.11 $\pm$ 3.20} & 94.53 $\pm$ 4.58 \\
+\midrule
+$\Delta$ (Kalman$-$Raw) & \textbf{+3.97} & \textbf{+5.60} & \textbf{+7.27} & $-$0.22 & \textbf{+3.09} \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+
+\footnotesize
+\textit{Note:} Kalman fusion provides substantial improvement (+3.97\% F1) on noisy consumer-grade sensors.
+\end{table}
+
+%------------------------------------------------------------------------------
+% CROSS-DATASET SUMMARY
+%------------------------------------------------------------------------------
+\begin{table}[htbp]
+\centering
+\caption{Cross-Dataset Summary: Best Kalman Results Across All Datasets}
+\label{tab:cross_dataset_summary}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}l c c c c c c@{}}
+\toprule
+\textbf{Dataset} & \textbf{Sensor} & \textbf{F1 (\%)} & \textbf{Acc (\%)} & \textbf{Prec (\%)} & \textbf{Rec (\%)} & \textbf{Folds} \\
+\midrule
+SmartFallMM & Android Watch & 91.53 $\pm$ 6.09 & 87.88 & 89.04 & 94.78 & 22 \\
+UP-FALL & Research IMU & \textbf{95.11 $\pm$ 3.36} & \textbf{96.36} & 94.08 & 96.53 & 15 \\
+WEDA-FALL & Consumer Fitbit & 94.40 $\pm$ 3.21 & 92.85 & 92.18 & \textbf{96.89} & 12 \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+
+\footnotesize
+\textit{Key:} All results use dual-stream Kalman transformer (KalmanConv1dConv1d) with dataset-specific hyperparameters.
+\end{table}
+
+%------------------------------------------------------------------------------
+% KALMAN BENEFIT BY SENSOR TYPE
+%------------------------------------------------------------------------------
+\begin{table}[htbp]
+\centering
+\caption{Kalman Fusion Benefit by Sensor Quality}
+\label{tab:kalman_benefit_sensor}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}l l c c c@{}}
+\toprule
+\textbf{Dataset} & \textbf{Sensor Type} & \textbf{Kalman F1} & \textbf{Raw F1} & \textbf{$\Delta$F1} \\
+\midrule
+UP-FALL & Research-grade IMU & 95.11\% & 94.77\% & +0.34\% \\
+\rowcolor{gray!10}
+WEDA-FALL & Consumer Fitbit & 94.40\% & 90.43\% & \textbf{+3.97\%} \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+
+\footnotesize
+\textit{Finding:} Kalman filtering benefit scales inversely with sensor quality---larger gains on noisier consumer sensors.
+\end{table}
+
+%------------------------------------------------------------------------------
+% OPTIMAL HYPERPARAMETERS
+%------------------------------------------------------------------------------
+\begin{table}[htbp]
+\centering
+\caption{Optimal Hyperparameters by Dataset}
+\label{tab:optimal_hyperparams}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}l c c c c c@{}}
+\toprule
+\textbf{Parameter} & \textbf{SmartFallMM} & \textbf{UP-FALL} & \textbf{WEDA-FALL} \\
+\midrule
+Sampling Rate & 30 Hz & 18 Hz & 50 Hz \\
+Window Size & 128 (4.3s) & 160 (8.9s) & 250 (5.0s) \\
+Fall Stride & 16 & 8 & 8 \\
+ADL Stride & 64 & 32 & 32 \\
+Embed Dim & 48 & 64 & 48 \\
+Model & Conv1d+Linear & Conv1d+Conv1d & Conv1d+Conv1d \\
+\midrule
+$Q_{\text{orient}}$ & 0.005 & 0.032 & 0.012 \\
+$R_{\text{gyro}}$ & 0.10 & 0.11 & 0.28 \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+
+\footnotesize
+\textit{Note:} Higher $R$ values for WEDA-FALL reflect noisier consumer sensor measurements.
+\end{table}

@@ -1,0 +1,87 @@
+% WEDA-FALL Comprehensive Ablation Results
+% Updated: KalmanConv1dConv1d with 5s window achieves 94.40% F1
+
+\begin{table*}[htbp]
+\centering
+\caption{WEDA-Fall: Top 20 Results from Comprehensive Ablation. The dual-stream Kalman transformer with 5s window achieves competitive performance (94.40\%) with LSTM Raw (94.48\%), demonstrating the benefit of longer windows and Kalman fusion on consumer-grade sensors.}
+\label{tab:wedafall_top20}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}r l l l l l r@{$\pm$}l r r r@{}}
+\toprule
+\textbf{Rank} & \textbf{Arch} & \textbf{Input} & \textbf{Window} & \textbf{Age} & \textbf{Drop} & \multicolumn{2}{c}{\textbf{F1 (\%)}} & \textbf{Acc} & \textbf{Prec} & \textbf{Recall} \\
+\midrule
+1 & LSTM & Raw & 4s & young & 0.6 & 94.48 & 3.49 & 93.10 & 92.99 & 96.17 \\
+\rowcolor{gray!15}
+2 & TRANSFORMER & Kalman & 5s & young & 0.5 & \textbf{94.40} & 3.21 & 92.85 & 92.18 & 96.89 \\
+3 & LSTM & Raw & 4s & all & 0.4 & 94.17 & 4.50 & 92.92 & 93.70 & 95.22 \\
+4 & LSTM & Raw & norm & all & 0.2 & 94.11 & 2.69 & 92.59 & 92.48 & 95.99 \\
+5 & LSTM & Raw & 4s & all & 0.6 & 93.85 & 4.23 & 92.43 & 92.85 & 95.23 \\
+6 & LSTM & Raw & norm & all & 0.6 & 93.84 & 3.77 & 92.36 & 92.65 & 95.42 \\
+7 & LSTM & Raw & norm & young & 0.4 & 93.73 & 2.34 & 91.98 & 90.65 & 97.22 \\
+8 & LSTM & Raw & norm & young & 0.6 & 93.71 & 2.67 & 92.01 & 91.02 & 96.73 \\
+9 & LSTM & Raw & 4s & young & 0.2 & 93.70 & 4.29 & 92.19 & 91.86 & 95.98 \\
+10 & LSTM & Raw & 4s & all & 0.2 & 93.70 & 5.09 & 92.45 & 93.91 & 94.29 \\
+11 & LSTM & Raw & 4s & young & 0.4 & 93.49 & 3.58 & 91.93 & 91.97 & 95.47 \\
+12 & LSTM & Raw & norm & all & 0.4 & 93.39 & 2.56 & 91.68 & 91.31 & 95.85 \\
+13 & LSTM & Raw & norm & young & 0.2 & 93.03 & 2.72 & 91.12 & 90.86 & 95.58 \\
+14 & TRANSFORMER & Kalman & 4s & all & 0.4 & 91.95 & 4.36 & 89.62 & 88.25 & 96.11 \\
+15 & LSTM & Raw & 2s & all & 0.4 & 91.86 & 2.86 & 89.03 & 88.14 & 95.99 \\
+16 & TRANSFORMER & Kalman & 4s & young & 0.4 & 91.77 & 3.99 & 89.12 & 86.67 & 97.76 \\
+17 & TRANSFORMER & Kalman & 4s & young & 0.2 & 91.65 & 4.28 & 89.19 & 86.99 & 96.92 \\
+18 & TRANSFORMER & Kalman & norm & all & 0.4 & 91.42 & 5.23 & 89.13 & 88.26 & 95.03 \\
+19 & TRANSFORMER & Kalman & 4s & all & 0.6 & 91.17 & 5.40 & 88.62 & 87.88 & 95.06 \\
+20 & LSTM & Raw & 2s & all & 0.2 & 91.16 & 2.77 & 88.00 & 87.20 & 95.71 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+% Summary Statistics
+\begin{table}[htbp]
+\centering
+\caption{WEDA-Fall: Ablation Summary Statistics}
+\label{tab:wedafall_ablation_summary}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}l l r@{}}
+\toprule
+\textbf{Factor} & \textbf{Best Setting} & \textbf{F1 (\%)} \\
+\midrule
+Architecture (LSTM) & Raw + 4s + d06 & 94.48 \\
+Architecture (Trans.) & Kalman + 5s + d05 & 94.40 \\
+Window Size & 5s (250 samples) & 94.40 \\
+Dropout & 0.5--0.6 & 94.40--94.48 \\
+Age Group & Young only & 94.48 \\
+Input Type (Trans.) & Kalman fusion & 94.40 \\
+\midrule
+\multicolumn{3}{l}{\textbf{Best LSTM}: Raw + 4s + d06 + young = 94.48\%} \\
+\multicolumn{3}{l}{\textbf{Best Transformer}: Kalman + 5s + d05 + young = 94.40\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% Head-to-head comparison
+\begin{table}[htbp]
+\centering
+\caption{WEDA-Fall: LSTM Raw vs Transformer Kalman (Best Configurations)}
+\label{tab:wedafall_lstm_vs_transformer}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}l r r r@{}}
+\toprule
+\textbf{Config} & \textbf{Trans-Kalman} & \textbf{LSTM-Raw} & \textbf{$\Delta$} \\
+\midrule
+\rowcolor{gray!15}
+Best (optimized) & \textbf{94.40\%} (5s-d05) & \textbf{94.48\%} (4s-d06) & $-$0.08\% \\
+\midrule
+\multicolumn{4}{l}{\textit{Matched configurations (4s window):}} \\
+4s-all-d04 & 91.95\% & 94.17\% & $-$2.21\% \\
+4s-young-d04 & 91.77\% & 93.49\% & $-$1.72\% \\
+4s-young-d02 & 91.65\% & 93.70\% & $-$2.06\% \\
+4s-all-d06 & 91.17\% & 93.85\% & $-$2.68\% \\
+\midrule
+Average (4s matched) & 91.64\% & 93.80\% & $-$2.17\% \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+\footnotesize
+\textit{Key Finding:} With optimized window size (5s vs 4s), Transformer Kalman achieves near-parity with LSTM Raw ($\Delta = -0.08\%$). The longer window enables Kalman filtering to better leverage temporal context on 50Hz consumer sensors.
+\end{table}

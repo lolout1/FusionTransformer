@@ -1,0 +1,147 @@
+%-------------------------------------------------------------------
+% 2.3 DUAL-STREAM ARCHITECTURE
+%-------------------------------------------------------------------
+\subsection{Dual-Stream Network Architecture}
+\label{subsec:architecture} 
+% {\color{blue} Might be better to use just Dual-Stream and ignore the Input Projection}
+
+With our 7-channel Kalman-fused representation, we now describe the neural architecture. A key design question is: \textit{how should multi-modal input be processed?} We compare architectures that differ in whether accelerometer and orientation channels share or have separate early processing layers. Figure~\ref{fig:architecture} presents our dual-stream architecture.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{arch_dual_stream_kalman.png}
+\caption{\textbf{Dual-stream Kalman transformer architecture.} \textbf{Left:} The accelerometer stream (4 channels: SMV, $a_x$, $a_y$, $a_z$) and orientation stream (3 channels: $\phi$, $\theta$, $\psi$) are processed through \textit{separate} Conv1D projection layers (kernel size 8, stride 1, same padding), each with dedicated batch normalization and dropout. This separation prevents noisy orientation features from corrupting acceleration representations. \textbf{Center:} Projected features are concatenated (64 dimensions total, 32:32 split) and processed by a 2-layer transformer encoder with 4 attention heads, enabling cross-modal temporal pattern learning. \textbf{Right:} Squeeze-and-Excitation (SE) attention recalibrates channel importance, followed by Temporal Attention Pooling (TAP) which focuses on discriminative timesteps (typically the impact phase). Final classification uses a single linear layer with sigmoid activation. Total parameters: $\sim$73K.}
+\label{fig:architecture}
+\end{figure}
+
+%\subsubsection{What We Mean by ``Dual-Stream''}
+
+We use ``dual-stream'' to describe architectures with \textbf{separate input projection layers} for each modality, followed by a shared transformer encoder. This is distinct from fully-separate dual-backbone architectures, where each modality has its own transformer. Our design choice is deliberate:
+
+\begin{itemize}
+    \item \textbf{Separate input projections}: Each modality (acceleration, orientation) has dedicated Conv1D + BatchNorm layers. This prevents cross-modal interference during the critical initial feature extraction stage.
+    \item \textbf{Shared transformer}: After projection, features are concatenated and processed by a single transformer. This enables cross-modal attention---the model can learn relationships \textit{between} acceleration and orientation patterns.
+\end{itemize}
+
+The separation occurs at the \textit{input encoding stage}, where the risk of noise contamination is highest. The shared transformer then learns joint temporal representations.
+
+\subsubsection{Architecture Variants}
+
+We systematically compare four configurations along two axes:
+\begin{itemize}
+    \item \textbf{Input type}: Raw (6ch: acc + gyro) vs. Kalman (7ch: acc + orientation)
+    \item \textbf{Input projection}: Single (shared Conv1D) vs. Dual (separate Conv1D per modality))
+\end{itemize}
+
+\begin{table}[H]
+\caption{Architecture comparison: single-projection vs. dual-projection. The key difference is whether modalities share convolutional weights (single) or have dedicated weights (dual). Our method (d) combines dual-projection with Kalman-fused orientation input. Raw configurations use 6 channels (acc + gyro, no SMV); Kalman configurations use 7 channels (SMV + acc + orientation).}
+\label{tab:architecture_comparison}
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+\textbf{Architecture} & \textbf{Input Type} & \textbf{Projection} & \textbf{Key Property} \\
+\midrule
+\multicolumn{4}{l}{\textit{Single-Projection (shared input encoding):}} \\
+(a) Single + Raw & 6ch ($a_{xyz}$ + $\omega_{xyz}$) & Shared Conv1D & Noisy gyro corrupts acc features \\
+(b) Single + Kalman & 7ch (SMV + $a_{xyz}$ + $\phi\theta\psi$) & Shared Conv1D & Cleaner, but features still mixed \\
+\midrule
+\multicolumn{4}{l}{\textit{Dual-Projection (separate input encoding):}} \\
+(c) Dual + Raw & 3ch + 3ch & Separate Conv1D & Acc isolated, but gyro still noisy \\
+\textbf{(d) Dual + Kalman} & 4ch + 3ch & Separate Conv1D & \textbf{Clean isolation + quality input} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Architecture (d)} represents our proposed approach: Kalman fusion first transforms noisy gyroscope signals into stable orientation angles, then dual-projection processes each modality through dedicated Conv1D layers (acc: 4ch$\rightarrow$32dim, ori: 3ch$\rightarrow$32dim) before concatenation and transformer processing.
+
+\subsubsection{The Architectural Difference: Where Separation Matters}
+
+The key question is: \textit{at what stage should modalities be combined?} We compare two approaches:
+
+\textbf{Single-Projection (``Single-Stream'') Architecture}:
+\begin{equation}
+\mathbf{h} = \text{Conv1D}([\mathbf{x}_\text{acc}; \mathbf{x}_\text{gyro}]) \in \mathbb{R}^{T \times 64}
+\end{equation}
+\begin{itemize}
+    \item All input channels are concatenated \textit{before} any processing.
+    \item A single Conv1D layer with shared weights operates across all channels.
+    \item \textbf{The problem}: Convolutional filters must simultaneously extract features from clean accelerometer signals and noisy gyroscope signals. The learned filters compromise between modalities. Mathematically, gradients from noisy channels affect all filter weights.
+\end{itemize}
+
+\textbf{Dual-Projection (``Dual-Stream'') Architecture}:
+\begin{equation}
+\mathbf{h} = [\underbrace{\text{Conv1D}_\text{acc}(\mathbf{x}_\text{acc})}_{\text{32 dim}}; \underbrace{\text{Conv1D}_\text{ori}(\mathbf{x}_\text{ori})}_{\text{32 dim}}] \in \mathbb{R}^{T \times 64}
+\end{equation}
+\begin{itemize}
+    \item Input is split by modality \textit{before} convolution.
+    \item Each modality has dedicated Conv1D weights optimized for its signal characteristics.
+    \item Concatenation occurs \textit{after} initial projection, feeding into the shared transformer.
+    \item \textbf{The benefit}: Accelerometer features are extracted by filters that never see gyroscope noise. Each projection layer can specialize: $\text{Conv1D}_\text{acc}$ learns acceleration patterns, $\text{Conv1D}_\text{ori}$ learns orientation patterns.
+\end{itemize}
+
+\textbf{Important clarification}: Both architectures use the \textit{same} transformer encoder after projection. The separation is specifically at the input encoding stage---where noisy signals would otherwise contaminate clean features through shared convolutional weights. The shared transformer is beneficial because it enables cross-modal attention (relating acceleration patterns to orientation patterns).
+
+\subsubsection{Why Dual-Stream Matters More with Kalman Fusion}
+
+An important interaction effect emerges: dual-stream processing provides larger benefits with Kalman input than with raw input.
+
+With \textbf{raw gyroscope input}, the gyroscope stream is inherently noisy. Even with separate processing, the gyroscope encoder extracts limited useful information, constraining the potential benefit of dual-stream design.
+
+With \textbf{Kalman-fused orientation input}, the orientation stream contains high-quality, semantically meaningful features (body pose angles). Dual-stream processing allows the model to fully leverage these features with dedicated capacity, while maintaining clean accelerometer representations.
+
+This synergy motivates our combined approach: Kalman fusion produces high-quality orientation features, and dual-stream processing ensures these features are not corrupted during early network layers.
+
+\subsubsection{Stream Encoder Details}
+
+Each stream encoder consists of:
+\begin{align}
+\mathbf{h}_\text{acc} &= \text{Dropout}_{0.1}(\text{SiLU}(\text{BN}(\text{Conv1D}_{k=8}(\mathbf{x}_\text{acc})))) \in \mathbb{R}^{T \times 32} \\
+\mathbf{h}_\text{ori} &= \text{Dropout}_{0.15}(\text{SiLU}(\text{BN}(\text{Conv1D}_{k=8}(\mathbf{x}_\text{ori})))) \in \mathbb{R}^{T \times 32}
+\end{align}
+
+Design choices:
+\begin{itemize}
+    \item \textbf{Kernel size $k=8$}: Captures ~0.27s of temporal context, sufficient for local motion patterns.
+    \item \textbf{Equal dimensions (32 each)}: Balanced capacity, appropriate since Kalman fusion produces orientation features of comparable discriminative value to acceleration.
+    \item \textbf{Higher dropout for orientation (15\% vs 10\%)}: Slight additional regularization for the orientation stream, which has fewer input channels.
+\end{itemize}
+
+\subsubsection{Transformer Encoder}
+
+After concatenation and layer normalization, the fused representation is processed by a standard transformer encoder:
+\begin{equation}
+\mathbf{h}_\text{enc} = \text{TransformerEncoder}(\text{LayerNorm}([\mathbf{h}_\text{acc}; \mathbf{h}_\text{ori}]))
+\end{equation}
+Configuration: $d_\text{model}=64$, $n_\text{heads}=4$, $d_\text{ff}=128$, $n_\text{layers}=2$, pre-norm residual connections.
+{\color{blue} Need to explain the symbols}
+
+Multi-head self-attention enables the model to relate distant timesteps---for example, connecting pre-fall motion patterns to impact events occurring seconds later.
+
+%-------------------------------------------------------------------
+% 2.4 ATTENTION MECHANISMS
+%-------------------------------------------------------------------
+\subsection{Attention Mechanisms}
+\label{subsec:attention}
+
+We augment the transformer with two attention mechanisms that provide complementary benefits.
+
+\subsubsection{Squeeze-and-Excitation (SE) Channel Attention}
+
+SE attention~\cite{hu2018squeeze} recalibrates channel importance by learning which feature dimensions are most discriminative:
+\begin{align}
+\mathbf{s} &= \text{GlobalAvgPool}(\mathbf{h}_\text{enc}) \in \mathbb{R}^{64} \\
+\mathbf{e} &= \sigma(\mathbf{W}_2 \cdot \text{ReLU}(\mathbf{W}_1 \cdot \mathbf{s})) \in \mathbb{R}^{64} \\
+\hat{\mathbf{h}} &= \mathbf{e} \odot \mathbf{h}_\text{enc}
+\end{align}
+The bottleneck ($r=4$) prevents overfitting while enabling channel interaction learning.
+{\color{blue} r is not mentioned in those equations}
+
+\subsubsection{Temporal Attention Pooling (TAP)}
+
+Rather than mean-pooling, TAP learns to focus on discriminative timesteps:
+\begin{align}
+\alpha_t &= \frac{\exp(\mathbf{w}^{\T} \tanh(\mathbf{W}_a \mathbf{h}_t))}{\sum_{t'} \exp(\mathbf{w}^{\T} \tanh(\mathbf{W}_a \mathbf{h}_{t'}))} \\
+\mathbf{c} &= \sum_t \alpha_t \hat{\mathbf{h}}_t
+\end{align}
+TAP typically assigns high attention to the impact phase of falls, where acceleration spikes and orientation changes are most pronounced.
