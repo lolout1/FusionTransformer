@@ -55,3 +55,7 @@ config/wedafall/*
 !config/upfall/raw.yaml
 !config/wedafall/kalman.yaml
 !config/wedafall/raw.yaml
+
+# Paper and docs (keep separate)
+paper/
+figures/
