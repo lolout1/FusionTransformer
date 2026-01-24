@@ -53,40 +53,60 @@ from .quaternion import (
     euler_to_quat,
     acc_to_euler
 )
-from .noise_analysis import (
-    NoiseCharacteristics,
-    extract_stationary_segments,
-    compute_allan_variance,
-    estimate_noise_floor,
-    analyze_sensor_noise,
-    analyze_dataset_noise,
-    get_sensor_profile,
-    scale_params_for_sample_rate,
-)
-from .bayesian_tuner import (
-    BayesianKalmanTuner,
-    TuningConfig,
-    TuningResult,
-)
-from .upfall_tuner import (
-    UPFallKalmanTuner,
-    UPFALL_SEARCH_SPACE,
-    create_upfall_tuning_config,
-    tune_upfall_kalman,
-)
-from .wedafall_tuner import (
-    WEDAFallKalmanTuner,
-    WEDAFALL_SEARCH_SPACE,
-    create_wedafall_tuning_config,
-    tune_wedafall_kalman,
-)
-from .smartfallmm_tuner import (
-    SmartFallMMKalmanTuner,
-    SMARTFALLMM_SEARCH_SPACES,
-    AVAILABLE_SENSORS,
-    create_smartfallmm_tuning_config,
-    tune_smartfallmm_kalman,
-)
+
+# Optional imports - these modules may not be present in all installations
+try:
+    from .noise_analysis import (
+        NoiseCharacteristics,
+        extract_stationary_segments,
+        compute_allan_variance,
+        estimate_noise_floor,
+        analyze_sensor_noise,
+        analyze_dataset_noise,
+        get_sensor_profile,
+        scale_params_for_sample_rate,
+    )
+except ImportError:
+    pass
+
+try:
+    from .bayesian_tuner import (
+        BayesianKalmanTuner,
+        TuningConfig,
+    )
+except ImportError:
+    pass
+
+try:
+    from .upfall_tuner import (
+        UPFallKalmanTuner,
+        UPFALL_SEARCH_SPACE,
+        create_upfall_tuning_config,
+        tune_upfall_kalman,
+    )
+except ImportError:
+    pass
+
+try:
+    from .wedafall_tuner import (
+        WEDAFallKalmanTuner,
+        WEDAFALL_SEARCH_SPACE,
+        create_wedafall_tuning_config,
+        tune_wedafall_kalman,
+    )
+except ImportError:
+    pass
+
+try:
+    from .smartfallmm_tuner import (
+        SmartFallMMKalmanTuner,
+        SMARTFALLMM_SEARCH_SPACES,
+        AVAILABLE_SENSORS,
+        create_smartfallmm_tuning_config,
+        tune_smartfallmm_kalman,
+    )
+except ImportError:
+    pass
 
 __all__ = [
     # Filters

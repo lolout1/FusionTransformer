@@ -6,6 +6,10 @@ import tempfile
 import os
 from pathlib import Path
 
+# Skip entire module if matplotlib not available
+pytest.importorskip("matplotlib")
+pytest.importorskip("seaborn")
+
 # Use non-interactive backend for CI
 import matplotlib
 matplotlib.use('Agg')
