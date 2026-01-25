@@ -33,9 +33,10 @@ simple/
 modality_exps/
 conf/
 
-# Distributed pipeline - exclude results and docs
+# Distributed pipeline - exclude results but keep README
 distributed_dataset_pipeline/results/
 distributed_dataset_pipeline/*.md
+!distributed_dataset_pipeline/README.md
 
 # Output files
 *.out
@@ -59,3 +60,7 @@ config/wedafall/*
 # Paper and docs (keep separate)
 paper/
 figures/
+
+# Project documentation (auto-generated, not tracked)
+CLAUDE.md
+docs/
