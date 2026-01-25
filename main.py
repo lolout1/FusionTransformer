@@ -701,12 +701,23 @@ class Trainer():
         self.pos_weights = torch.Tensor([label_count[0] / label_count[1]])
         self.pos_weights = self.pos_weights.to(self._get_device_str())
 
+        # Copy fold statistics from loader
+        if hasattr(loader, 'fold_stats'):
+            self.fold_fall_windows = loader.fold_stats.get('fall_windows', 0)
+            self.fold_adl_windows = loader.fold_stats.get('adl_windows', 0)
+            self.fold_fall_trials = loader.fold_stats.get('fall_trials', 0)
+            self.fold_adl_trials = loader.fold_stats.get('adl_trials', 0)
+
         # Log dataset info
         print(f"\n{dataset_type.upper()} Dataset Loaded:")
         print(f"  Train: {len(fold_data['train']['labels'])} samples")
         print(f"  Val: {len(fold_data['val']['labels'])} samples")
         print(f"  Test: {len(fold_data['test']['labels'])} samples")
         print(f"  Class weights: {self.class_weights}")
+        if hasattr(loader, 'fold_stats'):
+            fs = loader.fold_stats
+            print(f"  Fall windows: {fs['fall_windows']:,}, ADL windows: {fs['adl_windows']:,}")
+            print(f"  Fall trials: {fs['fall_trials']}, ADL trials: {fs['adl_trials']}")
 
         return True
 
