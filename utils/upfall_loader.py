@@ -105,6 +105,9 @@ class UPFallLoader:
             if key.startswith('kalman_') or key in ('filter_fs',):
                 self.kalman_config[key] = value
 
+        # Statistics tracking (reset per fold)
+        self.fold_stats = {'fall_windows': 0, 'adl_windows': 0, 'fall_trials': 0, 'adl_trials': 0}
+
         # Load and group data by subject/activity
         self.data = self._load_csv(csv_path)
         self.subjects = sorted(self.data.keys())
@@ -238,13 +241,15 @@ class UPFallLoader:
 
     def get_subject_data(
         self,
-        subject_ids: List[int]
+        subject_ids: List[int],
+        track_stats: bool = True
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Get windowed data for specified subjects.
 
         Args:
             subject_ids: List of subject IDs
+            track_stats: Whether to accumulate fold statistics
 
         Returns:
             data: (N, T, C) windowed features
@@ -260,6 +265,13 @@ class UPFallLoader:
                 if windows.size > 0:
                     all_windows.append(windows)
                     all_labels.append(labels)
+                    if track_stats:
+                        n_fall = int((labels == 1).sum())
+                        n_adl = int((labels == 0).sum())
+                        self.fold_stats['fall_windows'] += n_fall
+                        self.fold_stats['adl_windows'] += n_adl
+                        self.fold_stats['fall_trials'] += 1 if trial['label'] == 1 else 0
+                        self.fold_stats['adl_trials'] += 1 if trial['label'] == 0 else 0
 
         if not all_windows:
             return np.array([]), np.array([])
@@ -284,6 +296,9 @@ class UPFallLoader:
             Dict with 'train', 'val', 'test' splits, each containing
             'accelerometer' and 'labels' arrays.
         """
+        # Reset fold statistics
+        self.fold_stats = {'fall_windows': 0, 'adl_windows': 0, 'fall_trials': 0, 'adl_trials': 0}
+
         # Determine training subjects
         all_subjects = set(self.subjects)
         test_subjects = {test_subject}
