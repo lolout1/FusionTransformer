@@ -88,7 +88,7 @@ echo ""
 
 # Run training for each dataset
 for DATASET in $DATASETS; do
-    CONFIG="best_config/${DATASET}/acc_gyro_kalman.yaml"
+    CONFIG="config/best_config/${DATASET}/acc_gyro_kalman.yaml"
     WORK_DIR="${OUTPUT_DIR}/${DATASET}"
 
     if [[ ! -f "$CONFIG" ]]; then

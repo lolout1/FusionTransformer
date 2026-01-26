@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 .ipynb_checkpoints/
-
+scripts/
 # Virtual environments
 .venv/
 venv/
@@ -33,29 +33,40 @@ simple/
 modality_exps/
 conf/
 
-# Distributed pipeline - exclude results and docs
-distributed_dataset_pipeline/results/
-distributed_dataset_pipeline/*.md
+# Distributed pipeline - track only README.md and run_architecture_ablation.py
+distributed_dataset_pipeline/*
+!distributed_dataset_pipeline/README.md
+!distributed_dataset_pipeline/run_architecture_ablation.py
 
 # Output files
 *.out
 *.csv
 *.tex
+*.md
+!README.md
+!**/README.md
 
 # Legacy configs (not needed for publication)
 config/*
 !config/smartfallmm/
 !config/upfall/
 !config/wedafall/
+!config/best_config/
 config/smartfallmm/*
 config/upfall/*
 config/wedafall/*
+config/best_config/*
 !config/smartfallmm/kalman.yaml
 !config/upfall/kalman.yaml
 !config/upfall/raw.yaml
 !config/wedafall/kalman.yaml
 !config/wedafall/raw.yaml
+!config/best_config/**
 
 # Paper and docs (keep separate)
 paper/
 figures/
+
+# Project documentation (auto-generated, not tracked)
+CLAUDE.md
+docs/

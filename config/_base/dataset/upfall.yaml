@@ -1,0 +1,15 @@
+# UP-FALL Dataset
+# 17 subjects, 18Hz wrist IMU
+dataset: upfall
+
+dataset_args:
+  mode: sliding_window
+  max_length: 160
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  stride: 32
+  use_skeleton: false
+  enable_class_aware_stride: true
+  fall_stride: 16
+  adl_stride: 64
