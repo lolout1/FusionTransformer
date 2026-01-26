@@ -28,7 +28,7 @@ All results from Leave-One-Subject-Out (LOSO) cross-validation.
 
 | Dataset | Model | Test F1 | Accuracy | Precision | Recall | Config |
 |---------|-------|---------|----------|-----------|--------|--------|
-| **SmartFallMM** | KalmanConv1dLinear | **91.38%** ± 6.67 | 88.44% | 89.22% | 94.14% | [kalman.yaml](config/best_config/smartfallmm/kalman.yaml) |
+| **SmartFallMM** | KalmanConv1dConv1d | **91.12%** ± 5.73 | 87.04% | 89.14% | 93.94% | [kalman.yaml](config/best_config/smartfallmm/kalman.yaml) |
 | **UP-FALL** | KalmanConv1dConv1d | **95.18%** | 96.53% | 95.21% | 95.55% | [kalman.yaml](config/best_config/upfall/kalman.yaml) |
 | **WEDA-FALL** | KalmanConv1dConv1d | **95.41%** ± 2.39 | 94.57% | 94.57% | 96.43% | [kalman.yaml](config/best_config/wedafall/kalman.yaml) |
 
@@ -36,7 +36,7 @@ All results from Leave-One-Subject-Out (LOSO) cross-validation.
 
 | Dataset | Raw | Kalman | Improvement |
 |---------|-----|--------|-------------|
-| SmartFallMM | 88.96% | **91.38%** | **+2.42%** |
+| SmartFallMM | 88.96% | **91.12%** | **+2.16%** |
 | UP-FALL | 92.64% | **95.18%** | **+2.54%** |
 | WEDA-FALL | 94.64% | **95.41%** | **+0.77%** |
 
