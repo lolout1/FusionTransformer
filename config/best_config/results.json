@@ -1,0 +1,176 @@
+{
+  "metadata": {
+    "generated": "2026-01-26",
+    "ablation_source": "exps/upfall_embed_ablation_20260126_023133/summary.json",
+    "comparison_source": "results/optimal_comparison_20260117_222933",
+    "cross_validation": "LOSO (Leave-One-Subject-Out)",
+    "seed": 2
+  },
+  "upfall": {
+    "dataset_info": {
+      "name": "UP-FALL",
+      "source": "other_datasets/CompleteDataSet.csv",
+      "sampling_rate_hz": 18,
+      "total_subjects": 17,
+      "test_subjects": 15,
+      "validation_subjects": [
+        15,
+        16
+      ],
+      "fall_types": 5,
+      "adl_types": 6,
+      "sensor": "research-grade IMU",
+      "placement": "wrist"
+    },
+    "optimal_hyperparameters": {
+      "window_size": 160,
+      "window_duration_sec": 8.89,
+      "fall_stride": 8,
+      "adl_stride": 32,
+      "stride_ratio": "1:4",
+      "embed_dim": 48,
+      "num_heads": 4,
+      "num_layers": 2,
+      "dropout": 0.5,
+      "batch_size": 64,
+      "num_epochs": 80,
+      "optimizer": "adamw",
+      "learning_rate": 0.001,
+      "weight_decay": 0.001,
+      "loss_type": "focal"
+    },
+    "kalman_parameters": {
+      "filter_type": "linear",
+      "filter_fs": 18.0,
+      "output_format": "euler",
+      "include_smv": true,
+      "Q_orientation": 0.032,
+      "Q_rate": 0.071,
+      "R_acc": 0.1312,
+      "R_gyro": 0.1074
+    },
+    "results": {
+      "kalman": {
+        "model": "KalmanConv1dConv1d",
+        "model_path": "Models.encoder_ablation.KalmanConv1dConv1d",
+        "test_f1": 95.18,
+        "test_f1_std": 3.26,
+        "test_accuracy": 96.53,
+        "test_accuracy_std": 2.72,
+        "n_folds": 15
+      },
+      "raw": {
+        "model": "DualStreamBaseline",
+        "model_path": "Models.dual_stream_baseline.DualStreamBaseline",
+        "test_f1": 94.77,
+        "test_f1_std": 3.41,
+        "test_accuracy": 96.26,
+        "test_accuracy_std": 2.46,
+        "n_folds": 15
+      },
+      "kalman_vs_raw_delta": {
+        "f1_diff": 0.41,
+        "accuracy_diff": 0.27,
+        "interpretation": "Kalman provides a modest F1 improvement with similar variance"
+      }
+    }
+  },
+  "wedafall": {
+    "dataset_info": {
+      "name": "WEDA-FALL",
+      "source": "other_datasets/WEDA-FALL/dataset",
+      "sampling_rate_hz": 50,
+      "total_subjects": 14,
+      "test_subjects": 12,
+      "validation_subjects": [
+        13,
+        14
+      ],
+      "fall_types": 8,
+      "adl_types": 11,
+      "age_group": "young",
+      "sensor": "consumer Fitbit",
+      "placement": "wrist"
+    },
+    "optimal_hyperparameters": {
+      "window_size": 250,
+      "window_duration_sec": 5.0,
+      "fall_stride": 8,
+      "adl_stride": 32,
+      "stride_ratio": "1:4",
+      "embed_dim": 48,
+      "num_heads": 4,
+      "num_layers": 2,
+      "dropout": 0.5,
+      "batch_size": 64,
+      "num_epochs": 80,
+      "optimizer": "adamw",
+      "learning_rate": 0.001,
+      "weight_decay": 0.001,
+      "loss_type": "focal"
+    },
+    "kalman_parameters": {
+      "filter_type": "linear",
+      "filter_fs": 50.0,
+      "output_format": "euler",
+      "include_smv": true,
+      "Q_orientation": 0.0124,
+      "Q_rate": 0.1315,
+      "R_acc": 0.2395,
+      "R_gyro": 0.2822
+    },
+    "results": {
+      "kalman": {
+        "model": "KalmanConv1dConv1d",
+        "model_path": "Models.encoder_ablation.KalmanConv1dConv1d",
+        "test_f1": 94.4,
+        "test_f1_std": 3.21,
+        "test_accuracy": 92.85,
+        "test_accuracy_std": 4.12,
+        "test_precision": 92.18,
+        "test_recall": 96.89,
+        "n_folds": 12
+      },
+      "raw": {
+        "model": "DualStreamBaseline",
+        "model_path": "Models.dual_stream_baseline.DualStreamBaseline",
+        "test_f1": 90.43,
+        "test_f1_std": 2.63,
+        "test_accuracy": 87.25,
+        "test_accuracy_std": 3.93,
+        "n_folds": 12
+      },
+      "kalman_vs_raw_delta": {
+        "f1_diff": 3.97,
+        "accuracy_diff": 5.6,
+        "interpretation": "Kalman provides +3.97% F1 improvement on noisy consumer sensors"
+      }
+    }
+  },
+  "preprocessing": {
+    "normalization": {
+      "enabled": true,
+      "modalities": "acc_only",
+      "method": "z-score per subject"
+    },
+    "gyroscope": {
+      "convert_to_rad": true,
+      "original_unit": "deg/s"
+    },
+    "windowing": {
+      "mode": "sliding_window",
+      "class_aware_stride": true,
+      "fall_oversampling_ratio": 4
+    },
+    "kalman_fusion": {
+      "input_channels": 6,
+      "output_channels": 7,
+      "output_format": "[smv, ax, ay, az, roll, pitch, yaw]"
+    },
+    "raw_processing": {
+      "input_channels": 6,
+      "output_channels": 7,
+      "output_format": "[smv, ax, ay, az, gx, gy, gz]"
+    }
+  }
+}

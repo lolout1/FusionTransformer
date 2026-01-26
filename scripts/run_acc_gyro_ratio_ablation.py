@@ -40,17 +40,17 @@ RATIOS = {
 
 DATASETS = {
     'wedafall': {
-        'base_config': 'best_config/wedafall/acc_gyro_kalman.yaml',
+        'base_config': 'config/best_config/wedafall/acc_gyro_kalman.yaml',
         'num_folds': 12,
         'include_elderly': False,
     },
     'wedafall_all': {
-        'base_config': 'best_config/wedafall/acc_gyro_kalman.yaml',
+        'base_config': 'config/best_config/wedafall/acc_gyro_kalman.yaml',
         'num_folds': 12,  # Still 12 folds (young test subjects only, but elderly in train)
         'include_elderly': True,
     },
     'upfall': {
-        'base_config': 'best_config/upfall/acc_gyro_kalman.yaml',
+        'base_config': 'config/best_config/upfall/acc_gyro_kalman.yaml',
         'num_folds': 15,
         'include_elderly': False,
     },

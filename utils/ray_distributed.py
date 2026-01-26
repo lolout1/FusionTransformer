@@ -898,8 +898,10 @@ class RayDistributedTrainer:
 
         os.makedirs(self.work_dir, exist_ok=True)
 
-        # Copy config to work_dir
-        shutil.copy(config_path, self.work_dir)
+        # Copy config to work_dir (skip if already there)
+        config_dest = os.path.join(self.work_dir, os.path.basename(config_path))
+        if os.path.abspath(config_path) != os.path.abspath(config_dest):
+            shutil.copy(config_path, self.work_dir)
 
         # Extract model name for reports
         self.model_name = self.config.get('model', 'model').split('.')[-1]

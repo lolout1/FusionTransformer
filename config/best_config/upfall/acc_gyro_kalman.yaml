@@ -1,0 +1,108 @@
+# =============================================================================
+# UP-FALL: AccGyroKalman Configuration
+# =============================================================================
+# Model: AccGyroKalmanTransformer
+# Input: 9ch [smv, ax, ay, az, roll, pitch, gx, gy, gz]
+#
+# Stream 1: Acc + Orientation (6ch) - accelerometer + Kalman roll/pitch
+# Stream 2: Raw Gyroscope (3ch) - preserves high-frequency angular velocity
+#
+# Rationale:
+#   - Yaw excluded (noisy, drift-prone from gyro integration)
+#   - Raw gyro preserves rapid rotational dynamics during falls
+#   - Roll/pitch reliably computed from accelerometer gravity reference
+#
+# Dataset: UP-FALL (research-grade IMU, 17 subjects, 18Hz)
+# =============================================================================
+
+model: Models.acc_gyro_kalman.AccGyroKalmanTransformer
+dataset: upfall
+
+# Subject configuration
+subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]
+validation_subjects: [15, 16]
+
+# Model architecture
+model_args:
+  imu_frames: 160
+  imu_channels: 9  # [smv, ax, ay, az, roll, pitch, gx, gy, gz]
+  acc_ori_channels: 6  # [smv, ax, ay, az, roll, pitch]
+  gyro_channels: 3     # [gx, gy, gz]
+  acc_frames: 160
+  acc_coords: 9
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: relu
+  norm_first: true
+  se_reduction: 4
+  acc_ori_ratio: 0.70    # 70% capacity for acc+orientation
+  acc_ori_encoder: conv1d
+  gyro_encoder: conv1d
+  acc_ori_kernel_size: 8
+  gyro_kernel_size: 5    # Smaller kernel for high-freq gyro
+
+# Dataset preprocessing
+dataset_args:
+  csv_path: other_datasets/CompleteDataSet.csv
+  mode: sliding_window
+  max_length: 160
+  task: fd
+  stride: 32
+  loss_type: focal
+
+  # Sensors
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  age_group: [all]
+  use_skeleton: false
+
+  # Normalization
+  enable_normalization: true
+  normalize_modalities: acc_only
+
+  # Class-aware stride
+  enable_class_aware_stride: true
+  fall_stride: 8
+  adl_stride: 32
+
+  # Gyroscope conversion
+  convert_gyro_to_rad: true
+
+  # KALMAN FUSION - 9ch output
+  enable_kalman_fusion: true
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: true
+  kalman_exclude_yaw: true         # Exclude yaw (noisy)
+  kalman_include_raw_gyro: true    # Include raw gyro
+  kalman_include_uncertainty: false
+  kalman_include_innovation: false
+
+  # Kalman filter parameters (tuned for UP-FALL 18Hz)
+  filter_fs: 18.0
+  kalman_Q_orientation: 0.032
+  kalman_Q_rate: 0.071
+  kalman_R_acc: 0.1312
+  kalman_R_gyro: 0.1074
+
+# Training configuration
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.external_datasets.ExternalFallDataset
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

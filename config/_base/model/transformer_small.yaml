@@ -1,0 +1,18 @@
+# Small Transformer (48d, 2 layers)
+# Best for SmartFallMM with limited subjects
+model: Models.encoder_ablation.KalmanConv1dLinear
+
+model_args:
+  embed_dim: 48
+  num_heads: 4
+  num_layers: 2
+  dropout: 0.5
+  imu_frames: 128
+  imu_channels: 7
+  acc_frames: 128
+  acc_coords: 7
+  num_classes: 1
+  activation: relu
+  norm_first: true
+  se_reduction: 4
+  acc_ratio: 0.65

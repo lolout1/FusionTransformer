@@ -1,0 +1,82 @@
+# WEDA-FALL: Optimal Kalman Configuration with Elderly Subjects in Training
+# Same as kalman.yaml but adds elderly subjects (21-31) to training
+# Elderly have ADL data only (no falls) - adds more ADL diversity
+# Best F1: 94.40% ± 3.21% (12 LOSO folds, young only)
+
+model: Models.encoder_ablation.KalmanConv1dConv1d
+dataset: wedafall
+
+subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14]
+validation_subjects: [13, 14]
+
+model_args:
+  imu_frames: 250
+  imu_channels: 7
+  acc_frames: 250
+  acc_coords: 7
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 48
+  dropout: 0.5
+  activation: relu
+  norm_first: true
+  se_reduction: 4
+  acc_ratio: 0.65
+
+dataset_args:
+  base_path: other_datasets/WEDA-FALL/dataset
+  frequency: 50Hz
+  mode: sliding_window
+  max_length: 250
+  task: fd
+  stride: 32
+  loss_type: focal
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  age_group: [young]
+  use_skeleton: false
+
+  # KEY CHANGE: Include elderly subjects in training (ADL only, no falls)
+  include_elderly: true
+
+  # Normalization
+  enable_normalization: true
+  normalize_modalities: acc_only
+
+  # Class-aware stride
+  enable_class_aware_stride: true
+  fall_stride: 8
+  adl_stride: 32
+
+  # Gyro conversion
+  convert_gyro_to_rad: true
+
+  # Kalman fusion
+  enable_kalman_fusion: true
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: true
+  filter_fs: 50.0
+  kalman_Q_orientation: 0.0124
+  kalman_Q_rate: 0.1315
+  kalman_R_acc: 0.2395
+  kalman_R_gyro: 0.2822
+
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.external_datasets.ExternalFallDataset
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

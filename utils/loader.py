@@ -1299,7 +1299,10 @@ class DatasetBuilder:
                             )
                             # Replace accelerometer with full Kalman features
                             trial_data['accelerometer'] = kalman_features
-                            # Remove orientation (already incorporated)
+                            # Remove gyroscope (consumed by Kalman fusion into orientation)
+                            if 'gyroscope' in trial_data:
+                                del trial_data['gyroscope']
+                            # Remove intermediate Kalman outputs (already incorporated)
                             if 'orientation' in trial_data:
                                 del trial_data['orientation']
                             if 'uncertainty' in trial_data:

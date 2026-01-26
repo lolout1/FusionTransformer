@@ -1,0 +1,18 @@
+# Large Transformer (128d, 4 layers)
+# For larger datasets or more complex patterns
+model: Models.encoder_ablation.KalmanConv1dLinear
+
+model_args:
+  embed_dim: 128
+  num_heads: 8
+  num_layers: 4
+  dropout: 0.4
+  imu_frames: 128
+  imu_channels: 7
+  acc_frames: 128
+  acc_coords: 7
+  num_classes: 1
+  activation: relu
+  norm_first: true
+  se_reduction: 8
+  acc_ratio: 0.65
