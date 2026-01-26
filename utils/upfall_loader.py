@@ -64,6 +64,7 @@ class UPFallLoader:
         convert_gyro_to_rad: bool = True,
         normalize: bool = True,
         normalize_modalities: str = 'acc_only',
+        kalman_warmup_discard: float = 0.0,
         **kwargs
     ):
         """
@@ -80,6 +81,8 @@ class UPFallLoader:
             convert_gyro_to_rad: Convert gyro from deg/s to rad/s
             normalize: Apply z-score normalization
             normalize_modalities: 'all', 'acc_only', or 'none'
+            kalman_warmup_discard: Seconds to discard at start of trial after Kalman
+                                   (allows filter to converge before windowing)
             **kwargs: Additional Kalman config options:
                 - kalman_include_smv: bool
                 - kalman_exclude_yaw: bool
@@ -97,6 +100,8 @@ class UPFallLoader:
         self.convert_gyro_to_rad = convert_gyro_to_rad
         self.normalize = normalize
         self.normalize_modalities = normalize_modalities
+        # Kalman warm-up discard: convert seconds to samples
+        self.kalman_warmup_samples = int(kalman_warmup_discard * self.SAMPLING_RATE)
 
         # Kalman config: start with defaults for 50Hz, then override with kwargs
         self.kalman_config = get_kalman_config_for_rate(self.SAMPLING_RATE)
@@ -104,6 +109,9 @@ class UPFallLoader:
         for key, value in kwargs.items():
             if key.startswith('kalman_') or key in ('filter_fs',):
                 self.kalman_config[key] = value
+
+        # Statistics tracking (reset per fold)
+        self.fold_stats = {'fall_windows': 0, 'adl_windows': 0, 'fall_trials': 0, 'adl_trials': 0}
 
         # Load and group data by subject/activity
         self.data = self._load_csv(csv_path)
@@ -211,6 +219,12 @@ class UPFallLoader:
                 # Fallback: concatenate acc + gyro
                 smv = compute_smv(acc)
                 features = np.hstack([smv, acc, gyro])
+
+            # Optional: Discard warm-up period if configured
+            # Note: Usually not needed since Kalman runs on full trial before windowing
+            # Only useful if early-trial windows have poor performance
+            if self.kalman_warmup_samples > 0 and features.shape[0] > self.kalman_warmup_samples + self.window_size:
+                features = features[self.kalman_warmup_samples:]
         else:
             # Raw features: SMV + acc + gyro (7 channels)
             smv = compute_smv(acc)
@@ -238,13 +252,15 @@ class UPFallLoader:
 
     def get_subject_data(
         self,
-        subject_ids: List[int]
+        subject_ids: List[int],
+        track_stats: bool = True
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Get windowed data for specified subjects.
 
         Args:
             subject_ids: List of subject IDs
+            track_stats: Whether to accumulate fold statistics
 
         Returns:
             data: (N, T, C) windowed features
@@ -260,6 +276,13 @@ class UPFallLoader:
                 if windows.size > 0:
                     all_windows.append(windows)
                     all_labels.append(labels)
+                    if track_stats:
+                        n_fall = int((labels == 1).sum())
+                        n_adl = int((labels == 0).sum())
+                        self.fold_stats['fall_windows'] += n_fall
+                        self.fold_stats['adl_windows'] += n_adl
+                        self.fold_stats['fall_trials'] += 1 if trial['label'] == 1 else 0
+                        self.fold_stats['adl_trials'] += 1 if trial['label'] == 0 else 0
 
         if not all_windows:
             return np.array([]), np.array([])
@@ -284,6 +307,9 @@ class UPFallLoader:
             Dict with 'train', 'val', 'test' splits, each containing
             'accelerometer' and 'labels' arrays.
         """
+        # Reset fold statistics
+        self.fold_stats = {'fall_windows': 0, 'adl_windows': 0, 'fall_trials': 0, 'adl_trials': 0}
+
         # Determine training subjects
         all_subjects = set(self.subjects)
         test_subjects = {test_subject}
