@@ -33,10 +33,10 @@ simple/
 modality_exps/
 conf/
 
-# Distributed pipeline - exclude results but keep README
-distributed_dataset_pipeline/results/
-distributed_dataset_pipeline/*.md
+# Distributed pipeline - track only README.md and run_architecture_ablation.py
+distributed_dataset_pipeline/*
 !distributed_dataset_pipeline/README.md
+!distributed_dataset_pipeline/run_architecture_ablation.py
 
 # Output files
 *.out
