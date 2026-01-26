@@ -64,6 +64,7 @@ class UPFallLoader:
         convert_gyro_to_rad: bool = True,
         normalize: bool = True,
         normalize_modalities: str = 'acc_only',
+        kalman_warmup_discard: float = 0.0,
         **kwargs
     ):
         """
@@ -80,6 +81,8 @@ class UPFallLoader:
             convert_gyro_to_rad: Convert gyro from deg/s to rad/s
             normalize: Apply z-score normalization
             normalize_modalities: 'all', 'acc_only', or 'none'
+            kalman_warmup_discard: Seconds to discard at start of trial after Kalman
+                                   (allows filter to converge before windowing)
             **kwargs: Additional Kalman config options:
                 - kalman_include_smv: bool
                 - kalman_exclude_yaw: bool
@@ -97,6 +100,8 @@ class UPFallLoader:
         self.convert_gyro_to_rad = convert_gyro_to_rad
         self.normalize = normalize
         self.normalize_modalities = normalize_modalities
+        # Kalman warm-up discard: convert seconds to samples
+        self.kalman_warmup_samples = int(kalman_warmup_discard * self.SAMPLING_RATE)
 
         # Kalman config: start with defaults for 50Hz, then override with kwargs
         self.kalman_config = get_kalman_config_for_rate(self.SAMPLING_RATE)
@@ -214,6 +219,12 @@ class UPFallLoader:
                 # Fallback: concatenate acc + gyro
                 smv = compute_smv(acc)
                 features = np.hstack([smv, acc, gyro])
+
+            # Optional: Discard warm-up period if configured
+            # Note: Usually not needed since Kalman runs on full trial before windowing
+            # Only useful if early-trial windows have poor performance
+            if self.kalman_warmup_samples > 0 and features.shape[0] > self.kalman_warmup_samples + self.window_size:
+                features = features[self.kalman_warmup_samples:]
         else:
             # Raw features: SMV + acc + gyro (7 channels)
             smv = compute_smv(acc)

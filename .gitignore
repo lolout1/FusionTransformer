@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 .ipynb_checkpoints/
-
+scripts/
 # Virtual environments
 .venv/
 venv/

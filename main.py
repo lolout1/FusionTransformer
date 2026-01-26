@@ -1498,7 +1498,7 @@ class Trainer():
                         scores_file = f'{self.arg.work_dir}/scores_s{single_fold_subject}.csv'
                     else:
                         scores_file = f'{self.arg.work_dir}/scores.csv'
-                    results.to_csv(scores_file, index=False)
+                    results.to_csv(scores_file, index=False, float_format='%.6f')
 
                     # Enhanced reporting: Save detailed per-fold analysis
                     if self.fold_metrics:
