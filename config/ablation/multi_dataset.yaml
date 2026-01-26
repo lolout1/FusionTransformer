@@ -1,0 +1,80 @@
+# =============================================================================
+# Multi-Dataset Ablation Study
+# =============================================================================
+# Demonstrates per-dataset sweeps with different window sizes per dataset.
+#
+# Each dataset has its own sampling rate:
+#   - SmartFallMM: 30 Hz
+#   - UP-FALL: 18 Hz
+#   - WEDA-FALL: 50 Hz
+#
+# Run:
+#   python -m fusionlib.config.ablation config/ablation/multi_dataset.yaml --dry-run
+#   python -m fusionlib.config.ablation config/ablation/multi_dataset.yaml --num-gpus 8
+# =============================================================================
+
+# Base config is overridden per-dataset
+base: best_config/smartfallmm/kalman.yaml
+
+# Per-dataset configurations
+datasets:
+  # SmartFallMM (30 Hz) - 2s, 3s, 4s windows
+  - dataset: smartfallmm
+    base_config: best_config/smartfallmm/kalman.yaml
+    paired_sweep:
+      - name: window
+        values:
+          - _name: 2s
+            dataset_args.max_length: 60
+            model_args.imu_frames: 60
+            model_args.acc_frames: 60
+          - _name: 3s
+            dataset_args.max_length: 90
+            model_args.imu_frames: 90
+            model_args.acc_frames: 90
+          - _name: 4s
+            dataset_args.max_length: 128
+            model_args.imu_frames: 128
+            model_args.acc_frames: 128
+    sweep:
+      dataset_args.enable_kalman_fusion: [true, false]
+
+  # UP-FALL (18 Hz) - 2s, 4s, 9s windows
+  - dataset: upfall
+    base_config: best_config/upfall/kalman.yaml
+    paired_sweep:
+      - name: window
+        values:
+          - _name: 2s
+            dataset_args.max_length: 36
+            model_args.imu_frames: 36
+            model_args.acc_frames: 36
+          - _name: 4s
+            dataset_args.max_length: 72
+            model_args.imu_frames: 72
+            model_args.acc_frames: 72
+          - _name: 9s
+            dataset_args.max_length: 160
+            model_args.imu_frames: 160
+            model_args.acc_frames: 160
+    sweep:
+      dataset_args.enable_kalman_fusion: [true, false]
+
+  # WEDA-FALL (50 Hz) - 2s window only (fixed to preserve trials)
+  - dataset: wedafall
+    base_config: best_config/wedafall/kalman.yaml
+    paired_sweep:
+      - name: window
+        values:
+          - _name: 2s
+            dataset_args.max_length: 100
+            model_args.imu_frames: 100
+            model_args.acc_frames: 100
+    sweep:
+      dataset_args.enable_kalman_fusion: [true, false]
+
+# Total: SmartFallMM 6 + UP-FALL 6 + WEDA-FALL 2 = 14 experiments
+execution:
+  num_gpus: 8
+  max_folds: null  # Use dataset-specific defaults
+  parallel_experiments: 2

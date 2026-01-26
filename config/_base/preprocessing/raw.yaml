@@ -1,0 +1,9 @@
+# Raw Preprocessing (No Kalman)
+# Uses raw 6-axis IMU data
+dataset_args:
+  enable_kalman_fusion: false
+  enable_normalization: true
+  normalize_modalities: all
+  enable_filtering: false
+  enable_motion_filtering: false
+  convert_gyro_to_rad: true

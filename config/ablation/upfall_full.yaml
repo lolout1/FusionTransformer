@@ -1,0 +1,21 @@
+# UP-FALL Full Ablation Study
+# Run: python -m fusionlib.config.ablation config/ablation/upfall_full.yaml --num-gpus 2
+# Dry run: python -m fusionlib.config.ablation config/ablation/upfall_full.yaml --dry-run
+
+base: best_config/upfall/kalman.yaml
+
+sweep:
+  # Architectures (4)
+  model:
+    - Models.encoder_ablation.KalmanConv1dConv1d
+    - Models.short_window_variants.DeepCNNTransformer
+    - Models.dual_stream_cnn_lstm.DualStreamLSTM
+    - Models.dual_stream_mamba.DualStreamMamba
+
+  # Input types (2)
+  dataset_args.enable_kalman_fusion: [true, false]
+
+execution:
+  num_gpus: 2
+  max_folds: 15
+  parallel_experiments: 1

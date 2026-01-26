@@ -1,0 +1,71 @@
+# =============================================================================
+# Architecture Variants Ablation
+# =============================================================================
+# Demonstrates named variants for explicit architecture configurations.
+#
+# Use variants when you have specific named configs rather than sweeping
+# individual parameters.
+#
+# Run:
+#   python -m fusionlib.config.ablation config/ablation/architecture_variants.yaml --dry-run
+#   python -m fusionlib.config.ablation config/ablation/architecture_variants.yaml --num-gpus 4
+# =============================================================================
+
+base: best_config/upfall/kalman.yaml
+
+# Named variants: explicit configurations instead of cartesian products
+variants:
+  # Transformer with Conv1D encoder (baseline)
+  - name: conv1d_linear_kalman
+    model: Models.encoder_ablation.KalmanConv1dLinear
+    dataset_args.enable_kalman_fusion: true
+
+  - name: conv1d_linear_raw
+    model: Models.encoder_ablation.KalmanConv1dLinear
+    dataset_args.enable_kalman_fusion: false
+
+  # Conv1D for both streams
+  - name: conv1d_conv1d_kalman
+    model: Models.encoder_ablation.KalmanConv1dConv1d
+    dataset_args.enable_kalman_fusion: true
+
+  - name: conv1d_conv1d_raw
+    model: Models.encoder_ablation.KalmanConv1dConv1d
+    dataset_args.enable_kalman_fusion: false
+
+  # LSTM-based
+  - name: lstm_kalman
+    model: Models.dual_stream_cnn_lstm.DualStreamLSTM
+    model_args.num_lstm_layers: 2
+    dataset_args.enable_kalman_fusion: true
+
+  - name: lstm_raw
+    model: Models.dual_stream_cnn_lstm.DualStreamLSTM
+    model_args.num_lstm_layers: 2
+    dataset_args.enable_kalman_fusion: false
+
+  # Mamba (SSM-based)
+  - name: mamba_kalman
+    model: Models.dual_stream_mamba.DualStreamMamba
+    model_args.d_state: 16
+    model_args.d_conv: 4
+    dataset_args.enable_kalman_fusion: true
+
+  # Deep CNN + Transformer
+  - name: deep_cnn_kalman
+    model: Models.short_window_variants.DeepCNNTransformer
+    model_args.cnn_stages: 3
+    model_args.kernel_sizes: [8, 5, 3]
+    dataset_args.enable_kalman_fusion: true
+
+  - name: deep_cnn_raw
+    model: Models.short_window_variants.DeepCNNTransformer
+    model_args.cnn_stages: 3
+    model_args.kernel_sizes: [8, 5, 3]
+    dataset_args.enable_kalman_fusion: false
+
+# Total: 9 explicit configurations
+execution:
+  num_gpus: 4
+  max_folds: 15
+  parallel_experiments: 2

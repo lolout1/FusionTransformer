@@ -1,0 +1,25 @@
+# Kalman Filter Preprocessing
+# Fuses acc + gyro into stable orientation estimates
+dataset_args:
+  enable_kalman_fusion: true
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: true
+  kalman_include_uncertainty: false
+  kalman_include_innovation: false
+  filter_fs: 30.0
+
+  # Noise parameters (tuned for SmartFallMM)
+  kalman_Q_orientation: 0.005
+  kalman_Q_rate: 0.01
+  kalman_R_acc: 0.05
+  kalman_R_gyro: 0.1
+
+  # Normalization
+  enable_normalization: true
+  normalize_modalities: acc_only
+  enable_filtering: false
+  enable_motion_filtering: false
+
+  # Gyro conversion
+  convert_gyro_to_rad: true

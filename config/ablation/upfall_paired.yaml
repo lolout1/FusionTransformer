@@ -1,0 +1,61 @@
+# =============================================================================
+# UP-FALL Paired Sweep Ablation
+# =============================================================================
+# Demonstrates paired_sweep for parameters that must vary together.
+#
+# Run:
+#   python -m fusionlib.config.ablation config/ablation/upfall_paired.yaml --dry-run
+#   python -m fusionlib.config.ablation config/ablation/upfall_paired.yaml --num-gpus 4
+# =============================================================================
+
+base: best_config/upfall/kalman.yaml
+
+# Paired sweeps: parameters that must vary together as a unit
+# These are NOT combined via cartesian product - they move together
+paired_sweep:
+  # Window size configurations (window, model frames must match)
+  - name: window
+    values:
+      - _name: 2s
+        dataset_args.max_length: 36
+        model_args.imu_frames: 36
+        model_args.acc_frames: 36
+      - _name: 3s
+        dataset_args.max_length: 54
+        model_args.imu_frames: 54
+        model_args.acc_frames: 54
+      - _name: 4s
+        dataset_args.max_length: 72
+        model_args.imu_frames: 72
+        model_args.acc_frames: 72
+      - _name: 6s
+        dataset_args.max_length: 108
+        model_args.imu_frames: 108
+        model_args.acc_frames: 108
+      - _name: 9s
+        dataset_args.max_length: 160
+        model_args.imu_frames: 160
+        model_args.acc_frames: 160
+
+  # Stride configurations (fall/adl strides must be paired)
+  - name: stride
+    values:
+      - _name: tight
+        dataset_args.fall_stride: 8
+        dataset_args.adl_stride: 32
+      - _name: default
+        dataset_args.fall_stride: 16
+        dataset_args.adl_stride: 64
+      - _name: balanced
+        dataset_args.fall_stride: 8
+        dataset_args.adl_stride: 44  # 5.5:1 ratio matches ADL/Fall data ratio
+
+# Independent sweeps (combined via cartesian product with paired)
+sweep:
+  dataset_args.enable_kalman_fusion: [true, false]
+
+# Total experiments: 5 windows × 3 strides × 2 inputs = 30 experiments
+execution:
+  num_gpus: 4
+  max_folds: 15
+  parallel_experiments: 2

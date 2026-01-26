@@ -1,0 +1,15 @@
+# WEDA-FALL Dataset
+# 14 subjects, 50Hz Fitbit
+dataset: wedafall
+
+dataset_args:
+  mode: sliding_window
+  max_length: 300
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  sensors: [watch]
+  stride: 50
+  use_skeleton: false
+  enable_class_aware_stride: true
+  fall_stride: 25
+  adl_stride: 100
