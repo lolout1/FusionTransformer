@@ -307,6 +307,20 @@ pre-commit install
 pre-commit run --all-files
 ```
 
+### Git Workflow
+
+```bash
+# Check status
+git status
+
+# Stage and commit
+git add -A
+git commit -m "Description of changes"
+
+# Push to remote
+git push origin <branch-name>
+```
+
 ---
 
 ## Requirements
