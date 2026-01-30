@@ -1,6 +1,6 @@
 # FusionTransformer
 
-[![CI](https://github.com/YOUR_USERNAME/FusionTransformer/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/FusionTransformer/actions/workflows/ci.yml)
+[![CI](https://github.com/lolout1/FusionTransformer/actions/workflows/ci.yml/badge.svg)](https://github.com/lolout1/FusionTransformer/actions/workflows/ci.yml)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch 2.0+](https://img.shields.io/badge/pytorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -39,6 +39,21 @@ All results from Leave-One-Subject-Out (LOSO) cross-validation.
 | SmartFallMM | 88.96% | **91.12%** | **+2.16%** |
 | UP-FALL | 92.64% | **95.18%** | **+2.54%** |
 | WEDA-FALL | 94.64% | **95.41%** | **+0.77%** |
+
+### SmartFallMM Alternative Configurations
+
+Stride × Loss ablation results (2026-01-27). All with `KalmanConv1dConv1d`.
+
+| Stride (fall, ADL) | Loss | Kalman F1 | Raw F1 | Delta |
+|--------------------|------|-----------|--------|-------|
+| (8, 48) | bce | **92.80%** | 93.01% | -0.20 |
+| (8, 64) | focal | 92.77% | 92.82% | -0.05 |
+| (8, 64) | bce | 92.75% | 93.10% | -0.35 |
+| (8, 48) | focal | 92.63% | 92.83% | -0.20 |
+| (8, 40) | focal | 92.57% | 91.78% | +0.79 |
+| (8, 40) | bce | 92.53% | 91.30% | +1.24 |
+
+**Note**: Lower ADL stride (40-48) with BCE loss achieves competitive results.
 
 ---
 
@@ -161,8 +176,8 @@ FusionTransformer/
 ├── fusionlib/                       # Reusable library components
 │
 ├── distributed_dataset_pipeline/    # Ablation study scripts
-│   ├── run_architecture_ablation.py # Multi-architecture comparison
-│   └── run_kalman_vs_raw_ablation.py
+│   ├── run_capacity_ablation.py     # Stream and channel ablation
+│   └── run_stride_loss_input_ablation.py  # Stride × loss × input
 │
 ├── config/                          # Experiment configurations
 │   └── _base/                       # Inheritable base configs
@@ -197,36 +212,40 @@ make train CONFIG=config/best_config/wedafall/kalman.yaml
 make train-resume CONFIG=config/best_config/smartfallmm/kalman.yaml
 ```
 
-### Architecture Ablation
+### Ablation Studies
 
 ```bash
-# Full ablation (all architectures x all datasets x all window sizes)
+# Capacity ablation (stream, channel, embedding)
 make ablation
 
 # Quick ablation (2 folds per config)
 make ablation-quick
+
+# Kalman vs Raw comparison
+make ablation-kalman
 ```
 
 ---
 
 ## Configuration
 
-Configs use YAML with inheritance support:
+Configs use flat YAML format:
 
 ```yaml
 # config/best_config/smartfallmm/kalman.yaml
-_base:
-  - _base/model/transformer_small.yaml
-  - _base/training/default.yaml
-  - _base/kalman/smartfallmm.yaml
+model: Models.encoder_ablation.KalmanConv1dConv1d
 
-model:
-  name: Models.encoder_ablation.KalmanConv1dLinear
+model_args:
+  imu_frames: 128
+  embed_dim: 64
+  num_heads: 4
+  num_layers: 2
 
-dataset:
+dataset_args:
   enable_class_aware_stride: true
-  fall_stride: 16
-  adl_stride: 64
+  fall_stride: 8
+  adl_stride: 32
+  enable_kalman_fusion: true
 ```
 
 ### Key Parameters
