@@ -28,9 +28,9 @@ All results from Leave-One-Subject-Out (LOSO) cross-validation.
 
 | Dataset | Model | Test F1 | Accuracy | Precision | Recall | Config |
 |---------|-------|---------|----------|-----------|--------|--------|
-| **SmartFallMM** | KalmanConv1dConv1d | **91.12%** ± 5.73 | 87.04% | 89.14% | 93.94% | [kalman.yaml](config/best_config/smartfallmm/kalman.yaml) |
-| **UP-FALL** | KalmanConv1dConv1d | **95.18%** | 96.53% | 95.21% | 95.55% | [kalman.yaml](config/best_config/upfall/kalman.yaml) |
-| **WEDA-FALL** | KalmanConv1dConv1d | **95.41%** ± 2.39 | 94.57% | 94.57% | 96.43% | [kalman.yaml](config/best_config/wedafall/kalman.yaml) |
+| **SmartFallMM** | KalmanConv1dConv1d | **91.12%** ± 5.73 | 87.04% | 89.14% | 93.94% | [smartfallmm/kalman.yaml](config/best_config/smartfallmm/kalman.yaml) |
+| **UP-FALL** | KalmanConv1dConv1d | **95.18%** ± 3.26 | 96.53% | 95.21% | 95.55% | [upfall/kalman.yaml](config/best_config/upfall/kalman.yaml) |
+| **WEDA-FALL** | KalmanConv1dConv1d | **95.41%** ± 2.39 | 94.57% | 94.57% | 96.43% | [wedafall/kalman.yaml](config/best_config/wedafall/kalman.yaml) |
 
 ### Dual-Stream + Kalman Improvement
 
