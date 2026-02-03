@@ -1,6 +1,14 @@
 # WEDA-FALL: Optimal Kalman Configuration
-# Best F1: 95.41% ± 2.39% (12 LOSO folds)
-# Key: 5.5s window (275 samples at 50Hz) - largest Kalman advantage (+0.77%)
+# Validated via 12-fold LOSO cross-validation
+#
+# RESULTS:
+#   Test F1:       95.41% ± 2.50
+#   Accuracy:      94.57%
+#   Precision:     92.82%
+#   Recall:        98.22%
+#
+# Model: KalmanConv1dConv1d (Conv1D acc + Conv1D ori + TransformerEncoder)
+# Key: 5.5s window (275 samples at 50Hz)
 # Source: exps/wedafall_elderly_ablation_20260120_160357/runs/kalman_5.5s_d04_e48
 
 model: Models.encoder_ablation.KalmanConv1dConv1d
