@@ -28,9 +28,9 @@ All results from Leave-One-Subject-Out (LOSO) cross-validation.
 
 | Dataset | Model | Test F1 | Accuracy | Precision | Recall | Config |
 |---------|-------|---------|----------|-----------|--------|--------|
-| **SmartFallMM** | KalmanConv1dConv1d | **91.12%** ± 5.73 | 87.04% | 89.14% | 93.94% | [smartfallmm/kalman.yaml](config/best_config/smartfallmm/kalman.yaml) |
-| **UP-FALL** | KalmanConv1dConv1d | **95.18%** ± 3.26 | 96.53% | 95.21% | 95.55% | [upfall/kalman.yaml](config/best_config/upfall/kalman.yaml) |
-| **WEDA-FALL** | KalmanConv1dConv1d | **95.41%** ± 2.39 | 94.57% | 94.57% | 96.43% | [wedafall/kalman.yaml](config/best_config/wedafall/kalman.yaml) |
+| **SmartFallMM** | KalmanConv1dConv1d | **91.65%** ± 5.36 | 87.81% | 89.66% | 94.27% | [kalman_baseline.yaml](config/best_config/smartfallmm/kalman_baseline.yaml) |
+| **UP-FALL** | KalmanConv1dConv1d | **95.61%** ± 4.01 | 96.81% | 95.70% | 95.83% | [upfall/kalman.yaml](config/best_config/upfall/kalman.yaml) |
+| **WEDA-FALL** | KalmanConv1dConv1d | **95.41%** ± 2.50 | 94.57% | 92.82% | 98.22% | [wedafall/kalman.yaml](config/best_config/wedafall/kalman.yaml) |
 
 ### Dual-Stream + Kalman Improvement
 
@@ -81,7 +81,7 @@ make train
 make train-quick
 
 # Custom configuration
-python ray_train.py --config config/best_config/smartfallmm/kalman.yaml --num-gpus 8
+python ray_train.py --config config/best_config/smartfallmm/kalman_baseline.yaml --num-gpus 8
 ```
 
 ### Development
@@ -182,7 +182,7 @@ FusionTransformer/
 
 ```bash
 # SmartFallMM (22 folds, ~2 hours on 8 GPUs)
-make train CONFIG=config/best_config/smartfallmm/kalman.yaml
+make train CONFIG=config/best_config/smartfallmm/kalman_baseline.yaml
 
 # UP-FALL (15 folds)
 make train CONFIG=config/best_config/upfall/kalman.yaml
@@ -194,7 +194,7 @@ make train CONFIG=config/best_config/wedafall/kalman.yaml
 ### Resume Interrupted Training
 
 ```bash
-make train-resume CONFIG=config/best_config/smartfallmm/kalman.yaml
+make train-resume CONFIG=config/best_config/smartfallmm/kalman_baseline.yaml
 ```
 
 ### Ablation Studies
@@ -217,12 +217,12 @@ make ablation-kalman
 Configs use flat YAML format:
 
 ```yaml
-# config/best_config/smartfallmm/kalman.yaml
+# config/best_config/smartfallmm/kalman_baseline.yaml
 model: Models.encoder_ablation.KalmanConv1dConv1d
 
 model_args:
   imu_frames: 128
-  embed_dim: 64
+  embed_dim: 48
   num_heads: 4
   num_layers: 2
 
