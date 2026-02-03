@@ -1,0 +1,58 @@
+# Stride Ablation for SmartFallMM
+# Tests class-aware vs uniform stride configurations
+#
+# Usage:
+#   python -m fusionlib.config.ablation config/experiment/stride_ablation.yaml --dry-run
+#   python -m fusionlib.config.ablation config/experiment/stride_ablation.yaml --num-gpus 4
+#
+# Configurations:
+#   - uniform_10: stride=10 for both classes (no class-aware)
+#   - uniform_16: stride=16 for both classes
+#   - uniform_32: stride=32 for both classes
+#   - class_aware_8_32: fall=8, adl=32 (current best)
+#   - class_aware_16_64: fall=16, adl=64
+#
+# Added: 2026-01-26
+
+base: config/best_config/smartfallmm/kalman.yaml
+
+variants:
+  # Uniform stride (no class-aware)
+  - name: uniform_10
+    dataset_args:
+      enable_class_aware_stride: false
+      stride: 10
+      fall_stride: 10
+      adl_stride: 10
+
+  - name: uniform_16
+    dataset_args:
+      enable_class_aware_stride: false
+      stride: 16
+      fall_stride: 16
+      adl_stride: 16
+
+  - name: uniform_32
+    dataset_args:
+      enable_class_aware_stride: false
+      stride: 32
+      fall_stride: 32
+      adl_stride: 32
+
+  # Class-aware stride
+  - name: class_aware_8_32
+    dataset_args:
+      enable_class_aware_stride: true
+      fall_stride: 8
+      adl_stride: 32
+
+  - name: class_aware_16_64
+    dataset_args:
+      enable_class_aware_stride: true
+      fall_stride: 16
+      adl_stride: 64
+
+execution:
+  num_gpus: 4
+  parallel: 2
+  timeout: 7200

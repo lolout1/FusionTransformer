@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master, moving_average, multi_dataset]
+    branches: [main, master, moving_average, multi_dataset, prod_frameworks]
   pull_request:
     branches: [main, master]
 

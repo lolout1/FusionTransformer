@@ -1,6 +1,6 @@
 # FusionTransformer
 
-[![CI](https://github.com/YOUR_USERNAME/FusionTransformer/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/FusionTransformer/actions/workflows/ci.yml)
+[![CI](https://github.com/lolout1/FusionTransformer/actions/workflows/ci.yml/badge.svg)](https://github.com/lolout1/FusionTransformer/actions/workflows/ci.yml)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch 2.0+](https://img.shields.io/badge/pytorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -28,9 +28,9 @@ All results from Leave-One-Subject-Out (LOSO) cross-validation.
 
 | Dataset | Model | Test F1 | Accuracy | Precision | Recall | Config |
 |---------|-------|---------|----------|-----------|--------|--------|
-| **SmartFallMM** | KalmanConv1dConv1d | **91.12%** ± 5.73 | 87.04% | 89.14% | 93.94% | [kalman.yaml](config/best_config/smartfallmm/kalman.yaml) |
-| **UP-FALL** | KalmanConv1dConv1d | **95.18%** | 96.53% | 95.21% | 95.55% | [kalman.yaml](config/best_config/upfall/kalman.yaml) |
-| **WEDA-FALL** | KalmanConv1dConv1d | **95.41%** ± 2.39 | 94.57% | 94.57% | 96.43% | [kalman.yaml](config/best_config/wedafall/kalman.yaml) |
+| **SmartFallMM** | KalmanConv1dConv1d | **91.65%** ± 5.36 | 87.81% | 89.66% | 94.27% | [kalman_baseline.yaml](config/best_config/smartfallmm/kalman_baseline.yaml) |
+| **UP-FALL** | KalmanConv1dConv1d | **95.61%** ± 4.01 | 96.81% | 95.70% | 95.83% | [upfall/kalman.yaml](config/best_config/upfall/kalman.yaml) |
+| **WEDA-FALL** | KalmanConv1dConv1d | **95.41%** ± 2.50 | 94.57% | 92.82% | 98.22% | [wedafall/kalman.yaml](config/best_config/wedafall/kalman.yaml) |
 
 ### Dual-Stream + Kalman Improvement
 
@@ -81,7 +81,7 @@ make train
 make train-quick
 
 # Custom configuration
-python ray_train.py --config config/best_config/smartfallmm/kalman.yaml --num-gpus 8
+python ray_train.py --config config/best_config/smartfallmm/kalman_baseline.yaml --num-gpus 8
 ```
 
 ### Development
@@ -161,8 +161,8 @@ FusionTransformer/
 ├── fusionlib/                       # Reusable library components
 │
 ├── distributed_dataset_pipeline/    # Ablation study scripts
-│   ├── run_architecture_ablation.py # Multi-architecture comparison
-│   └── run_kalman_vs_raw_ablation.py
+│   ├── run_capacity_ablation.py     # Stream and channel ablation
+│   └── run_stride_loss_input_ablation.py  # Stride × loss × input
 │
 ├── config/                          # Experiment configurations
 │   └── _base/                       # Inheritable base configs
@@ -182,7 +182,7 @@ FusionTransformer/
 
 ```bash
 # SmartFallMM (22 folds, ~2 hours on 8 GPUs)
-make train CONFIG=config/best_config/smartfallmm/kalman.yaml
+make train CONFIG=config/best_config/smartfallmm/kalman_baseline.yaml
 
 # UP-FALL (15 folds)
 make train CONFIG=config/best_config/upfall/kalman.yaml
@@ -194,39 +194,43 @@ make train CONFIG=config/best_config/wedafall/kalman.yaml
 ### Resume Interrupted Training
 
 ```bash
-make train-resume CONFIG=config/best_config/smartfallmm/kalman.yaml
+make train-resume CONFIG=config/best_config/smartfallmm/kalman_baseline.yaml
 ```
 
-### Architecture Ablation
+### Ablation Studies
 
 ```bash
-# Full ablation (all architectures x all datasets x all window sizes)
+# Capacity ablation (stream, channel, embedding)
 make ablation
 
 # Quick ablation (2 folds per config)
 make ablation-quick
+
+# Kalman vs Raw comparison
+make ablation-kalman
 ```
 
 ---
 
 ## Configuration
 
-Configs use YAML with inheritance support:
+Configs use flat YAML format:
 
 ```yaml
-# config/best_config/smartfallmm/kalman.yaml
-_base:
-  - _base/model/transformer_small.yaml
-  - _base/training/default.yaml
-  - _base/kalman/smartfallmm.yaml
+# config/best_config/smartfallmm/kalman_baseline.yaml
+model: Models.encoder_ablation.KalmanConv1dConv1d
 
-model:
-  name: Models.encoder_ablation.KalmanConv1dLinear
+model_args:
+  imu_frames: 128
+  embed_dim: 48
+  num_heads: 4
+  num_layers: 2
 
-dataset:
+dataset_args:
   enable_class_aware_stride: true
-  fall_stride: 16
-  adl_stride: 64
+  fall_stride: 8
+  adl_stride: 32
+  enable_kalman_fusion: true
 ```
 
 ### Key Parameters
@@ -286,6 +290,20 @@ pre-commit install
 
 # Run on all files
 pre-commit run --all-files
+```
+
+### Git Workflow
+
+```bash
+# Check status
+git status
+
+# Stage and commit
+git add -A
+git commit -m "Description of changes"
+
+# Push to remote
+git push origin <branch-name>
 ```
 
 ---

@@ -1,0 +1,20 @@
+# Uniform Stride Preprocessing
+# Disables class-aware stride, uses same stride for all classes
+#
+# Usage (compose with dataset):
+#   _base:
+#     - _base/dataset/smartfallmm.yaml
+#     - _base/preprocessing/uniform_stride.yaml
+#
+# Override stride value in your config:
+#   dataset_args:
+#     stride: 10  # or 16, 32, etc.
+#
+# Added: 2026-01-26
+
+dataset_args:
+  enable_class_aware_stride: false
+  # Default stride (override in experiment config)
+  stride: 16
+  fall_stride: 16
+  adl_stride: 16

@@ -1,0 +1,88 @@
+# SmartFallMM: Kalman Conv1d+Conv1d with uniform stride=10
+# Based on best config (91.12% F1) but with uniform stride instead of class-aware
+#
+# Changes from kalman.yaml:
+#   - enable_class_aware_stride: false
+#   - stride: 10 (uniform for both fall and ADL)
+#
+# Added: 2026-01-26
+
+model: Models.encoder_ablation.KalmanConv1dConv1d
+dataset: smartfallmm
+
+subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29,30,31,32,34,35,36,37,38,39,43,44,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+validation_subjects: [48, 57]
+train_only_subjects: [2,3,4,5,6,7,9,10,11,13,14,15,16,17,18,19,21,22,23,25,26,29,30,32,35,39,59]
+
+model_args:
+  imu_frames: 128
+  imu_channels: 7
+  acc_frames: 128
+  acc_coords: 7
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  activation: relu
+  norm_first: true
+  se_reduction: 4
+  acc_ratio: 0.65
+
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  age_group: [young, old]
+  sensors: [watch]
+  use_skeleton: false
+  loss_type: focal
+
+  # Uniform stride (no class-aware)
+  enable_class_aware_stride: false
+  stride: 10
+  fall_stride: 10
+  adl_stride: 10
+
+  enable_normalization: true
+  normalize_modalities: acc_only
+  enable_filtering: false
+  enable_motion_filtering: false
+
+  convert_gyro_to_rad: true
+  enable_simple_truncation: true
+  max_truncation_diff: 50
+  discard_mismatched_modalities: false
+  length_sensitive_modalities: [accelerometer, gyroscope]
+
+  enable_kalman_fusion: true
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: true
+  kalman_include_uncertainty: false
+  kalman_include_innovation: false
+  filter_fs: 30.0
+
+  kalman_Q_orientation: 0.005
+  kalman_Q_rate: 0.01
+  kalman_R_acc: 0.05
+  kalman_R_gyro: 0.1
+
+batch_size: 64
+test_batch_size: 64
+val_batch_size: 64
+num_epoch: 80
+
+feeder: Feeder.Make_Dataset.UTD_mm
+train_feeder_args:
+  batch_size: 64
+val_feeder_args:
+  batch_size: 64
+test_feeder_args:
+  batch_size: 64
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001

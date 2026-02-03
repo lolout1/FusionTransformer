@@ -1,79 +1,79 @@
-dataset: upfall
-feeder: Feeder.upfall_dataset.UPFallDataset
+# UP-FALL: Optimal Kalman Configuration
+# Validated via 15-fold LOSO cross-validation
+#
+# RESULTS:
+#   Test F1:       95.61% ± 4.01
+#   Accuracy:      96.81%
+#   Precision:     95.70%
+#   Recall:        95.83%
+#
+# Model: KalmanConv1dConv1d (Conv1D acc + Conv1D ori + TransformerEncoder)
+# Key: Tight stride (5/20), embed_dim=64
+# Source: exps/upfall_ekf_20260126_015642/runs/conv1d_default_very_tight_kalman_euler
+
 model: Models.encoder_ablation.KalmanConv1dConv1d
+dataset: upfall
+
+subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,17]
+validation_subjects: [15, 16]
+
+model_args:
+  imu_frames: 160
+  imu_channels: 7
+  acc_frames: 160
+  acc_coords: 7
+  num_classes: 1
+  num_heads: 4
+  num_layers: 2
+  embed_dim: 64
+  dropout: 0.5
+  use_se: true
+  se_reduction: 4
+  acc_ratio: 0.65
+
+dataset_args:
+  base_path: other_datasets/UP-Fall/UP-Fall_Dataset
+  frequency: 18Hz
+  mode: sliding_window
+  max_length: 160
+  task: fd
+  modalities: [accelerometer, gyroscope]
+  sensors: [wrist]
+  use_skeleton: false
+  loss_type: focal
+
+  enable_normalization: true
+  normalize_modalities: acc_only
+  enable_filtering: false
+  convert_gyro_to_rad: true
+
+  enable_class_aware_stride: true
+  fall_stride: 5
+  adl_stride: 20
+
+  enable_kalman_fusion: true
+  kalman_filter_type: linear
+  kalman_output_format: euler
+  kalman_include_smv: true
+  kalman_Q_orientation: 0.032
+  kalman_Q_rate: 0.08
+  kalman_R_acc: 0.15
+  kalman_R_gyro: 0.18
+
 batch_size: 64
 test_batch_size: 64
 val_batch_size: 64
 num_epoch: 80
-optimizer: adamw
-base_lr: 0.001
-weight_decay: 0.001
-seed: 2
-subjects:
-- 1
-- 2
-- 3
-- 4
-- 5
-- 6
-- 7
-- 8
-- 9
-- 10
-- 11
-- 12
-- 13
-- 14
-- 17
-validation_subjects:
-- 15
-- 16
+
+feeder: Feeder.upfall_dataset.UPFallDataset
 train_feeder_args:
   batch_size: 64
 val_feeder_args:
   batch_size: 64
 test_feeder_args:
   batch_size: 64
-dataset_args:
-  base_path: other_datasets/UP-Fall/UP-Fall_Dataset
-  mode: sliding_window
-  task: fd
-  modalities:
-  - accelerometer
-  - gyroscope
-  sensors:
-  - wrist
-  frequency: 18Hz
-  use_skeleton: false
-  max_length: 160
-  enable_normalization: true
-  normalize_modalities: acc_only
-  enable_filtering: false
-  convert_gyro_to_rad: true
-  enable_class_aware_stride: true
-  fall_stride: 8
-  adl_stride: 32
-  loss_type: focal
-  enable_kalman_fusion: true
-  kalman_filter_type: linear
-  kalman_output_format: euler
-  kalman_include_smv: true
-  kalman_Q_orientation: 0.0115
-  kalman_Q_rate: 0.0257
-  kalman_R_acc: 0.1312
-  kalman_R_gyro: 0.1074
-model_args:
-  num_classes: 1
-  imu_frames: 160
-  acc_frames: 160
-  imu_channels: 7
-  acc_coords: 7
-  embed_dim: 48
-  num_heads: 4
-  num_layers: 2
-  dropout: 0.5
-  use_se: true
-  se_reduction: 4
-  acc_ratio: 0.65
-## UP-FALL Kalman Conv1dConv1d (embed=48, heads=4)
-# Source: exps/upfall_embed_ablation_20260126_023133
+
+seed: 2
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001
