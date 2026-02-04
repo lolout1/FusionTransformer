@@ -94,7 +94,175 @@ Inference requests are transmitted as compact binary messages to minimize latenc
 ## Running the Server
 
 ```bash
-python KalmanFusionServer/server_kalman_transformer_nats.py
+# Default config
+python KalmanFusionServer/server.py
+
+# Specific config
+python KalmanFusionServer/server.py --config KalmanFusionServer/configs/s8_16_kalman_gyromag_norm.yaml
+```
+
+---
+
+## Testing & Analysis Framework
+
+Standalone offline testing platform for evaluating fall detection models using pre-collected data.
+
+**Location:** `FusionTransformer/testing/` (requires FusionTransformer repo)
+
+### Features
+
+- **Exact server replication**: Same preprocessing pipeline as production
+- **Multiple interfaces**: Streamlit web UI, CLI, Python API
+- **Comprehensive metrics**: F1, precision, recall, ROC-AUC, PR-AUC, confusion matrix
+- **Alpha queue simulation**: Replicates watch-side decision logic
+- **Error analysis**: FN/FP breakdown, per-subject analysis
+- **Interactive visualization**: Signal plots, probability distributions
+
+### Quick Start
+
+#### Web Interface (Streamlit)
+
+```bash
+# From FusionTransformer root
+streamlit run testing/app/main.py --server.address 0.0.0.0 --server.port 8501
+
+# Access via browser
+# Local: http://localhost:8501
+# Remote (VPN): http://<server-ip>:8501
+```
+
+#### CLI
+
+```bash
+# Run single config
+python -m testing.cli run \
+    --config KalmanFusionServer/configs/s8_16_kalman_gyromag_norm.yaml \
+    --data KalmanFusionServer/logs/prediction-data-couchbase.json
+
+# Compare multiple configs
+python -m testing.cli compare \
+    --configs "KalmanFusionServer/configs/*.yaml" \
+    --data KalmanFusionServer/logs/prediction-data-couchbase.json
+
+# Launch web app
+python -m testing.cli app --port 8501
+```
+
+#### Python API
+
+```python
+from testing.services import InferenceService, AnalysisService
+from testing.services.inference_service import DataLoadRequest, InferenceRequest
+
+# Load data
+svc = InferenceService()
+data = svc.load_data(DataLoadRequest(path="data.json"))
+
+# Run inference
+predictions = svc.run_inference(InferenceRequest(
+    windows=data.windows,
+    config_path="config.yaml",
+    threshold=0.5
+))
+
+# Analyze
+analysis = AnalysisService().analyze(AnalysisRequest(
+    predictions=predictions.predictions,
+    windows=data.windows
+))
+print(f"F1: {analysis.metrics['f1']:.4f}")
+```
+
+### Web UI Dashboard
+
+The Streamlit interface provides dropdown selectors for configuration:
+
+| Selector | Options |
+|----------|---------|
+| **Preprocessing** | kalman_gyromag (7ch), kalman_yaw (7ch), raw_gyro (7ch), raw_gyromag (5ch) |
+| **Normalization** | norm (acc_only), nonorm |
+| **Stride** | s8_16 (8/16), s16_32 (16/32) |
+
+Config files are built from selections: `{stride}_{preprocessing}_{normalization}.yaml`
+
+**Analysis Options:**
+- Metrics (F1, Precision, Recall, Accuracy, Specificity)
+- Confusion Matrix
+- ROC Curve
+- PR Curve
+- Threshold Sweep
+- Error Analysis (FN/FP breakdown)
+
+### Architecture
+
+```
+testing/
+├── data/           # Data loading and schema
+├── analysis/       # Metrics and error analysis
+├── inference/      # Pipeline and alpha queue simulation
+├── visualization/  # Plotly charts
+├── services/       # Framework-agnostic business logic
+├── app/            # Streamlit web app
+│   └── pages/      # Dashboard, Compare, Errors, Signals
+├── api/            # FastAPI endpoints (future)
+└── cli.py          # Command-line interface
+```
+
+**Service Layer Design:**
+
+```
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│  Streamlit  │  │   FastAPI   │  │     CLI     │
+└──────┬──────┘  └──────┬──────┘  └──────┬──────┘
+       │                │                │
+       └────────────────┼────────────────┘
+                        │
+              ┌─────────▼─────────┐
+              │   Service Layer   │
+              │ (InferenceService │
+              │  AnalysisService) │
+              └─────────┬─────────┘
+                        │
+       ┌────────────────┼────────────────┐
+       │                │                │
+┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
+│    Data     │  │  Analysis   │  │  Inference  │
+│   Loaders   │  │   Metrics   │  │  Pipeline   │
+└─────────────┘  └─────────────┘  └─────────────┘
+```
+
+### Alpha Queue Simulation
+
+Replicates watch-side decision logic:
+
+1. Beta queue: 128 frames → 1 window prediction
+2. Alpha queue: Collect 10 predictions
+3. Average probability > 0.5 → FALL (flush queue)
+4. Average probability ≤ 0.5 → ADL (retain last 5)
+
+### Remote Access
+
+**Via VPN:**
+```bash
+streamlit run testing/app/main.py --server.address 0.0.0.0
+# Access: http://<server-ip>:8501
+```
+
+**Via SSH Tunnel:**
+```bash
+ssh -L 8501:localhost:8501 user@server
+# Access: http://localhost:8501
+```
+
+### Dependencies
+
+```
+streamlit>=1.30.0
+plotly>=5.18.0
+pandas>=2.0.0
+numpy
+scikit-learn>=1.3.0
+torch>=2.0.0
 ```
 
 ## NATS Configuration
