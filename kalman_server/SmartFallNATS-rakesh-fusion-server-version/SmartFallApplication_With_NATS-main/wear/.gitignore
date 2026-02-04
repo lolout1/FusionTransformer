@@ -1,0 +1,62 @@
+# Built application files
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+# Generated files
+bin/
+gen/
+out/
+build/
+# Local configuration file (SDK path, etc.)
+local.properties
+# Log files
+*.log
+# Android Studio captures folder
+captures/
+
+# Gradle
+.gradle/
+# Gradle wrapper files
+!gradle-wrapper.jar
+.gradletasknamecache
+gradle-app.setting
+
+# IntelliJ/Android Studio files
+# The .idea/ folder itself is ignored, but some specific files
+# within are tracked to ensure a consistent project setup for all developers.
+.idea/
+.idea/caches/
+.idea/codeStyles/
+.idea/compiler.xml
+.idea/deploymentTargetDropDown.xml
+.idea/dynamic.xml
+.idea/gradle.xml
+.idea/inspectionProfiles/
+.idea/jarRepositories.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/navEditor.xml
+.idea/render.experimental.xml
+.idea/resourceChoosers.xml
+.idea/vcs.xml
+.idea/workspace.xml
+.idea/*.xml
+*.iml
+.project
+.settings/*
+
+# External native build files (used for C/C++ projects)
+.externalNativeBuild/
+.cxx/
+
+# Test and coverage report files
+**/test-results/
+**/jacoco.exec
+
+# OS-specific generated files
+# macOS
+.DS_Store
+# Windows
+Thumbs.db

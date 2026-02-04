@@ -1,0 +1,39 @@
+# s16_32_raw_gyro_nonorm - Stride s16_32
+# Architecture: SingleStreamTransformerSE
+# Input: Raw Gyro - 7ch
+# Normalization: No normalization
+
+nats_url: "nats://localhost:4222"
+subject_pattern: "m.kalman_transformer.*"
+default_fs_hz: 31.25
+window_size: 128
+
+preprocessing:
+  feature_mode: raw
+  normalization_mode: none
+  scaler_path: null
+  convert_gyro_to_rad: true
+
+kalman:
+  filter_type: linear
+  Q_orientation: 0.005
+  Q_rate: 0.01
+  R_acc: 0.05
+  R_gyro: 0.1
+
+state:
+  timeout_ms: 10000
+  cache_ttl_ms: 60000
+  enable_incremental: false
+
+model:
+  architecture: SingleStreamTransformerSE
+  weights_path: weights/s16_32_raw_gyro_nonorm.pth
+  device: cpu
+  model_args:
+    imu_frames: 128
+    imu_channels: 7
+    embed_dim: 48
+    acc_ratio: 0.65
+    num_heads: 4
+    num_layers: 2

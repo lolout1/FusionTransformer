@@ -1,0 +1,36 @@
+# Default server configuration
+# Matches current hardcoded behavior for backwards compatibility
+
+nats_url: "nats://localhost:4222"
+subject_pattern: "m.kalman_transformer.*"
+default_fs_hz: 30.0
+window_size: 128
+
+kalman:
+  filter_type: linear
+  Q_orientation: 0.005
+  Q_rate: 0.01
+  R_acc: 0.05
+  R_gyro: 0.1
+
+preprocessing:
+  feature_mode: kalman           # kalman, kalman_gyro_mag, raw, acc_only
+  normalization_mode: acc_only   # none, all, acc_only
+  scaler_path: weights/acc_scaler.pkl
+  convert_gyro_to_rad: true
+
+state:
+  timeout_ms: 10000              # Reset Kalman after 10s gap
+  cache_ttl_ms: 60000            # Cleanup inactive sessions after 60s
+  enable_incremental: true       # Use orientation caching for overlapping windows
+
+model:
+  weights_path: weights/best_model.pth
+  device: cpu
+  model_args:
+    imu_frames: 128
+    imu_channels: 7
+    embed_dim: 64
+    acc_ratio: 0.5
+    num_heads: 4
+    num_layers: 2

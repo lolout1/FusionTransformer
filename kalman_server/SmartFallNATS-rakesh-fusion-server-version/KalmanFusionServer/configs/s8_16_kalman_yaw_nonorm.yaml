@@ -1,0 +1,40 @@
+# s8_16_kalman_yaw_nonorm - F1: 87.30% +/- 12.81
+# Best fold: S45 (100%), Trained: 2026-02-04
+# Architecture: KalmanConv1dConv1d (dual-stream)
+# Input: Kalman fusion with yaw [smv, ax, ay, az, roll, pitch, yaw]
+# No normalization
+
+nats_url: "nats://localhost:4222"
+subject_pattern: "m.kalman_transformer.*"
+default_fs_hz: 31.25
+window_size: 128
+
+preprocessing:
+  feature_mode: kalman
+  normalization_mode: none
+  scaler_path: null
+  convert_gyro_to_rad: true
+
+kalman:
+  filter_type: linear
+  Q_orientation: 0.005
+  Q_rate: 0.01
+  R_acc: 0.05
+  R_gyro: 0.1
+
+state:
+  timeout_ms: 10000
+  cache_ttl_ms: 60000
+  enable_incremental: true
+
+model:
+  architecture: KalmanConv1dConv1d
+  weights_path: weights/s8_16_kalman_yaw_nonorm.pth
+  device: cpu
+  model_args:
+    imu_frames: 128
+    imu_channels: 7
+    embed_dim: 48
+    acc_ratio: 0.65
+    num_heads: 4
+    num_layers: 2

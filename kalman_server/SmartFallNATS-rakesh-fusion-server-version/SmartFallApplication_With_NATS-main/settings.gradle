@@ -1,0 +1,4 @@
+rootProject.name = "SmartFall Multi-Model Watch-nats"
+include ':app'
+//include ':BluetoothLe'
+include ':wear'
