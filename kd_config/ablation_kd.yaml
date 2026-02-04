@@ -1,0 +1,38 @@
+# KD Ablation Configuration
+# Tests different KD loss combinations
+
+base: kd_config/student_kd.yaml
+
+sweep:
+  # Ablate KD loss components
+  - name: baseline_no_kd
+    kd.enabled: false
+
+  - name: emb_only
+    kd.enabled: true
+    kd.losses.embedding.enabled: true
+    kd.losses.gram.enabled: false
+    kd.losses.comodo.enabled: false
+
+  - name: emb_gram
+    kd.enabled: true
+    kd.losses.embedding.enabled: true
+    kd.losses.gram.enabled: true
+    kd.losses.comodo.enabled: false
+
+  - name: emb_gram_comodo
+    kd.enabled: true
+    kd.losses.embedding.enabled: true
+    kd.losses.gram.enabled: true
+    kd.losses.comodo.enabled: true
+
+  - name: emb_comodo
+    kd.enabled: true
+    kd.losses.embedding.enabled: true
+    kd.losses.gram.enabled: false
+    kd.losses.comodo.enabled: true
+
+execution:
+  num_gpus: 4
+  parallel_experiments: 2
+  max_folds: null  # Run all folds

@@ -1,0 +1,106 @@
+# Student configuration: IMU with KD from skeleton teacher
+# Use this after pretraining teacher
+
+model: kd.resampler.TimestampAwareStudent
+model_args:
+  input_dim: 6  # acc (3) + gyro (3)
+  embed_dim: 48
+  num_tokens: 64
+  num_heads: 4
+  num_layers: 2
+  dropout: 0.5
+  se_reduction: 4
+
+dataset: smartfallmm
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  enable_skeleton: true  # Load skeleton for teacher
+  use_skeleton: false    # But don't use for student
+  sensors: [watch]
+  modalities: [accelerometer, gyroscope, skeleton]
+
+  # Windowing
+  enable_class_aware_stride: true
+  fall_stride: 16
+  adl_stride: 64
+
+  # No Kalman - use raw for timestamp-aware model
+  enable_kalman_fusion: false
+  enable_normalization: true
+  normalize_modalities: acc_only
+
+# Training
+batch_size: 64
+num_epoch: 80
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001
+
+# KD Configuration
+kd:
+  enabled: true
+  teacher_type: skeleton  # or 'joint'
+  teacher_weights: work_dir/teacher_skeleton/best_model.pth
+
+  teacher_args:
+    embed_dim: 64
+    num_heads: 4
+    num_layers: 2
+
+  student_args:
+    num_tokens: 64
+    use_time_features: true
+
+  # Loss weights
+  task_weight: 1.0
+  task_loss: focal
+
+  losses:
+    embedding:
+      enabled: true
+      weight: 1.0
+
+    gram:
+      enabled: true
+      weight: 0.5
+
+    comodo:
+      enabled: true
+      weight: 0.5
+      queue_size: 4096
+      tau_T: 0.07
+      tau_S: 0.1
+
+# Subjects (young only)
+multimodal_subjects:
+  - 29
+  - 30
+  - 31
+  - 32
+  - 34
+  - 35
+  - 36
+  - 37
+  - 38
+  - 39
+  - 43
+  - 44
+  - 45
+  - 46
+  - 48
+  - 49
+  - 50
+  - 51
+  - 52
+  - 53
+  - 54
+  - 55
+  - 56
+  - 57
+  - 58
+  - 59
+  - 60
+  - 61
+  - 62
+  - 63

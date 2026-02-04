@@ -1,0 +1,73 @@
+# Teacher configuration: Skeleton-only
+# Use this to pretrain teacher on skeleton data before KD
+
+model: kd.skeleton_encoder.SkeletonTransformer
+model_args:
+  num_joints: 32
+  coords_per_joint: 3
+  embed_dim: 64
+  num_heads: 4
+  num_layers: 2
+  dropout: 0.5
+  se_reduction: 4
+  use_joint_tokens: false
+
+dataset: smartfallmm
+dataset_args:
+  mode: sliding_window
+  max_length: 128
+  enable_skeleton: true
+  use_skeleton: true
+  sensors: [watch]
+  modalities: [skeleton]
+
+  # Windowing
+  enable_class_aware_stride: true
+  fall_stride: 16
+  adl_stride: 64
+
+  # No Kalman for skeleton
+  enable_kalman_fusion: false
+
+# Training
+batch_size: 64
+num_epoch: 80
+optimizer: adamw
+base_lr: 0.001
+weight_decay: 0.001
+
+# Loss
+loss_type: focal
+
+# Subjects (young only - have skeleton + falls)
+multimodal_subjects:
+  - 29
+  - 30
+  - 31
+  - 32
+  - 34
+  - 35
+  - 36
+  - 37
+  - 38
+  - 39
+  - 43
+  - 44
+  - 45
+  - 46
+  - 48
+  - 49
+  - 50
+  - 51
+  - 52
+  - 53
+  - 54
+  - 55
+  - 56
+  - 57
+  - 58
+  - 59
+  - 60
+  - 61
+  - 62
+  - 63
