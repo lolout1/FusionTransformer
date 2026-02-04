@@ -4,6 +4,8 @@ from .schema import (
     PreprocessingConfig,
     StateConfig,
     ModelConfig,
+    FeatureMode,
+    NormalizationMode,
     load_config,
 )
 
@@ -13,5 +15,7 @@ __all__ = [
     "PreprocessingConfig",
     "StateConfig",
     "ModelConfig",
+    "FeatureMode",
+    "NormalizationMode",
     "load_config",
 ]

@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 import numpy as np
 
-from ..config import ServerConfig, FeatureMode, NormalizationMode
+from config import ServerConfig, FeatureMode, NormalizationMode
 from .base import FeatureExtractor, Normalizer, KalmanFilterProtocol
 from .registry import FEATURE_EXTRACTORS, NORMALIZERS, KALMAN_FILTERS
 from .state import UserStateManager
