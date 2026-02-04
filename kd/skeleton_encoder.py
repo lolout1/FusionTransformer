@@ -6,7 +6,7 @@ a transformer architecture.
 """
 
 import math
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -184,15 +184,18 @@ class SkeletonTransformer(nn.Module):
         self,
         skeleton: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        return_attention: bool = False,
+    ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]]:
         """
         Args:
             skeleton: (B, T, 96) skeleton sequence
             mask: (B, T) True for valid frames
+            return_attention: If True, return attention weights for KD
 
         Returns:
             logits: (B, 1)
             features: (B, embed_dim) pooled features for KD
+            attention: (optional) Dict with 'pool': (B, T) attention weights
         """
         # Joint embedding
         x = self.joint_embed(skeleton)  # (B, T, embed_dim)
@@ -214,11 +217,16 @@ class SkeletonTransformer(nn.Module):
         x = self.se(x)  # (B, T, embed_dim)
 
         # Temporal pooling
-        features = self.pool(x)  # (B, embed_dim)
+        if return_attention:
+            features, pool_attn = self.pool(x, return_weights=True)
+        else:
+            features = self.pool(x)  # (B, embed_dim)
 
         # Classification
         logits = self.classifier(features)  # (B, 1)
 
+        if return_attention:
+            return logits, features, {'pool': pool_attn}
         return logits, features
 
     def get_tokens(
@@ -297,11 +305,26 @@ class TemporalAttentionPooling(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, return_weights: bool = False
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         # x: (B, T, C)
+        B, T, C = x.shape
+
+        # Handle empty sequence
+        if T == 0:
+            pooled = torch.zeros(B, C, device=x.device, dtype=x.dtype)
+            if return_weights:
+                return pooled, torch.zeros(B, 0, device=x.device)
+            return pooled
+
         attn_scores = self.attention(x)  # (B, T, 1)
         attn_weights = F.softmax(attn_scores, dim=1)  # (B, T, 1)
-        return (x * attn_weights).sum(dim=1)  # (B, C)
+        pooled = (x * attn_weights).sum(dim=1)  # (B, C)
+
+        if return_weights:
+            return pooled, attn_weights.squeeze(-1)  # (B, C), (B, T)
+        return pooled
 
 
 class JointSkeletonIMUTeacher(nn.Module):

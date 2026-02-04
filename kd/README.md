@@ -27,6 +27,7 @@ Knowledge distillation from skeleton teacher to IMU student, with alignment-free
 │  │  - EmbeddingKDLoss (cosine)         │◄────┐              │
 │  │  - GramKDLoss (structural)          │     │              │
 │  │  - COMODOLoss (distribution)        │     │              │
+│  │  - AttentionKDLoss (temporal) ◄New  │     │              │
 │  └─────────────────────────────────────┘     │              │
 │                                              │              │
 │  IMU Data (6ch: acc + gyro)                  │              │
@@ -53,7 +54,7 @@ Knowledge distillation from skeleton teacher to IMU student, with alignment-free
 |------|-------------|
 | `skeleton_encoder.py` | SkeletonTransformer teacher model |
 | `resampler.py` | EventTokenResampler + TimestampAwareStudent |
-| `losses.py` | KD losses (Embedding, Gram, COMODO) |
+| `losses.py` | KD losses (Embedding, Gram, COMODO, Attention) |
 | `trainer.py` | KDTrainer for joint training |
 | `data_loader.py` | SmartFallMM data loading with timestamps |
 | `stress_test.py` | Timestamp perturbation utilities |
@@ -98,6 +99,37 @@ Drift-invariant time features:
 - `delta_t`: time since previous event
 - `log(1 + delta_t)`: compressed gap representation
 - `tau`: normalized position in [0, 1]
+
+## AttentionKDLoss (2026-02-04)
+
+Distills temporal attention patterns from teacher to student:
+
+```python
+# Teacher focuses on critical frames → student learns where to focus
+from kd.losses import AttentionKDLoss
+
+loss_fn = AttentionKDLoss(
+    attention_type='pool',  # TemporalAttentionPooling weights
+    loss_type='kl',         # KL divergence (also: mse, js)
+    temperature=1.0,        # Higher = softer distribution
+)
+
+# Handles dimension mismatch via adaptive pooling
+student_attn = {'pool': torch.randn(B, 64)}   # L_student = 64
+teacher_attn = {'pool': torch.randn(B, 128)}  # L_teacher = 128
+loss = loss_fn(student_attn, teacher_attn)    # Works!
+```
+
+Usage with CLI:
+```bash
+python kd/run_student_training.py --mode kd \
+    --attention-kd \
+    --attention-type pool \
+    --attention-weight 0.5 \
+    --attention-loss kl \
+    --teacher-weights exps/teacher/best.pth \
+    --data-root data
+```
 
 ## Configuration
 

@@ -828,11 +828,17 @@ def run_stress_tests(
     epochs: int = 30,
     device: str = 'cuda',
 ) -> Dict:
-    """Run full stress test comparison between EventTokenResampler and baseline."""
+    """Run full stress test comparison between time modes and baseline."""
     from kd.resampler import TimestampAwareStudent
 
     print('=' * 60)
-    print('STRESS TEST: EventTokenResampler vs Fixed-Rate Baseline')
+    print('STRESS TEST: Time Modes Comparison')
+    print('=' * 60)
+    print('Modes:')
+    print('  - position: Ignore timestamps, use sequence position')
+    print('  - timestamps: Use raw timestamps (may be noisy)')
+    print('  - cleaned: Clip gaps, handle duplicates')
+    print('  - baseline: Fixed-rate interpolation (no resampler)')
     print('=' * 60)
 
     # Create datasets
@@ -866,71 +872,93 @@ def run_stress_tests(
         StressTestConfig('warp_20pct', 'warp', 0.2, '20% time warp'),
     ]
 
-    results = {'resampler': {}, 'baseline': {}}
+    # Test configurations: different time modes + baseline
+    model_configs = [
+        ('position', 'Resampler (position-only)', {'time_mode': 'position'}),
+        ('timestamps', 'Resampler (raw timestamps)', {'time_mode': 'timestamps'}),
+        ('cleaned', 'Resampler (cleaned timestamps)', {'time_mode': 'cleaned'}),
+        ('baseline', 'Fixed-Rate Baseline', {}),
+    ]
 
-    # Train and evaluate EventTokenResampler model
-    print('\n' + '-' * 40)
-    print('Training EventTokenResampler model...')
-    print('-' * 40)
-    resampler_model = TimestampAwareStudent(
-        input_dim=6, embed_dim=48, num_tokens=64,
-        num_heads=4, num_layers=2, dropout=0.3
-    )
-    resampler_model, train_info = train_model(
-        resampler_model, train_loader, test_loader,
-        epochs=epochs, device=device
-    )
-    print(f'Training complete. Best val F1: {train_info["best_val_f1"]:.1f}%')
+    results = {}
 
-    print('\nEvaluating under stress conditions...')
-    for config in stress_configs:
-        metrics = evaluate_model(resampler_model, test_loader, config, device)
-        results['resampler'][config.name] = metrics
-        print(f'  {config.name}: F1={metrics["f1"]:.1f}%')
+    for model_key, model_name, model_kwargs in model_configs:
+        print('\n' + '-' * 40)
+        print(f'Training {model_name}...')
+        print('-' * 40)
 
-    # Train and evaluate baseline model
-    print('\n' + '-' * 40)
-    print('Training Fixed-Rate Baseline model...')
-    print('-' * 40)
-    baseline_model = FixedRateStudent(
-        input_dim=6, embed_dim=48, num_tokens=64,
-        num_heads=4, num_layers=2, dropout=0.3
-    )
-    baseline_model, train_info = train_model(
-        baseline_model, train_loader, test_loader,
-        epochs=epochs, device=device
-    )
-    print(f'Training complete. Best val F1: {train_info["best_val_f1"]:.1f}%')
+        if model_key == 'baseline':
+            model = FixedRateStudent(
+                input_dim=6, embed_dim=48, num_tokens=64,
+                num_heads=4, num_layers=2, dropout=0.3
+            )
+        else:
+            model = TimestampAwareStudent(
+                input_dim=6, embed_dim=48, num_tokens=64,
+                num_heads=4, num_layers=2, dropout=0.3,
+                **model_kwargs
+            )
 
-    print('\nEvaluating under stress conditions...')
-    for config in stress_configs:
-        metrics = evaluate_model(baseline_model, test_loader, config, device)
-        results['baseline'][config.name] = metrics
-        print(f'  {config.name}: F1={metrics["f1"]:.1f}%')
+        model, train_info = train_model(
+            model, train_loader, test_loader,
+            epochs=epochs, device=device
+        )
+        print(f'Training complete. Best val F1: {train_info["best_val_f1"]:.1f}%')
+
+        print('\nEvaluating under stress conditions...')
+        results[model_key] = {}
+        for config in stress_configs:
+            metrics = evaluate_model(model, test_loader, config, device)
+            results[model_key][config.name] = metrics
+            print(f'  {config.name}: F1={metrics["f1"]:.1f}%')
 
     return results
 
 
 def print_comparison_table(results: Dict):
     """Print formatted comparison table."""
-    print('\n' + '=' * 70)
-    print('COMPARISON: EventTokenResampler vs Fixed-Rate Baseline')
-    print('=' * 70)
-    print(f'{"Condition":<20} {"Resampler F1":>15} {"Baseline F1":>15} {"Delta":>10}')
-    print('-' * 70)
+    models = list(results.keys())
+    conditions = list(results[models[0]].keys())
 
-    for name in results['resampler']:
-        r_f1 = results['resampler'][name]['f1']
-        b_f1 = results['baseline'][name]['f1']
-        delta = r_f1 - b_f1
-        delta_str = f'+{delta:.1f}' if delta > 0 else f'{delta:.1f}'
-        print(f'{name:<20} {r_f1:>14.1f}% {b_f1:>14.1f}% {delta_str:>10}%')
+    print('\n' + '=' * 90)
+    print('COMPARISON: Time Mode Variants')
+    print('=' * 90)
+
+    # Header
+    header = f'{"Condition":<18}'
+    for m in models:
+        header += f' {m:>12}'
+    print(header)
+    print('-' * 90)
+
+    # Results per condition
+    for cond in conditions:
+        row = f'{cond:<18}'
+        for m in models:
+            f1 = results[m][cond]['f1']
+            row += f' {f1:>11.1f}%'
+        print(row)
 
     # Summary
-    print('-' * 70)
-    r_mean = np.mean([results['resampler'][n]['f1'] for n in results['resampler']])
-    b_mean = np.mean([results['baseline'][n]['f1'] for n in results['baseline']])
-    print(f'{"Mean":<20} {r_mean:>14.1f}% {b_mean:>14.1f}% {r_mean - b_mean:>+10.1f}%')
+    print('-' * 90)
+    row = f'{"Mean":<18}'
+    means = {}
+    for m in models:
+        mean_f1 = np.mean([results[m][c]['f1'] for c in conditions])
+        means[m] = mean_f1
+        row += f' {mean_f1:>11.1f}%'
+    print(row)
+
+    # Best model
+    print('=' * 90)
+    best = max(means, key=means.get)
+    print(f'Best model: {best} (mean F1: {means[best]:.1f}%)')
+
+    # Recommendation based on clean performance
+    if 'clean' in conditions:
+        clean_scores = {m: results[m]['clean']['f1'] for m in models}
+        best_clean = max(clean_scores, key=clean_scores.get)
+        print(f'Best on clean data: {best_clean} (F1: {clean_scores[best_clean]:.1f}%)')
 
 
 # =============================================================================

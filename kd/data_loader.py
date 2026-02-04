@@ -113,8 +113,11 @@ def load_imu_with_timestamps(file_path: str) -> Tuple[np.ndarray, np.ndarray]:
     try:
         df = pd.read_csv(file_path, header=None, names=['timestamp', 'x', 'y', 'z'])
 
-        # Try to parse timestamps
-        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+        # Parse timestamps (SmartFallMM format: YYYY-MM-DD HH:MM:SS.fff)
+        try:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], format='%Y-%m-%d %H:%M:%S.%f')
+        except (ValueError, TypeError):
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
 
         # Drop rows with parsing errors
         df = df.dropna()
@@ -311,16 +314,35 @@ def collate_kd_batch(batch: List[Dict]) -> Dict[str, torch.Tensor]:
 
     Pads sequences to max length in batch and creates attention masks.
     """
+    # Filter out None or empty batch items
+    batch = [b for b in batch if b is not None and len(b) > 0]
+    if len(batch) == 0:
+        return {}
+
     result = {}
 
     # Collect labels (support both 'label' and 'labels' keys)
     label_key = 'labels' if 'labels' in batch[0] else 'label'
-    result['labels'] = torch.stack([b[label_key] for b in batch])
+    labels = []
+    for b in batch:
+        if label_key in b:
+            labels.append(b[label_key])
+        else:
+            # Fallback: try both keys
+            if 'label' in b:
+                labels.append(b['label'])
+            elif 'labels' in b:
+                labels.append(b['labels'])
+            else:
+                labels.append(torch.tensor(0, dtype=torch.long))  # Default
+    result['labels'] = torch.stack(labels)
 
     # Pad and stack each modality
     for key in ['acc_values', 'gyro_values', 'skeleton']:
-        if key in batch[0]:
+        if key in batch[0] and all(key in b for b in batch):
             values = [b[key] for b in batch]
+            if not values or any(v is None for v in values):
+                continue
             max_len = max(v.shape[0] for v in values)
 
             # Pad to max length
@@ -342,16 +364,24 @@ def collate_kd_batch(batch: List[Dict]) -> Dict[str, torch.Tensor]:
             result[key] = torch.stack(padded)
             result[f'{key}_mask'] = torch.stack(masks)
 
+            # Also provide generic 'mask' for convenience (use acc mask as primary)
+            if key == 'acc_values' and 'mask' not in result:
+                result['mask'] = torch.stack(masks)
+
     # Pad timestamps similarly
     for key in ['acc_timestamps', 'gyro_timestamps', 'skeleton_timestamps']:
-        if key in batch[0]:
+        if key in batch[0] and all(key in b for b in batch):
             timestamps = [b[key] for b in batch]
-            max_len = max(t.shape[0] for t in timestamps)
+            if not timestamps or any(t is None for t in timestamps):
+                continue
+            max_len = max(t.shape[0] for t in timestamps) if timestamps else 1
 
             padded = []
             for t in timestamps:
                 pad_len = max_len - t.shape[0]
-                if pad_len > 0:
+                if t.shape[0] == 0:
+                    t_padded = torch.zeros(max_len, dtype=t.dtype, device=t.device)
+                elif pad_len > 0:
                     t_padded = torch.nn.functional.pad(t, (0, pad_len), value=t[-1].item())
                 else:
                     t_padded = t[:max_len]
@@ -463,7 +493,8 @@ class WindowedKDDataset(Dataset):
                 acc_ts, acc_vals = load_imu_with_timestamps(trial['files']['accelerometer'])
                 trial_len = len(acc_vals)
 
-                if trial_len < min_window_length:
+                # Skip invalid trials (empty or too short)
+                if trial_len < min_window_length or len(acc_ts) == 0:
                     continue
 
                 # Determine stride based on class
@@ -533,7 +564,7 @@ class WindowedKDDataset(Dataset):
             # Align gyro to acc indices (may differ slightly)
             gyro_len = len(gyro_vals)
             if gyro_len > 0:
-                acc_len_ref = len(acc_vals) if 'acc_vals' in dir() and acc_vals is not None else actual_len
+                acc_len_ref = actual_len  # Use actual window length
                 g_start = int(start * gyro_len / max(acc_len_ref, 1))
                 g_end = min(g_start + (end - start), gyro_len)
                 g_start = max(0, min(g_start, gyro_len - 1))

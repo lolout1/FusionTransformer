@@ -11,7 +11,7 @@ Tier 2 (Soft Alignment):
 - SinkhornKDLoss: Optimal transport matching
 """
 
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -231,6 +231,82 @@ class COMODOLoss(nn.Module):
         return bool(self.queue_filled.item())
 
 
+class AttentionKDLoss(nn.Module):
+    """
+    Distill temporal attention patterns from teacher to student.
+
+    Handles dimension mismatch via adaptive pooling when teacher/student
+    have different sequence lengths.
+    """
+
+    def __init__(
+        self,
+        attention_type: str = 'pool',
+        loss_type: str = 'kl',
+        temperature: float = 1.0,
+    ):
+        """
+        Args:
+            attention_type: 'pool' (TemporalAttentionPooling weights)
+            loss_type: 'kl', 'mse', or 'js' (Jensen-Shannon)
+            temperature: Softmax temperature (higher = softer distribution)
+        """
+        super().__init__()
+        self.attention_type = attention_type
+        self.loss_type = loss_type
+        self.temperature = temperature
+
+    def forward(
+        self,
+        student_attn: Dict[str, torch.Tensor],
+        teacher_attn: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """
+        Args:
+            student_attn: Dict with attention tensors, e.g. {'pool': (B, L_s)}
+            teacher_attn: Dict with attention tensors, e.g. {'pool': (B, L_t)}
+
+        Returns:
+            loss: Attention alignment loss (scalar)
+        """
+        s = student_attn.get(self.attention_type)
+        t = teacher_attn.get(self.attention_type)
+
+        # Handle missing attention (graceful degradation)
+        if s is None or t is None:
+            device = next(iter(student_attn.values())).device if student_attn else 'cpu'
+            return torch.tensor(0.0, device=device)
+
+        # Handle empty tensors
+        if s.numel() == 0 or t.numel() == 0:
+            return torch.tensor(0.0, device=s.device)
+
+        # Handle dimension mismatch (adaptive pool teacher to student size)
+        if s.shape[-1] != t.shape[-1]:
+            t = F.adaptive_avg_pool1d(
+                t.unsqueeze(1), s.shape[-1]
+            ).squeeze(1)
+
+        # Apply temperature and normalize
+        s_norm = F.softmax(s / self.temperature, dim=-1)
+        t_norm = F.softmax(t / self.temperature, dim=-1).detach()
+
+        # Compute loss
+        if self.loss_type == 'kl':
+            # KL divergence: student tries to match teacher
+            return F.kl_div(
+                s_norm.log(), t_norm,
+                reduction='batchmean'
+            )
+        elif self.loss_type == 'mse':
+            return F.mse_loss(s_norm, t_norm)
+        else:  # js (Jensen-Shannon)
+            m = 0.5 * (s_norm + t_norm)
+            kl_sm = F.kl_div(s_norm.log(), m, reduction='batchmean')
+            kl_tm = F.kl_div(t_norm.log(), m, reduction='batchmean')
+            return 0.5 * (kl_sm + kl_tm)
+
+
 class CombinedKDLoss(nn.Module):
     """
     Combined KD loss with configurable components.
@@ -240,6 +316,7 @@ class CombinedKDLoss(nn.Module):
     - Embedding KD loss
     - Gram KD loss
     - COMODO loss
+    - Attention KD loss (NEW)
 
     Each component can be enabled/disabled via config.
     Handles dimension mismatch between teacher and student via learned projection.
@@ -260,6 +337,11 @@ class CombinedKDLoss(nn.Module):
         comodo_queue_size: int = 4096,
         comodo_tau_T: float = 0.07,
         comodo_tau_S: float = 0.1,
+        attention_enabled: bool = False,
+        attention_weight: float = 0.5,
+        attention_type: str = 'pool',
+        attention_loss_type: str = 'kl',
+        attention_temperature: float = 1.0,
     ):
         super().__init__()
 
@@ -299,6 +381,16 @@ class CombinedKDLoss(nn.Module):
                 tau_S=comodo_tau_S,
             )
 
+        # Attention KD
+        self.attention_enabled = attention_enabled
+        self.attention_weight = attention_weight
+        if attention_enabled:
+            self.attention_loss = AttentionKDLoss(
+                attention_type=attention_type,
+                loss_type=attention_loss_type,
+                temperature=attention_temperature,
+            )
+
     def forward(
         self,
         student_logits: torch.Tensor,
@@ -307,6 +399,8 @@ class CombinedKDLoss(nn.Module):
         teacher_embed: Optional[torch.Tensor] = None,
         student_tokens: Optional[torch.Tensor] = None,
         teacher_tokens: Optional[torch.Tensor] = None,
+        student_attn: Optional[Dict[str, torch.Tensor]] = None,
+        teacher_attn: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, dict]:
         """
         Args:
@@ -316,6 +410,8 @@ class CombinedKDLoss(nn.Module):
             teacher_embed: (B, D) teacher embedding (optional, for KD)
             student_tokens: (B, L, D) student tokens (optional, for Gram)
             teacher_tokens: (B, L, D) teacher tokens (optional, for Gram)
+            student_attn: Dict with attention weights (optional, for Attention KD)
+            teacher_attn: Dict with attention weights (optional, for Attention KD)
 
         Returns:
             total_loss: scalar
@@ -359,6 +455,12 @@ class CombinedKDLoss(nn.Module):
             gram_l = self.gram_loss(student_tokens, teacher_tokens_proj)
             loss_dict['gram'] = gram_l.item()
             total_loss = total_loss + self.gram_weight * gram_l
+
+        # Attention KD (requires attention dicts)
+        if self.attention_enabled and student_attn is not None and teacher_attn is not None:
+            attn_l = self.attention_loss(student_attn, teacher_attn)
+            loss_dict['attention'] = attn_l.item()
+            total_loss = total_loss + self.attention_weight * attn_l
 
         loss_dict['total'] = total_loss.item()
 

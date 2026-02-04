@@ -88,6 +88,10 @@ class KDTrainer:
             teacher_args = kd.get('teacher_args', {})
             teacher_embed_dim = teacher_args.get('embed_dim', self.embed_dim)
 
+        # Attention KD config
+        attn_cfg = losses.get('attention', {})
+        self.attention_enabled = attn_cfg.get('enabled', False)
+
         self.criterion = CombinedKDLoss(
             embed_dim=self.embed_dim,
             teacher_embed_dim=teacher_embed_dim,
@@ -102,6 +106,11 @@ class KDTrainer:
             comodo_queue_size=losses.get('comodo', {}).get('queue_size', 4096),
             comodo_tau_T=losses.get('comodo', {}).get('tau_T', 0.07),
             comodo_tau_S=losses.get('comodo', {}).get('tau_S', 0.1),
+            attention_enabled=self.attention_enabled,
+            attention_weight=attn_cfg.get('weight', 0.5),
+            attention_type=attn_cfg.get('type', 'pool'),
+            attention_loss_type=attn_cfg.get('loss_type', 'kl'),
+            attention_temperature=attn_cfg.get('temperature', 1.0),
         ).to(self.device)
 
     def init_optimizer(
@@ -224,14 +233,24 @@ class KDTrainer:
             # Unpack batch
             imu_data, timestamps, skeleton_data, labels, mask = self._unpack_batch(batch)
 
+            # Skip batch if missing required data
+            if imu_data is None:
+                continue
+
             # Create timestamps if not provided
             if timestamps is None:
                 B, T, _ = imu_data.shape
                 timestamps = torch.arange(T, device=self.device).float().unsqueeze(0).expand(B, -1)
                 timestamps = timestamps / 30.0
 
-            # Student forward
-            student_logits, student_embed = self.student(imu_data, timestamps, mask)
+            # Student forward (with optional attention extraction)
+            student_attn = None
+            if self.attention_enabled:
+                student_logits, student_embed, student_attn = self.student(
+                    imu_data, timestamps, mask, return_attention=True
+                )
+            else:
+                student_logits, student_embed = self.student(imu_data, timestamps, mask)
 
             # Get student tokens if Gram loss enabled
             if hasattr(self.student, 'get_tokens'):
@@ -245,9 +264,15 @@ class KDTrainer:
             # Teacher forward (if available)
             teacher_embed = None
             teacher_tokens = None
+            teacher_attn = None
             if self.teacher is not None and skeleton_data is not None:
                 with torch.no_grad():
-                    teacher_logits, teacher_embed = self.teacher(skeleton_data)
+                    if self.attention_enabled:
+                        teacher_logits, teacher_embed, teacher_attn = self.teacher(
+                            skeleton_data, return_attention=True
+                        )
+                    else:
+                        teacher_logits, teacher_embed = self.teacher(skeleton_data)
                     if hasattr(self.teacher, 'get_tokens'):
                         teacher_tokens = self.teacher.get_tokens(skeleton_data, num_tokens)
 
@@ -259,6 +284,8 @@ class KDTrainer:
                 teacher_embed=teacher_embed,
                 student_tokens=student_tokens,
                 teacher_tokens=teacher_tokens,
+                student_attn=student_attn,
+                teacher_attn=teacher_attn,
             )
 
             # Backward

@@ -5,32 +5,35 @@
 ## Immediate (This Week)
 
 ### Teacher Training
-- [ ] Complete teacher ablation (72 configs running)
-- [ ] Analyze results: embed_dim, layers, heads, pos_enc effects
-- [ ] Select best teacher config
+- [x] Complete teacher ablation (initial run)
+- [x] Best so far: e96_l2_h4_d3_bce (89.32% test F1)
+- [ ] Complete pos_enc ablation (72 configs)
+- [ ] Select final best teacher config
 - [ ] Save best teacher weights
 
 ### Timestamp Analysis
-- [ ] Run `python kd/test_resampler.py --analyze-timestamps`
-- [ ] Document timestamp reliability score
-- [ ] Decide: use timestamps or ignore them?
+- [x] Run `python kd/test_resampler.py --analyze-timestamps`
+- [x] Document timestamp reliability score: **35/100 (UNRELIABLE)**
+- [x] Decision: **Ignore timestamps, use position-only mode**
 
 ### Unit Tests
-- [ ] Run `python kd/test_resampler.py --unit-tests`
-- [ ] Verify all 10 tests pass
-- [ ] Fix any failures
+- [x] Run `python kd/test_resampler.py --unit-tests`
+- [x] All 10 tests pass
+- [x] Edge cases verified
 
 ## Short-term (Next Week)
 
-### Student Baseline
-- [ ] Train student without KD on IMU data
-- [ ] Compare TimestampAwareStudent vs FixedRateStudent
-- [ ] Establish baseline F1 scores
+### Student Training (Position Mode)
+- [ ] Train student without KD using position-only resampler
+- [ ] Establish baseline F1 score
+- [ ] Compare with fixed-rate interpolation
 
 ### Stress Tests
-- [ ] Run `python kd/test_resampler.py --stress-tests`
-- [ ] Generate comparison table (resampler vs baseline)
-- [ ] Plot robustness curves
+- [x] Run stress test comparison
+- [x] Position mode: **62.0%** mean F1 (best)
+- [x] Timestamp mode: 55.3% mean F1
+- [x] Baseline: 50.7% mean F1
+- [x] Position mode is most robust to perturbations
 
 ### KD Training
 - [ ] Implement full KD training loop

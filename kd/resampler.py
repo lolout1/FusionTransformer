@@ -6,7 +6,7 @@ via learned time-anchored cross-attention queries.
 """
 
 import math
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -15,17 +15,25 @@ import torch.nn.functional as F
 
 class TimeFeatureEncoder(nn.Module):
     """
-    Encodes raw timestamps into drift-invariant time features.
+    Encodes timestamps into time features.
 
-    Features:
-    - delta_t: time since previous event
-    - log(1 + delta_t): compressed representation of large gaps
-    - tau: normalized position in window [0, 1]
+    Modes:
+    - 'position': Use sequence position only (tau = i/N) - RECOMMENDED
+    - 'timestamps': Use actual timestamps (delta_t, log_delta, tau)
+    - 'cleaned': Use timestamps with gap clipping and duplicate handling
+
+    Note: 'position' mode significantly outperforms timestamp-based modes on
+    datasets with unreliable timestamps (e.g., SmartFallMM: 62.0% vs 55.3% F1).
     """
 
-    def __init__(self, embed_dim: int = 16):
+    def __init__(self, embed_dim: int = 16, mode: str = 'position'):
         super().__init__()
-        self.proj = nn.Linear(3, embed_dim)
+        self.mode = mode
+
+        if mode == 'position':
+            self.proj = nn.Linear(1, embed_dim)  # Only tau
+        else:
+            self.proj = nn.Linear(3, embed_dim)  # delta_t, log_delta, tau
 
     def forward(
         self,
@@ -34,32 +42,42 @@ class TimeFeatureEncoder(nn.Module):
     ) -> torch.Tensor:
         """
         Args:
-            timestamps: (B, N) timestamps in seconds
+            timestamps: (B, N) timestamps in seconds (ignored if mode='position')
             mask: (B, N) True for valid events
 
         Returns:
             time_features: (B, N, embed_dim)
         """
         B, N = timestamps.shape
+        device = timestamps.device
+
+        if self.mode == 'position':
+            # Ignore timestamps, use sequence position
+            tau = torch.linspace(0, 1, N, device=device).unsqueeze(0).expand(B, -1)
+            return self.proj(tau.unsqueeze(-1))
 
         # Compute delta_t (time since previous event)
         delta_t = torch.zeros_like(timestamps)
         delta_t[:, 1:] = timestamps[:, 1:] - timestamps[:, :-1]
 
-        # Handle invalid deltas (negative or very large)
-        delta_t = torch.clamp(delta_t, min=0, max=60.0)  # Cap at 60 seconds
+        if self.mode == 'cleaned':
+            # Clip large gaps and handle duplicates
+            delta_t = torch.clamp(delta_t, min=1e-4, max=0.1)  # 0.1ms to 100ms
+        else:
+            # Cap at 60 seconds
+            delta_t = torch.clamp(delta_t, min=0, max=60.0)
 
         # Log-compressed delta
         log_delta = torch.log1p(delta_t)
 
         # Normalized position tau in [0, 1]
-        t_start = timestamps[:, :1]  # (B, 1)
-        t_end = timestamps[:, -1:]   # (B, 1)
+        t_start = timestamps[:, :1]
+        t_end = timestamps[:, -1:]
         duration = torch.clamp(t_end - t_start, min=1e-6)
         tau = (timestamps - t_start) / duration
 
         # Stack and project
-        time_feats = torch.stack([delta_t, log_delta, tau], dim=-1)  # (B, N, 3)
+        time_feats = torch.stack([delta_t, log_delta, tau], dim=-1)
         return self.proj(time_feats)
 
 
@@ -87,6 +105,7 @@ class EventTokenResampler(nn.Module):
         num_heads: int = 4,
         dropout: float = 0.1,
         time_embed_dim: int = 16,
+        time_mode: str = 'position',
     ):
         """
         Args:
@@ -96,13 +115,15 @@ class EventTokenResampler(nn.Module):
             num_heads: Attention heads
             dropout: Dropout rate
             time_embed_dim: Dimension of time feature encoding
+            time_mode: 'position' (ignore timestamps), 'timestamps', or 'cleaned'
         """
         super().__init__()
         self.num_tokens = num_tokens
         self.embed_dim = embed_dim
+        self.time_mode = time_mode
 
         # Time feature encoder
-        self.time_encoder = TimeFeatureEncoder(time_embed_dim)
+        self.time_encoder = TimeFeatureEncoder(time_embed_dim, mode=time_mode)
 
         # Event projection (input_dim + time_embed_dim -> embed_dim)
         self.event_proj = nn.Sequential(
@@ -225,8 +246,10 @@ class TimestampAwareStudent(nn.Module):
         num_layers: int = 2,
         dropout: float = 0.5,
         se_reduction: int = 4,
+        time_mode: str = 'position',
     ):
         super().__init__()
+        self.time_mode = time_mode
 
         self.resampler = EventTokenResampler(
             input_dim=input_dim,
@@ -234,6 +257,7 @@ class TimestampAwareStudent(nn.Module):
             num_tokens=num_tokens,
             num_heads=num_heads,
             dropout=dropout * 0.2,
+            time_mode=time_mode,
         )
 
         # Transformer encoder
@@ -265,16 +289,19 @@ class TimestampAwareStudent(nn.Module):
         events: torch.Tensor,
         timestamps: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        return_attention: bool = False,
+    ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]]:
         """
         Args:
             events: (B, N, input_dim)
             timestamps: (B, N)
             mask: (B, N)
+            return_attention: If True, return attention weights for KD
 
         Returns:
             logits: (B, 1)
             features: (B, embed_dim) pooled features for KD
+            attention: (optional) Dict with 'pool': (B, L) attention weights
         """
         # Resample to fixed tokens
         tokens, _ = self.resampler(events, timestamps, mask)  # (B, L, embed_dim)
@@ -286,11 +313,16 @@ class TimestampAwareStudent(nn.Module):
         tokens = self.se(tokens)  # (B, L, embed_dim)
 
         # Temporal pooling
-        features = self.pool(tokens)  # (B, embed_dim)
+        if return_attention:
+            features, pool_attn = self.pool(tokens, return_weights=True)
+        else:
+            features = self.pool(tokens)  # (B, embed_dim)
 
         # Classification
         logits = self.classifier(features)  # (B, 1)
 
+        if return_attention:
+            return logits, features, {'pool': pool_attn}
         return logits, features
 
 
@@ -324,8 +356,232 @@ class TemporalAttentionPooling(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, return_weights: bool = False
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         # x: (B, T, C)
+        B, T, C = x.shape
+
+        # Handle empty sequence
+        if T == 0:
+            pooled = torch.zeros(B, C, device=x.device, dtype=x.dtype)
+            if return_weights:
+                return pooled, torch.zeros(B, 0, device=x.device)
+            return pooled
+
         attn_scores = self.attention(x)  # (B, T, 1)
         attn_weights = F.softmax(attn_scores, dim=1)  # (B, T, 1)
-        return (x * attn_weights).sum(dim=1)  # (B, C)
+        pooled = (x * attn_weights).sum(dim=1)  # (B, C)
+
+        if return_weights:
+            return pooled, attn_weights.squeeze(-1)  # (B, C), (B, T)
+        return pooled
+
+
+class DualStreamResampler(nn.Module):
+    """
+    Dual-stream resampler with separate encoders for acc and gyro.
+
+    Mirrors the main FusionTransformer's asymmetric capacity approach:
+    - Accelerometer: 65% of embedding capacity (high-frequency impacts)
+    - Gyroscope: 35% of embedding capacity (smoother rotations)
+
+    Each stream has its own EventTokenResampler, outputs are concatenated.
+    """
+
+    def __init__(
+        self,
+        acc_dim: int = 3,
+        gyro_dim: int = 3,
+        embed_dim: int = 48,
+        num_tokens: int = 64,
+        num_heads: int = 4,
+        dropout: float = 0.1,
+        acc_ratio: float = 0.65,
+        time_mode: str = 'position',
+    ):
+        super().__init__()
+        self.acc_dim = acc_dim
+        self.gyro_dim = gyro_dim
+        self.embed_dim = embed_dim
+        self.num_tokens = num_tokens
+
+        # Asymmetric capacity with head-count alignment
+        acc_heads = max(1, int(num_heads * acc_ratio))
+        gyro_heads = max(1, num_heads - acc_heads)
+
+        # Compute embed dims divisible by head counts
+        acc_embed = (embed_dim * acc_heads // num_heads)
+        acc_embed = acc_embed - (acc_embed % acc_heads)  # Ensure divisible
+        gyro_embed = embed_dim - acc_embed
+        gyro_embed = gyro_embed - (gyro_embed % gyro_heads)  # Ensure divisible
+
+        # Recompute total (may be slightly less than embed_dim)
+        self._acc_embed = acc_embed
+        self._gyro_embed = gyro_embed
+
+        self.acc_resampler = EventTokenResampler(
+            input_dim=acc_dim,
+            embed_dim=acc_embed,
+            num_tokens=num_tokens,
+            num_heads=acc_heads,
+            dropout=dropout,
+            time_mode=time_mode,
+        )
+
+        self.gyro_resampler = EventTokenResampler(
+            input_dim=gyro_dim,
+            embed_dim=gyro_embed,
+            num_tokens=num_tokens,
+            num_heads=gyro_heads,
+            dropout=dropout,
+            time_mode=time_mode,
+        )
+
+        # Fusion layer (project concatenated streams to target embed_dim)
+        concat_dim = acc_embed + gyro_embed
+        self.fusion = nn.Sequential(
+            nn.Linear(concat_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
+            nn.SiLU(),
+        )
+
+    def forward(
+        self,
+        events: torch.Tensor,
+        timestamps: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        return_attn: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """
+        Args:
+            events: (B, N, acc_dim + gyro_dim) - concatenated acc + gyro
+            timestamps: (B, N)
+            mask: (B, N)
+
+        Returns:
+            tokens: (B, L, embed_dim)
+            attn_weights: tuple of (acc_attn, gyro_attn) if return_attn
+        """
+        # Split into acc and gyro
+        acc_events = events[..., :self.acc_dim]
+        gyro_events = events[..., self.acc_dim:]
+
+        # Process each stream
+        acc_tokens, acc_attn = self.acc_resampler(acc_events, timestamps, mask, return_attn)
+        gyro_tokens, gyro_attn = self.gyro_resampler(gyro_events, timestamps, mask, return_attn)
+
+        # Concatenate along embedding dimension
+        tokens = torch.cat([acc_tokens, gyro_tokens], dim=-1)  # (B, L, embed_dim)
+
+        # Fusion
+        tokens = self.fusion(tokens)
+
+        if return_attn:
+            return tokens, (acc_attn, gyro_attn)
+        return tokens, None
+
+
+class DualStreamStudent(nn.Module):
+    """
+    Dual-stream student with separate resamplers for acc and gyro.
+
+    Architecture:
+    1. DualStreamResampler: Split acc/gyro, resample separately, fuse
+    2. TransformerEncoder: temporal modeling on fused tokens
+    3. SqueezeExcitation: channel attention
+    4. TemporalAttentionPooling: aggregate to single vector
+    5. Classifier: binary fall detection
+    """
+
+    def __init__(
+        self,
+        acc_dim: int = 3,
+        gyro_dim: int = 3,
+        embed_dim: int = 48,
+        num_tokens: int = 64,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        dropout: float = 0.5,
+        acc_ratio: float = 0.65,
+        se_reduction: int = 4,
+        time_mode: str = 'position',
+    ):
+        super().__init__()
+        self.time_mode = time_mode
+
+        self.resampler = DualStreamResampler(
+            acc_dim=acc_dim,
+            gyro_dim=gyro_dim,
+            embed_dim=embed_dim,
+            num_tokens=num_tokens,
+            num_heads=num_heads,
+            dropout=dropout * 0.2,
+            acc_ratio=acc_ratio,
+            time_mode=time_mode,
+        )
+
+        # Transformer encoder
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim,
+            nhead=num_heads,
+            dim_feedforward=embed_dim * 4,
+            dropout=dropout,
+            activation='gelu',
+            batch_first=True,
+            norm_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        # Squeeze-Excitation
+        self.se = SqueezeExcitation(embed_dim, reduction=se_reduction)
+
+        # Temporal Attention Pooling
+        self.pool = TemporalAttentionPooling(embed_dim, hidden_dim=embed_dim // 2)
+
+        # Classifier
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(embed_dim, 1),
+        )
+
+    def forward(
+        self,
+        events: torch.Tensor,
+        timestamps: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        return_attention: bool = False,
+    ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]]:
+        """
+        Args:
+            events: (B, N, acc_dim + gyro_dim)
+            timestamps: (B, N)
+            mask: (B, N)
+            return_attention: If True, return attention weights for KD
+
+        Returns:
+            logits: (B, 1)
+            features: (B, embed_dim)
+            attention: (optional) Dict with 'pool': (B, L) attention weights
+        """
+        # Dual-stream resampling
+        tokens, _ = self.resampler(events, timestamps, mask)
+
+        # Transformer encoding
+        tokens = self.transformer(tokens)
+
+        # Channel attention
+        tokens = self.se(tokens)
+
+        # Temporal pooling
+        if return_attention:
+            features, pool_attn = self.pool(tokens, return_weights=True)
+        else:
+            features = self.pool(tokens)
+
+        # Classification
+        logits = self.classifier(features)
+
+        if return_attention:
+            return logits, features, {'pool': pool_attn}
+        return logits, features
