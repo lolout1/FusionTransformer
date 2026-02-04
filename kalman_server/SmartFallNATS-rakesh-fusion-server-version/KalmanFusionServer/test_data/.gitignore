@@ -1,0 +1,8 @@
+# Test data files (large, not tracked)
+*.parquet
+*.json
+*.csv
+*.pkl
+
+# Keep this file
+!.gitignore
