@@ -32,7 +32,7 @@ All results from Leave-One-Subject-Out (LOSO) cross-validation.
 | **UP-FALL** | KalmanConv1dConv1d | **95.61%** ± 4.01 | 96.81% | 95.70% | 95.83% | [upfall/kalman.yaml](config/best_config/upfall/kalman.yaml) |
 | **WEDA-FALL** | KalmanConv1dConv1d | **95.41%** ± 2.50 | 94.57% | 92.82% | 98.22% | [wedafall/kalman.yaml](config/best_config/wedafall/kalman.yaml) |
 
-### Dual-Stream + Kalman Improvement
+### Dual stream Raw vs Dual-Stream + Kalman  
 
 | Dataset | Raw | Kalman | Improvement |
 |---------|-----|--------|-------------|
