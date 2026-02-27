@@ -150,15 +150,19 @@ def create_capacity_config(name: str, split: Dict[str, Any]) -> Dict[str, Any]:
     """Create config for capacity split experiment."""
     cfg = load_base_config()
 
-    # Use dual-stream model
-    cfg['model'] = 'Models.encoder_ablation.KalmanConv1dConv1d'
+    # For acc_only (acc_ratio=1.0), use single-stream since ori_dim=0
+    if split['acc_ratio'] >= 1.0:
+        cfg['model'] = 'Models.single_stream_transformer.SingleStreamTransformerSE'
+    else:
+        cfg['model'] = 'Models.encoder_ablation.KalmanConv1dConv1d'
+        cfg['model_args']['acc_ratio'] = split['acc_ratio']
 
-    # Set capacity split
+    # Set capacity
     cfg['model_args']['embed_dim'] = EMBED_DIM
-    cfg['model_args']['acc_ratio'] = split['acc_ratio']
 
     # Ensure Kalman enabled for capacity experiments
     cfg['dataset_args']['enable_kalman_fusion'] = True
+    cfg['dataset_args']['include_smv'] = False  # Kalman loader already includes SMV
 
     return cfg
 
@@ -442,15 +446,15 @@ def generate_report(results: List[ExperimentResult], output_path: Path) -> str:
         lines.append('|------------|--------|-----|-------------------|')
         lines.append(
             f'| Single     | {f1_single_kalman:.2f}% | {f1_single_raw:.2f}% | '
-            f'{"+":s if delta_kalman_single > 0 else ""}{delta_kalman_single:.2f}% |'
+            f'{"+" if delta_kalman_single > 0 else ""}{delta_kalman_single:.2f}% |'
         )
         lines.append(
             f'| Dual       | {f1_dual_kalman:.2f}% | {f1_dual_raw:.2f}% | '
-            f'**{"+":s if delta_kalman_dual > 0 else ""}{delta_kalman_dual:.2f}%** |'
+            f'**{"+" if delta_kalman_dual > 0 else ""}{delta_kalman_dual:.2f}%** |'
         )
         lines.append(
-            f'| **Δ (Dual benefit)** | {"+":s if delta_dual_kalman > 0 else ""}{delta_dual_kalman:.2f}% | '
-            f'{"+":s if delta_dual_raw > 0 else ""}{delta_dual_raw:.2f}% | |'
+            f'| **Δ (Dual benefit)** | {"+" if delta_dual_kalman > 0 else ""}{delta_dual_kalman:.2f}% | '
+            f'{"+" if delta_dual_raw > 0 else ""}{delta_dual_raw:.2f}% | |'
         )
         lines.append('')
         lines.append(f'**Interaction effect**: {delta_kalman_dual:.2f}% - {delta_kalman_single:.2f}% = **{interaction:+.2f}%**')

@@ -31,6 +31,9 @@ ablation-quick:
 ablation-kalman:
 	python distributed_dataset_pipeline/run_capacity_ablation.py --num-gpus $(NUM_GPUS) --parallel $(PARALLEL) --stream-only
 
+ablation-setap:
+	python distributed_dataset_pipeline/run_setap_ablation.py --num-gpus $(NUM_GPUS) --parallel $(PARALLEL)
+
 install:
 	pip install -r requirements.txt
 

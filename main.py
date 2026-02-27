@@ -3,7 +3,8 @@ Script to train the models
 '''
 import traceback
 from typing import List, Dict
-import random 
+from pathlib import Path
+import random
 import sys
 import os
 import time
@@ -1092,7 +1093,7 @@ class Trainer():
         df = pd.DataFrame(columns=columns)
         return df
     
-    def wrong_pred_viz(self, wrong_idx: torch.Tensor):
+    def wrong_pred_viz(self, wrong_idx: torch.Tensor, label_list: list, pred_list: list, acc_data: list):
         '''
         Visualizes the wrong predictions
         '''
@@ -1104,7 +1105,7 @@ class Trainer():
         plt.figure(figsize=(24,16))
         for i in range(min(16, len(wrong_acc_data))):
             plt.subplot(4,4,i+1)
-            plt.plot(acc_data[i])
+            plt.plot(wrong_acc_data[i])
             plt.title(f'Right Prediction {i+1}')
             plt.xlabel('Time')
             plt.ylabel('Acceleration')
@@ -1258,13 +1259,15 @@ class Trainer():
         # Threshold analysis for test set
         threshold_analysis = None
         if loader_name == 'test' and len(prob_list) > 0:
+            # Always store raw predictions for pooled metrics / queue simulation
+            threshold_analysis = {'targets': label_list, 'probabilities': prob_list}
             try:
                 from utils.threshold_analysis import ThresholdAnalyzer
                 analyzer = ThresholdAnalyzer(label_list, prob_list)
-                threshold_analysis = analyzer.summary()
-                # Store raw data for global threshold recomputation across folds
-                threshold_analysis['targets'] = label_list
-                threshold_analysis['probabilities'] = prob_list
+                full_analysis = analyzer.summary()
+                full_analysis['targets'] = label_list
+                full_analysis['probabilities'] = prob_list
+                threshold_analysis = full_analysis
                 opt = threshold_analysis['optimal_f1_threshold']
                 self.print_log(f"Threshold Analysis: Optimal={opt['threshold']:.2f} "
                               f"(F1={opt['f1']*100:.1f}%, P={opt['precision']*100:.1f}%, R={opt['recall']*100:.1f}%)")

@@ -1256,6 +1256,29 @@ class RayDistributedTrainer:
                 print(f"Warning: Could not generate enhanced reports: {e}")
                 traceback.print_exc()
 
+            # Pooled micro-averaged metrics and alpha queue simulation
+            try:
+                from utils.queue_metrics import compute_pooled_and_queue_metrics
+                compute_pooled_and_queue_metrics(
+                    results, output_dir=self.work_dir, print_results=True
+                )
+            except Exception as e:
+                print(f"Warning: Pooled/queue metrics computation failed: {e}")
+                traceback.print_exc()
+
+            # Temporal queue evaluation (realistic deployment simulation)
+            try:
+                from utils.temporal_queue_eval import run_temporal_queue_evaluation
+                run_temporal_queue_evaluation(
+                    work_dir=self.work_dir,
+                    config=self.config,
+                    device='cuda:0' if torch.cuda.is_available() else 'cpu',
+                    print_results=True,
+                )
+            except Exception as e:
+                print(f"Warning: Temporal queue evaluation failed: {e}")
+                traceback.print_exc()
+
         # Finalize W&B
         if self.wandb_logger:
             self.wandb_logger.log_summary(results, summary)

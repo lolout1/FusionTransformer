@@ -9,7 +9,7 @@
 #
 # Model: KalmanConv1dConv1d (Conv1D acc + Conv1D ori + TransformerEncoder)
 # Input: 7ch Kalman [smv, ax, ay, az, roll, pitch, yaw]
-# Stride: fall=8, ADL=32
+# Stride: fall=10, ADL=20
 # Source: kalman_channel_20260127_075015 (baseline_7ch_stride_8_32_accnorm)
 #
 # Dual-stream split: acc=channels[0:4], ori=channels[4:]
@@ -55,8 +55,8 @@ dataset_args:
   include_smv: False
 
   enable_class_aware_stride: True
-  fall_stride: 8
-  adl_stride: 32
+  fall_stride: 10
+  adl_stride: 20
 
   convert_gyro_to_rad: True
   enable_simple_truncation: True

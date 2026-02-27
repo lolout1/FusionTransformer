@@ -199,25 +199,54 @@ def kalman_fusion_for_loader(trial_data: Dict[str, np.ndarray],
 
 
 def assemble_kalman_features(trial_data: Dict[str, np.ndarray],
-                             include_smv: bool = True) -> np.ndarray:
+                             include_smv: bool = True,
+                             exclude_yaw: bool = False,
+                             include_gyro_mag: bool = False,
+                             gyro_data: np.ndarray = None) -> np.ndarray:
     """
     Assemble final feature array from Kalman-processed trial data.
 
+    Channel engineering options for optimal fall detection:
+    - exclude_yaw: Yaw drifts over time and doesn't discriminate fall direction
+    - include_gyro_mag: L2 norm of gyroscope captures total angular velocity during falls
+
     Args:
         trial_data: Dict with 'accelerometer', 'orientation', optional 'uncertainty', 'innovation'
-        include_smv: Prepend signal magnitude vector
+        include_smv: Prepend signal magnitude vector (SMV)
+        exclude_yaw: If True, drop yaw from orientation (keep only roll, pitch)
+        include_gyro_mag: If True, add gyroscope magnitude between acc and orientation
+        gyro_data: Raw gyroscope data (T, 3) needed for gyro_mag calculation
 
     Returns:
-        (T, C) feature array
+        (T, C) feature array with channel order:
+        - Default (7ch): [smv, ax, ay, az, roll, pitch, yaw]
+        - exclude_yaw (6ch): [smv, ax, ay, az, roll, pitch]
+        - include_gyro_mag + exclude_yaw (7ch): [smv, ax, ay, az, gyro_mag, roll, pitch]
+        - include_gyro_mag only (8ch): [smv, ax, ay, az, gyro_mag, roll, pitch, yaw]
     """
     acc = trial_data['accelerometer']
     ori = trial_data['orientation']
 
-    features = [acc, ori]
+    # Apply channel engineering to orientation
+    if exclude_yaw and ori.shape[1] >= 3:
+        # Keep only roll (0) and pitch (1), drop yaw (2)
+        ori = ori[:, :2]
+
+    # Build feature list: [smv?, acc, gyro_mag?, ori, uncertainty?, innovation?]
+    features = []
 
     if include_smv:
         smv = compute_smv(acc).reshape(-1, 1)
-        features.insert(0, smv)
+        features.append(smv)
+
+    features.append(acc)
+
+    # Add gyroscope magnitude if requested (captures total angular velocity)
+    if include_gyro_mag and gyro_data is not None:
+        gyro_mag = compute_smv(gyro_data).reshape(-1, 1)
+        features.append(gyro_mag)
+
+    features.append(ori)
 
     if 'uncertainty' in trial_data:
         features.append(trial_data['uncertainty'])
