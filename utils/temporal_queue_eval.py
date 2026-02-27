@@ -1,17 +1,17 @@
 """Temporal queue evaluation with realistic trial-ordered streams.
 
 Loads raw trial data per LOSO test subject, processes in temporal order,
-and runs alpha queue simulation to produce meaningful queue-level metrics
-at deployment-realistic queue sizes (10, 15, 20).
+and runs alpha queue simulation with stride ablation and aggregation
+method comparison (average vs majority vote with configurable k).
 """
 
+import csv
 import json
 import os
-import traceback
 from collections import deque
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 import torch
@@ -78,7 +78,7 @@ class TrialLoader:
         result = []
         for trial in trials:
             label = int(trial.action_id > 9)
-            trial_id = f"S{trial.subject_id:02d}A{trial.action_id:02d}T{trial.sequence_number:02d}"
+            trial_id = "S{:02d}A{:02d}T{:02d}".format(trial.subject_id, trial.action_id, trial.sequence_number)
 
             try:
                 trial_data = {}
@@ -93,7 +93,6 @@ class TrialLoader:
                 if 'accelerometer' not in trial_data:
                     continue
 
-                # Simple truncation
                 if enable_truncation and 'gyroscope' in trial_data:
                     acc_len = trial_data['accelerometer'].shape[0]
                     gyro_len = trial_data['gyroscope'].shape[0]
@@ -105,7 +104,6 @@ class TrialLoader:
                         trial_data['accelerometer'] = trial_data['accelerometer'][:min_len]
                         trial_data['gyroscope'] = trial_data['gyroscope'][:min_len]
 
-                # Kalman fusion
                 if enable_kalman and 'gyroscope' in trial_data:
                     raw_gyro = trial_data['gyroscope'].copy() if kalman_config.get('kalman_include_gyro_mag', False) else None
                     trial_data = kalman_fusion_for_loader(trial_data, kalman_config)
@@ -117,7 +115,6 @@ class TrialLoader:
                         gyro_data=raw_gyro,
                     )
                 else:
-                    # Raw mode: [smv, ax, ay, az, gx, gy, gz]
                     acc = trial_data['accelerometer']
                     from utils.kalman.features import compute_smv
                     smv = compute_smv(acc).reshape(-1, 1)
@@ -131,18 +128,12 @@ class TrialLoader:
                     continue
 
                 result.append(TrialData(
-                    features=features,
-                    label=label,
-                    activity_id=trial.action_id,
-                    subject_id=subject_id,
-                    trial_id=trial_id,
-                    n_samples=features.shape[0],
+                    features=features, label=label, activity_id=trial.action_id,
+                    subject_id=subject_id, trial_id=trial_id, n_samples=features.shape[0],
                 ))
             except Exception:
                 continue
 
-        # Sort: ADLs first (action_id <= 9), then falls (action_id > 9)
-        # Within each group, sort by action_id then trial_id for deterministic order
         result.sort(key=lambda t: (t.label, t.activity_id, t.trial_id))
         return result
 
@@ -154,22 +145,32 @@ class TrialLoader:
 class TemporalQueueEvaluator:
     """Evaluate queue-based fall detection on temporally-ordered trial streams."""
 
+    DEFAULT_STRIDES = [5, 10, 16, 20, 24, 32]
+    DEFAULT_QUEUE_SIZES = [5, 10, 15, 20]
+    DEFAULT_THRESHOLDS = [0.3, 0.4, 0.5, 0.6, 0.7]
+    DEFAULT_RETAINS = [0, 2, 5]
+    DEFAULT_MAJORITY_KS = [0.3, 0.4, 0.5, 0.6, 0.7]
+
     def __init__(
         self,
         work_dir: str,
         config: Optional[dict] = None,
         device: str = 'cuda:0',
         eval_stride: int = 32,
-        queue_sizes: List[int] = None,
-        queue_thresholds: List[float] = None,
-        queue_retains: List[int] = None,
+        eval_strides: Optional[List[int]] = None,
+        queue_sizes: Optional[List[int]] = None,
+        queue_thresholds: Optional[List[float]] = None,
+        queue_retains: Optional[List[int]] = None,
+        majority_ks: Optional[List[float]] = None,
     ):
         self.work_dir = Path(work_dir)
         self.device = torch.device(device if torch.cuda.is_available() and 'cuda' in device else 'cpu')
         self.eval_stride = eval_stride
-        self.queue_sizes = queue_sizes or [10, 15, 20]
-        self.queue_thresholds = queue_thresholds or [0.3, 0.4, 0.5, 0.6, 0.7]
-        self.queue_retains = queue_retains or [0, 2, 5]
+        self.eval_strides = eval_strides or self.DEFAULT_STRIDES
+        self.queue_sizes = queue_sizes or self.DEFAULT_QUEUE_SIZES
+        self.queue_thresholds = queue_thresholds or self.DEFAULT_THRESHOLDS
+        self.queue_retains = queue_retains or self.DEFAULT_RETAINS
+        self.majority_ks = majority_ks or self.DEFAULT_MAJORITY_KS
 
         self.config = config or self._load_config()
         self.trial_loader = TrialLoader(self.config)
@@ -181,7 +182,7 @@ class TemporalQueueEvaluator:
     def _load_config(self) -> dict:
         yaml_files = list(self.work_dir.glob('*.yaml')) + list(self.work_dir.glob('*.yml'))
         if not yaml_files:
-            raise FileNotFoundError(f"No config YAML in {self.work_dir}")
+            raise FileNotFoundError("No config YAML in {}".format(self.work_dir))
         with open(yaml_files[0]) as f:
             return yaml.safe_load(f)
 
@@ -191,34 +192,30 @@ class TemporalQueueEvaluator:
         import importlib
         mod = importlib.import_module(module_name)
         model_cls = getattr(mod, class_name)
-        model_args = self.config.get('model_args', {})
-        return model_cls(**model_args)
+        return model_cls(**self.config.get('model_args', {}))
 
     def _load_fold_model(self, test_subject: int):
         model = self._create_model()
-        ckpt = self.work_dir / f"model_{test_subject}.pth"
+        ckpt = self.work_dir / "model_{}.pth".format(test_subject)
         if not ckpt.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {ckpt}")
+            raise FileNotFoundError("Checkpoint not found: {}".format(ckpt))
         state = torch.load(str(ckpt), map_location=self.device)
         model.load_state_dict(state)
         model.to(self.device)
         model.eval()
         return model
 
-    def _window_trial(self, features: np.ndarray) -> np.ndarray:
-        """Sliding window with fixed eval_stride (no class-aware)."""
+    def _window_trial(self, features: np.ndarray, stride: int) -> np.ndarray:
         T, C = features.shape
         if T < self.window_size:
             return np.empty((0, self.window_size, C))
-        n_windows = (T - self.window_size) // self.eval_stride + 1
-        idx = np.arange(self.window_size)[None, :] + (np.arange(n_windows) * self.eval_stride)[:, None]
+        n_windows = (T - self.window_size) // stride + 1
+        idx = np.arange(self.window_size)[None, :] + (np.arange(n_windows) * stride)[:, None]
         return features[idx]
 
     def _normalize_windows(self, windows: np.ndarray) -> np.ndarray:
-        """Z-score normalization matching training pipeline."""
         if not self.enable_normalization or self.normalize_modalities == 'none':
             return windows
-        # Only normalize accelerometer key (which is the only modality after Kalman)
         if self.normalize_modalities in ['all', 'acc_only']:
             n, t, c = windows.shape
             flat = windows.reshape(n * t, c)
@@ -227,7 +224,6 @@ class TemporalQueueEvaluator:
         return windows
 
     def _run_inference(self, model, windows: np.ndarray) -> np.ndarray:
-        """Batch inference, returns probability array."""
         probs = []
         batch_size = self.config.get('test_batch_size', 64)
         with torch.no_grad():
@@ -239,300 +235,247 @@ class TemporalQueueEvaluator:
         return np.concatenate(probs)
 
     def _get_test_subjects(self) -> List[int]:
-        """Determine testable subjects from config."""
         subjects = set(self.config.get('subjects', []))
         val = set(self.config.get('validation_subjects', []))
         train_only = set(self.config.get('train_only_subjects', []))
         candidates = sorted(subjects - val - train_only)
-        # Filter to subjects that have model checkpoints
-        return [s for s in candidates if (self.work_dir / f"model_{s}.pth").exists()]
+        return [s for s in candidates if (self.work_dir / "model_{}.pth".format(s)).exists()]
 
-    def evaluate_subject(self, test_subject: int) -> dict:
-        """Full pipeline for one LOSO fold subject."""
-        model = self._load_fold_model(test_subject)
-        trials = self.trial_loader.load_subject_trials(test_subject)
+    # ------------------------------------------------------------------
+    # Per-subject inference (stride-parameterized)
+    # ------------------------------------------------------------------
 
-        if not trials:
-            return {'subject': test_subject, 'skipped': True, 'reason': 'no_trials'}
-
-        # Window each trial, track per-window trial labels
+    def _evaluate_subject_stride(self, model, trials: List[TrialData], stride: int):
+        """Window trials at given stride, normalize, run inference. Returns probs + labels."""
         all_windows = []
         all_trial_labels = []
-
         for trial in trials:
-            windows = self._window_trial(trial.features)
+            windows = self._window_trial(trial.features, stride)
             if len(windows) == 0:
                 continue
             all_windows.append(windows)
             all_trial_labels.extend([trial.label] * len(windows))
 
         if not all_windows:
-            return {'subject': test_subject, 'skipped': True, 'reason': 'no_windows'}
+            return None, None
 
         windows = np.concatenate(all_windows, axis=0)
-        trial_labels = np.array(all_trial_labels)
-
-        # Normalize
         windows = self._normalize_windows(windows)
-
-        # Inference
         probs = self._run_inference(model, windows)
+        return probs, np.array(all_trial_labels)
 
-        # Window-level metrics
-        preds = (probs >= 0.5).astype(int)
-        n_fall = int(trial_labels.sum())
-        n_adl = len(trial_labels) - n_fall
-
-        return {
-            'subject': test_subject,
-            'skipped': False,
-            'n_trials': len(trials),
-            'n_fall_trials': sum(1 for t in trials if t.label == 1),
-            'n_adl_trials': sum(1 for t in trials if t.label == 0),
-            'n_windows': len(probs),
-            'n_fall_windows': n_fall,
-            'n_adl_windows': n_adl,
-            'probs': probs.tolist(),
-            'trial_labels': trial_labels.tolist(),
-        }
-
-    def evaluate_all(self, test_subjects: Optional[List[int]] = None) -> dict:
-        """Evaluate across all LOSO folds."""
-        if test_subjects is None:
-            test_subjects = self._get_test_subjects()
-
-        print(f"  [Temporal] Evaluating {len(test_subjects)} subjects (eval_stride={self.eval_stride})...")
-
-        per_subject = {}
-        n_skipped = 0
-        total_trials = 0
-        total_windows = 0
-
-        for subj in test_subjects:
-            result = self.evaluate_subject(subj)
-            per_subject[subj] = result
-            if result.get('skipped'):
-                n_skipped += 1
-            else:
-                total_trials += result['n_trials']
-                total_windows += result['n_windows']
-
-        return {
-            'per_subject': per_subject,
-            'n_subjects': len(test_subjects),
-            'n_skipped': n_skipped,
-            'total_trials': total_trials,
-            'total_windows': total_windows,
-            'eval_stride': self.eval_stride,
-        }
+    # ------------------------------------------------------------------
+    # Main ablation: stride x aggregation x queue params
+    # ------------------------------------------------------------------
 
     def sweep_and_report(self, print_results: bool = True) -> dict:
-        """Full pipeline: evaluate all folds, sweep queue params, report."""
-        eval_results = self.evaluate_all()
+        """Full ablation: multi-stride, average + majority-k, all queue param combos."""
+        test_subjects = self._get_test_subjects()
+        print("  [Temporal] Evaluating {} test subjects across {} strides...".format(
+            len(test_subjects), len(self.eval_strides)))
 
-        if eval_results['total_windows'] == 0:
-            print("  [Temporal] No windows to evaluate")
+        # Load trials once per subject (shared across strides)
+        subject_trials = {}
+        subject_models = {}
+        for subj in test_subjects:
+            try:
+                trials = self.trial_loader.load_subject_trials(subj)
+                if trials:
+                    subject_trials[subj] = trials
+                    subject_models[subj] = self._load_fold_model(subj)
+            except Exception:
+                continue
+
+        n_subjects = len(subject_trials)
+        if n_subjects == 0:
+            print("  [Temporal] No subjects with valid trials")
             return {}
 
-        # Pool window-level predictions
-        all_probs = []
-        all_labels = []
-        per_subject_data = {}
+        total_trials = sum(len(t) for t in subject_trials.values())
 
-        for subj, result in eval_results['per_subject'].items():
-            if result.get('skipped'):
+        # Pass 1: inference per stride (expensive)
+        stride_data = {}  # stride -> {per_subject: {subj: {probs, trial_labels}}, window_metrics}
+        for stride in self.eval_strides:
+            per_subject_data = {}
+            all_probs, all_labels = [], []
+            n_windows = 0
+            for subj, trials in subject_trials.items():
+                model = subject_models[subj]
+                probs, labels = self._evaluate_subject_stride(model, trials, stride)
+                if probs is None:
+                    continue
+                per_subject_data[str(subj)] = {
+                    'probs': probs.tolist(), 'trial_labels': labels.tolist(),
+                }
+                all_probs.extend(probs.tolist())
+                all_labels.extend(labels.tolist())
+                n_windows += len(probs)
+
+            if not all_probs:
                 continue
-            all_probs.extend(result['probs'])
-            all_labels.extend(result['trial_labels'])
-            per_subject_data[str(subj)] = {
-                'probs': result['probs'],
-                'trial_labels': result['trial_labels'],
+
+            all_p = np.array(all_probs)
+            all_l = np.array(all_labels)
+            n_fall = int(all_l.sum())
+            n_adl = len(all_l) - n_fall
+            wm = _compute_metrics(all_l, all_p)
+            wm['n_adl'] = n_adl
+            wm['n_fall'] = n_fall
+            wm['adl_fall_ratio'] = n_adl / n_fall if n_fall > 0 else float('inf')
+
+            stride_data[stride] = {
+                'per_subject': per_subject_data,
+                'window_metrics': wm,
+                'n_windows': n_windows,
             }
 
-        all_probs = np.array(all_probs)
-        all_labels = np.array(all_labels)
+        if not stride_data:
+            print("  [Temporal] No windows produced for any stride")
+            return {}
 
-        # Window-level pooled metrics
-        window_metrics = _compute_metrics(all_labels, all_probs)
+        # Pass 2: sweep queue configs with all aggregation methods (fast)
+        methods = ['average'] + ['majority_k{}'.format(int(k * 100)) for k in self.majority_ks]
+        all_results = []
 
-        # Queue parameter sweep
-        sweep_results = []
-        for size in self.queue_sizes:
-            for thresh in self.queue_thresholds:
-                for retain in self.queue_retains:
-                    if retain >= size:
-                        continue
-                    qr = _simulate_queue_all_subjects(
-                        per_subject_data, size, thresh, retain,
-                    )
-                    if qr['total_decisions'] > 0:
-                        sweep_results.append({
-                            'params': {'queue_size': size, 'threshold': thresh, 'retain': retain},
-                            'pooled_metrics': qr['metrics'],
-                            'total_decisions': qr['total_decisions'],
-                            'gt_positive': qr['gt_positive'],
-                            'gt_negative': qr['gt_negative'],
-                            'n_subjects': qr['n_subjects'],
-                        })
+        for stride, sd in stride_data.items():
+            psd = sd['per_subject']
+            for method in methods:
+                for size in self.queue_sizes:
+                    for thresh in self.queue_thresholds:
+                        for retain in self.queue_retains:
+                            if retain >= size:
+                                continue
+                            m = _sweep_one_config(psd, method, size, thresh, retain)
+                            if m:
+                                all_results.append({
+                                    'stride': stride, 'method': method,
+                                    'queue_size': size, 'threshold': thresh, 'retain': retain,
+                                    **m,
+                                })
 
-        sweep_results.sort(key=lambda r: r['pooled_metrics'].get('f1', 0), reverse=True)
+        all_results.sort(key=lambda r: r['f1'], reverse=True)
 
         output = {
-            'eval_results': eval_results,
-            'window_metrics': window_metrics,
-            'sweep_results': sweep_results,
-            'per_subject_data': per_subject_data,
+            'stride_data': stride_data,
+            'all_results': all_results,
+            'n_subjects': n_subjects,
+            'total_trials': total_trials,
+            'methods': methods,
         }
 
         if print_results:
-            _print_temporal_results(
-                window_metrics, sweep_results, eval_results,
-            )
+            _print_stride_aggregation_results(output, self.eval_strides, self.majority_ks)
 
-        _save_temporal_results(
-            window_metrics, sweep_results, per_subject_data,
-            eval_results, str(self.work_dir),
-        )
+        _save_stride_aggregation_results(output, self.eval_strides, str(self.work_dir))
 
         return output
 
 
 # ---------------------------------------------------------------------------
-# Component 3: Queue simulation with trial-aware GT
+# Component 3: Queue simulation
 # ---------------------------------------------------------------------------
 
-def _simulate_temporal_queue(
-    probs: List[float],
-    trial_labels: List[int],
-    queue_size: int,
-    threshold: float,
-    retain: int,
-) -> dict:
-    """Queue simulation on temporally-ordered stream with trial-label GT."""
+def _simulate_queue_average(probs, trial_labels, queue_size, threshold, retain):
+    """Average aggregation: mean probability > threshold -> FALL."""
     queue = deque(maxlen=queue_size)
     label_buf = deque(maxlen=queue_size)
     batch_labels = []
-
-    queue_preds = []
-    queue_gt = []
+    preds, gt = [], []
 
     for prob, label in zip(probs, trial_labels):
         queue.append(prob)
         label_buf.append(label)
         batch_labels.append(label)
-
         if len(queue) < queue_size:
             continue
 
         avg = sum(queue) / len(queue)
-        gt = 1 if any(l == 1 for l in batch_labels) else 0
         decision = 1 if avg > threshold else 0
-
-        queue_preds.append(decision)
-        queue_gt.append(gt)
+        ground_truth = 1 if any(l == 1 for l in batch_labels) else 0
+        preds.append(decision)
+        gt.append(ground_truth)
 
         if avg > threshold:
-            queue.clear()
-            label_buf.clear()
-            batch_labels = []
+            queue.clear(); label_buf.clear(); batch_labels = []
         else:
-            kept_probs = list(queue)[-retain:] if retain > 0 else []
-            kept_labels = list(label_buf)[-retain:] if retain > 0 else []
-            queue.clear()
-            label_buf.clear()
-            queue.extend(kept_probs)
-            label_buf.extend(kept_labels)
-            batch_labels = list(kept_labels)
+            kp = list(queue)[-retain:] if retain > 0 else []
+            kl = list(label_buf)[-retain:] if retain > 0 else []
+            queue.clear(); label_buf.clear()
+            queue.extend(kp); label_buf.extend(kl)
+            batch_labels = list(kl)
 
-    if not queue_preds:
-        return {'n_decisions': 0, 'skipped': True}
-
-    y_true = np.array(queue_gt)
-    y_pred = np.array(queue_preds)
-
-    labels_present = set(y_true)
-    if len(labels_present) < 2:
-        # Only one class in GT
-        cm_labels = [0, 1]
-        cm = confusion_matrix(y_true, y_pred, labels=cm_labels)
-        tn, fp, fn, tp = cm.ravel()
-        return {
-            'n_decisions': len(queue_preds),
-            'skipped': False,
-            'queue_preds': queue_preds,
-            'queue_gt': queue_gt,
-            'f1': f1_score(y_true, y_pred, zero_division=0),
-            'precision': precision_score(y_true, y_pred, zero_division=0),
-            'recall': recall_score(y_true, y_pred, zero_division=0),
-            'accuracy': accuracy_score(y_true, y_pred),
-            'tp': int(tp), 'fp': int(fp), 'tn': int(tn), 'fn': int(fn),
-        }
-
-    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
-    tn, fp, fn, tp = cm.ravel()
-    spec = tn / (tn + fp) if (tn + fp) > 0 else 0
-
-    return {
-        'n_decisions': len(queue_preds),
-        'skipped': False,
-        'queue_preds': queue_preds,
-        'queue_gt': queue_gt,
-        'f1': f1_score(y_true, y_pred, zero_division=0),
-        'precision': precision_score(y_true, y_pred, zero_division=0),
-        'recall': recall_score(y_true, y_pred, zero_division=0),
-        'accuracy': accuracy_score(y_true, y_pred),
-        'specificity': spec,
-        'tp': int(tp), 'fp': int(fp), 'tn': int(tn), 'fn': int(fn),
-    }
+    return preds, gt
 
 
-def _simulate_queue_all_subjects(
-    per_subject_data: Dict[str, dict],
-    queue_size: int,
-    threshold: float,
-    retain: int,
-) -> dict:
-    """Run queue per subject, pool all decisions for micro-averaged metrics."""
-    all_gt = []
-    all_preds = []
-    n_subjects = 0
+def _simulate_queue_majority(probs, trial_labels, queue_size, threshold, retain, k_fraction):
+    """Majority vote: if >= k_fraction of windows predict fall (prob>threshold), decide FALL."""
+    queue = deque(maxlen=queue_size)
+    label_buf = deque(maxlen=queue_size)
+    batch_labels = []
+    preds, gt = [], []
 
-    for subj, data in per_subject_data.items():
-        result = _simulate_temporal_queue(
-            data['probs'], data['trial_labels'],
-            queue_size, threshold, retain,
-        )
-        if result.get('skipped'):
+    for prob, label in zip(probs, trial_labels):
+        queue.append(prob)
+        label_buf.append(label)
+        batch_labels.append(label)
+        if len(queue) < queue_size:
             continue
-        all_gt.extend(result['queue_gt'])
-        all_preds.extend(result['queue_preds'])
-        n_subjects += 1
+
+        n_fall = sum(1 for p in queue if p > threshold)
+        decision = 1 if n_fall >= k_fraction * queue_size else 0
+        ground_truth = 1 if any(l == 1 for l in batch_labels) else 0
+        preds.append(decision)
+        gt.append(ground_truth)
+
+        if decision == 1:
+            queue.clear(); label_buf.clear(); batch_labels = []
+        else:
+            kp = list(queue)[-retain:] if retain > 0 else []
+            kl = list(label_buf)[-retain:] if retain > 0 else []
+            queue.clear(); label_buf.clear()
+            queue.extend(kp); label_buf.extend(kl)
+            batch_labels = list(kl)
+
+    return preds, gt
+
+
+def _sweep_one_config(per_subject_data, method, queue_size, threshold, retain):
+    """Run one queue config across all subjects, return pooled metrics dict or None."""
+    all_gt, all_preds = [], []
+
+    # Parse method
+    if method == 'average':
+        sim_fn = lambda p, l: _simulate_queue_average(p, l, queue_size, threshold, retain)
+    elif method.startswith('majority_k'):
+        k = int(method.split('majority_k')[1]) / 100.0
+        sim_fn = lambda p, l: _simulate_queue_majority(p, l, queue_size, threshold, retain, k)
+    else:
+        return None
+
+    for data in per_subject_data.values():
+        qp, qgt = sim_fn(data['probs'], data['trial_labels'])
+        all_gt.extend(qgt)
+        all_preds.extend(qp)
 
     if not all_gt:
-        return {'total_decisions': 0, 'metrics': {}, 'gt_positive': 0, 'gt_negative': 0, 'n_subjects': 0}
+        return None
 
     y_true = np.array(all_gt)
     y_pred = np.array(all_preds)
-
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
     tn, fp, fn, tp = cm.ravel()
     spec = tn / (tn + fp) if (tn + fp) > 0 else 0
 
-    metrics = {
-        'f1': f1_score(y_true, y_pred, zero_division=0),
-        'precision': precision_score(y_true, y_pred, zero_division=0),
-        'recall': recall_score(y_true, y_pred, zero_division=0),
-        'accuracy': accuracy_score(y_true, y_pred),
-        'specificity': spec,
-        'tp': int(tp), 'fp': int(fp), 'tn': int(tn), 'fn': int(fn),
-    }
-
     return {
-        'total_decisions': len(all_gt),
-        'metrics': metrics,
+        'f1': f1_score(y_true, y_pred, zero_division=0) * 100,
+        'precision': precision_score(y_true, y_pred, zero_division=0) * 100,
+        'recall': recall_score(y_true, y_pred, zero_division=0) * 100,
+        'accuracy': accuracy_score(y_true, y_pred) * 100,
+        'specificity': spec * 100,
+        'tp': int(tp), 'fp': int(fp), 'tn': int(tn), 'fn': int(fn),
+        'total_decisions': len(y_true),
         'gt_positive': int(y_true.sum()),
         'gt_negative': int((y_true == 0).sum()),
-        'n_subjects': n_subjects,
     }
 
 
@@ -571,130 +514,220 @@ def _compute_metrics(labels: np.ndarray, probs: np.ndarray, threshold: float = 0
 # Component 4: Print and save
 # ---------------------------------------------------------------------------
 
-def _print_temporal_results(
-    window_metrics: dict,
-    sweep_results: List[dict],
-    eval_results: dict,
-    n_top: int = 10,
-):
-    n_subj = eval_results['n_subjects'] - eval_results['n_skipped']
-    n_trials = eval_results['total_trials']
-    n_windows = eval_results['total_windows']
-    stride = eval_results['eval_stride']
+def _print_stride_aggregation_results(output, strides, majority_ks):
+    stride_data = output['stride_data']
+    all_results = output['all_results']
+    n_subjects = output['n_subjects']
+    total_trials = output['total_trials']
 
     print()
-    print("=" * 90)
-    print(f"TEMPORAL QUEUE EVALUATION ({n_subj} subjects, stride={stride})")
-    print("=" * 90)
-    print(f"Subjects: {n_subj} | Trials: {n_trials} | Windows: {n_windows} (eval_stride={stride})")
+    print("=" * 110)
+    print("TEMPORAL QUEUE EVALUATION ({} test subjects, {} trials)".format(n_subjects, total_trials))
+    print("=" * 110)
 
-    wm = window_metrics
-    auc_str = f"  AUC: {wm.get('auc', 0)*100:>7.2f}%" if 'auc' in wm else ""
-    print(f"\nWindow-Level (temporal, t=0.50):")
-    print(f"  F1: {wm['f1']*100:>7.2f}%    Precision: {wm['precision']*100:>7.2f}%    Recall: {wm['recall']*100:>7.2f}%")
-    print(f"  Accuracy: {wm['accuracy']*100:>7.2f}%    Specificity: {wm['specificity']*100:>7.2f}%{auc_str}")
-    print(f"  MCC: {wm['mcc']:.4f}    BalAcc: {wm['balanced_accuracy']*100:.2f}%")
-    print(f"  Confusion:   TP={wm['tp']}  FP={wm['fp']}  TN={wm['tn']}  FN={wm['fn']}")
-    print(f"  Class balance: {wm['n_positive']} fall ({wm['n_positive']/wm['n_samples']*100:.1f}%) / {wm['n_negative']} ADL ({wm['n_negative']/wm['n_samples']*100:.1f}%)")
+    # Table 1: Window-level with ADL:Fall ratio
+    print("\n--- WINDOW-LEVEL METRICS BY EVAL STRIDE ---")
+    print("{:>6} {:>8} {:>7} {:>6} {:>9} {:>6} | {:>7} {:>7} {:>7} {:>7} {:>7} {:>7}".format(
+        'Stride', 'Windows', 'ADL', 'Fall', 'ADL:Fall', 'Fall%', 'F1', 'Prec', 'Rec', 'Spec', 'AUC', 'MCC'))
+    print("-" * 105)
+    for s in strides:
+        if s not in stride_data:
+            continue
+        wm = stride_data[s]['window_metrics']
+        n_w = wm['n_samples']
+        n_fall = wm['n_fall']
+        n_adl = wm['n_adl']
+        ratio = wm['adl_fall_ratio']
+        fall_pct = n_fall / n_w * 100 if n_w > 0 else 0
+        auc = wm.get('auc', 0)
+        print("{:>6} {:>8} {:>7} {:>6} {:>7.2f}:1 {:>5.1f}% | {:>6.2f}% {:>6.2f}% {:>6.2f}% {:>6.2f}% {:>6.2f}% {:>6.4f}".format(
+            s, n_w, n_adl, n_fall, ratio, fall_pct,
+            wm['f1']*100, wm['precision']*100, wm['recall']*100, wm['specificity']*100, auc*100, wm['mcc']))
 
-    if sweep_results:
-        print(f"\n{'='*90}")
-        print(f"QUEUE PARAMETER SWEEP ({len(sweep_results)} configs, {n_subj} subjects)")
-        print(f"{'='*90}")
-        print(f"  Size  Thresh  Retain |      F1     Prec   Recall      Acc     Spec |   GT+   GT-   Dec")
-        print(f"  {'-'*82}")
+    if not all_results:
+        print("=" * 110)
+        return
 
-        for r in sweep_results[:n_top]:
-            p = r['params']
-            m = r['pooled_metrics']
-            print(f"  {p['queue_size']:>4}  {p['threshold']:>6.2f}  {p['retain']:>6} | "
-                  f"{m['f1']*100:>6.2f}% {m['precision']*100:>6.2f}% {m['recall']*100:>6.2f}% "
-                  f"{m['accuracy']*100:>6.2f}% {m['specificity']*100:>6.2f}% | "
-                  f"{r['gt_positive']:>4} {r['gt_negative']:>4} {r['total_decisions']:>5}")
+    # Table 2: Best F1 per stride x queue_size x method
+    method_labels = ['average'] + ['maj_k{}'.format(int(k*100)) for k in majority_ks]
+    method_keys = ['average'] + ['majority_k{}'.format(int(k*100)) for k in majority_ks]
+    queue_sizes = sorted(set(r['queue_size'] for r in all_results))
 
-        # Window vs best queue comparison
-        best = sweep_results[0]
-        bm = best['pooled_metrics']
-        bp = best['params']
+    print("\n\n--- BEST QUEUE F1 PER STRIDE x QUEUE SIZE x METHOD ---")
+    header = "{:>6} {:>5} | ".format('Stride', 'QSize')
+    for ml in method_labels:
+        header += "{:>10}".format(ml)
+    print(header)
+    print("-" * (14 + 10 * len(method_labels)))
 
-        print(f"\n{'-'*90}")
-        print(f"WINDOW vs QUEUE COMPARISON (temporal)")
-        print(f"{'-'*90}")
-        header = f"  {'':>18} {'F1':>8}  {'Prec':>8}  {'Recall':>8}  {'Acc':>8}  {'Spec':>8}"
-        print(header)
+    for s in strides:
+        if s not in stride_data:
+            continue
+        for qs in queue_sizes:
+            line = "{:>6} {:>5} | ".format(s, qs)
+            for mk in method_keys:
+                subset = [r for r in all_results if r['stride'] == s and r['queue_size'] == qs and r['method'] == mk]
+                if subset:
+                    best = max(subset, key=lambda r: r['f1'])
+                    line += "{:>9.2f}%".format(best['f1'])
+                else:
+                    line += "{:>10}".format('--')
+            print(line)
+        if s != strides[-1]:
+            print()
 
-        win_label = 'Window (t=0.5)'
-        queue_label = 'Queue (best)'
-        print(f"  {win_label:>18} {wm['f1']*100:>7.2f}% {wm['precision']*100:>7.2f}% "
-              f"{wm['recall']*100:>7.2f}% {wm['accuracy']*100:>7.2f}% {wm['specificity']*100:>7.2f}%")
-        print(f"  {queue_label:>18} {bm['f1']*100:>7.2f}% {bm['precision']*100:>7.2f}% "
-              f"{bm['recall']*100:>7.2f}% {bm['accuracy']*100:>7.2f}% {bm['specificity']*100:>7.2f}%")
+    # Table 3: Average vs Majority-k head-to-head
+    print("\n\n--- AVERAGE vs MAJORITY-K HEAD-TO-HEAD (best F1 per stride) ---")
+    header = "{:>6} | {:>9} | ".format('Stride', 'Average')
+    for k in majority_ks:
+        header += "{:>9} ".format('k={}%'.format(int(k*100)))
+    header += "| {:>14} {:>8}".format('Best Method', 'Best F1')
+    print(header)
+    print("-" * (30 + 10 * len(majority_ks) + 25))
 
-        d_f1 = (bm['f1'] - wm['f1']) * 100
-        d_prec = (bm['precision'] - wm['precision']) * 100
-        d_rec = (bm['recall'] - wm['recall']) * 100
-        d_acc = (bm['accuracy'] - wm['accuracy']) * 100
-        d_spec = (bm['specificity'] - wm['specificity']) * 100
-        print(f"  {'Delta':>18} {d_f1:>+7.2f}% {d_prec:>+7.2f}% {d_rec:>+7.2f}% "
-              f"{d_acc:>+7.2f}% {d_spec:>+7.2f}%")
-        print(f"  Best queue config: size={bp['queue_size']}, threshold={bp['threshold']}, retain={bp['retain']}")
+    for s in strides:
+        if s not in stride_data:
+            continue
+        avg_sub = [r for r in all_results if r['stride'] == s and r['method'] == 'average']
+        if not avg_sub:
+            continue
+        avg_best = max(avg_sub, key=lambda r: r['f1'])
+        candidates = [('average', avg_best['f1'])]
 
-    print("=" * 90)
+        line = "{:>6} | {:>8.2f}% | ".format(s, avg_best['f1'])
+        for k in majority_ks:
+            mk = 'majority_k{}'.format(int(k*100))
+            subset = [r for r in all_results if r['stride'] == s and r['method'] == mk]
+            if subset:
+                best = max(subset, key=lambda r: r['f1'])
+                line += "{:>8.2f}% ".format(best['f1'])
+                candidates.append((mk, best['f1']))
+            else:
+                line += "{:>9} ".format('--')
+        overall = max(candidates, key=lambda x: x[1])
+        line += "| {:>14} {:>7.2f}%".format(overall[0], overall[1])
+        print(line)
+
+    # Table 4: Top 20 overall
+    print("\n\n--- TOP 20 CONFIGS OVERALL ---")
+    print("{:>3} {:>6} {:>14} {:>5} {:>6} {:>4} | {:>7} {:>7} {:>7} {:>7} {:>7} | {:>5} {:>4} {:>4}".format(
+        '#', 'Stride', 'Method', 'QSize', 'Thresh', 'Ret', 'F1', 'Prec', 'Rec', 'Spec', 'Acc', 'Dec', 'GT+', 'GT-'))
+    print("-" * 110)
+    for i, r in enumerate(all_results[:20], 1):
+        print("{:>3} {:>6} {:>14} {:>5} {:>6.1f} {:>4} | {:>6.2f}% {:>6.2f}% {:>6.2f}% {:>6.2f}% {:>6.2f}% | {:>5} {:>4} {:>4}".format(
+            i, r['stride'], r['method'], r['queue_size'], r['threshold'], r['retain'],
+            r['f1'], r['precision'], r['recall'], r['specificity'], r['accuracy'],
+            r['total_decisions'], r['gt_positive'], r['gt_negative']))
+
+    # Table 5: High-specificity configs
+    high_spec = [r for r in all_results if r['specificity'] >= 90]
+    if high_spec:
+        high_spec.sort(key=lambda r: r['f1'], reverse=True)
+        print("\n\n--- TOP 15 HIGH-SPECIFICITY CONFIGS (Spec >= 90%) ---")
+        print("{:>3} {:>6} {:>14} {:>5} {:>6} {:>4} | {:>7} {:>7} {:>7} {:>7} | {:>5} {:>4} {:>4}".format(
+            '#', 'Stride', 'Method', 'QSize', 'Thresh', 'Ret', 'F1', 'Prec', 'Rec', 'Spec', 'Dec', 'GT+', 'GT-'))
+        print("-" * 105)
+        for i, r in enumerate(high_spec[:15], 1):
+            print("{:>3} {:>6} {:>14} {:>5} {:>6.1f} {:>4} | {:>6.2f}% {:>6.2f}% {:>6.2f}% {:>6.2f}% | {:>5} {:>4} {:>4}".format(
+                i, r['stride'], r['method'], r['queue_size'], r['threshold'], r['retain'],
+                r['f1'], r['precision'], r['recall'], r['specificity'],
+                r['total_decisions'], r['gt_positive'], r['gt_negative']))
+
+    # Table 6: Decision timing
+    print("\n\n--- QUEUE DECISION TIMING (at 30Hz) ---")
+    print("{:>6} {:>5} | {:>9} {:>13} {:>14}".format('Stride', 'QSize', 'Window/s', 'Sec/Decision', 'Decisions/Min'))
+    print("-" * 55)
+    for s in strides:
+        for qs in queue_sizes:
+            sec_per_window = s / 30.0
+            sec_per_decision = qs * sec_per_window
+            dec_per_min = 60.0 / sec_per_decision
+            print("{:>6} {:>5} | {:>8.1f}/s {:>12.1f}s {:>13.1f}".format(
+                s, qs, 1/sec_per_window, sec_per_decision, dec_per_min))
+
+    # Window vs best queue comparison
+    if all_results:
+        best = all_results[0]
+        best_stride = best['stride']
+        wm = stride_data[best_stride]['window_metrics']
+        print("\n\n--- WINDOW vs BEST QUEUE COMPARISON ---")
+        print("{:>20} {:>8} {:>8} {:>8} {:>8} {:>8}".format('', 'F1', 'Prec', 'Recall', 'Acc', 'Spec'))
+        print("{:>20} {:>7.2f}% {:>7.2f}% {:>7.2f}% {:>7.2f}% {:>7.2f}%".format(
+            'Window (s={})'.format(best_stride),
+            wm['f1']*100, wm['precision']*100, wm['recall']*100, wm['accuracy']*100, wm['specificity']*100))
+        print("{:>20} {:>7.2f}% {:>7.2f}% {:>7.2f}% {:>7.2f}% {:>7.2f}%".format(
+            'Queue (best)', best['f1'], best['precision'], best['recall'], best['accuracy'], best['specificity']))
+        d_f1 = best['f1'] - wm['f1']*100
+        d_prec = best['precision'] - wm['precision']*100
+        d_rec = best['recall'] - wm['recall']*100
+        d_acc = best['accuracy'] - wm['accuracy']*100
+        d_spec = best['specificity'] - wm['specificity']*100
+        print("{:>20} {:>+7.2f}% {:>+7.2f}% {:>+7.2f}% {:>+7.2f}% {:>+7.2f}%".format(
+            'Delta', d_f1, d_prec, d_rec, d_acc, d_spec))
+        print("  Best: stride={}, {}, size={}, thresh={}, retain={}".format(
+            best['stride'], best['method'], best['queue_size'], best['threshold'], best['retain']))
+
+    print("=" * 110)
 
 
-def _save_temporal_results(
-    window_metrics: dict,
-    sweep_results: List[dict],
-    per_subject_data: Dict[str, dict],
-    eval_results: dict,
-    output_dir: str,
-):
+def _save_stride_aggregation_results(output, strides, output_dir):
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    # Window-level metrics
-    wm_save = {k: v for k, v in window_metrics.items()}
-    wm_save['eval_stride'] = eval_results['eval_stride']
-    wm_save['n_subjects'] = eval_results['n_subjects'] - eval_results['n_skipped']
-    wm_save['total_trials'] = eval_results['total_trials']
-    with open(out / 'temporal_queue_metrics.json', 'w') as f:
-        json.dump(wm_save, f, indent=2)
-    print(f"  [Temporal] Saved metrics: {out / 'temporal_queue_metrics.json'}")
+    stride_data = output['stride_data']
+    all_results = output['all_results']
 
-    # Sweep CSV
-    if sweep_results:
-        import csv
-        fields = ['queue_size', 'threshold', 'retain', 'f1', 'precision', 'recall',
-                  'accuracy', 'specificity', 'tp', 'fp', 'tn', 'fn',
-                  'total_decisions', 'gt_positive', 'gt_negative', 'n_subjects']
-        with open(out / 'temporal_queue_sweep.csv', 'w', newline='') as f:
+    # Window metrics per stride
+    wm_dict = {}
+    for s in strides:
+        if s in stride_data:
+            wm_dict[str(s)] = stride_data[s]['window_metrics']
+    with open(out / 'temporal_stride_window_metrics.json', 'w') as f:
+        json.dump(wm_dict, f, indent=2)
+    print("  [Temporal] Saved: {}".format(out / 'temporal_stride_window_metrics.json'))
+
+    # Full ablation CSV
+    if all_results:
+        fields = ['stride', 'method', 'queue_size', 'threshold', 'retain',
+                  'f1', 'precision', 'recall', 'accuracy', 'specificity',
+                  'tp', 'fp', 'tn', 'fn', 'total_decisions', 'gt_positive', 'gt_negative']
+        with open(out / 'temporal_stride_ablation.csv', 'w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=fields)
             writer.writeheader()
-            for r in sweep_results:
-                row = {**r['params']}
-                for k, v in r['pooled_metrics'].items():
-                    row[k] = round(v * 100, 2) if isinstance(v, float) and v <= 1 else v
-                row['total_decisions'] = r['total_decisions']
-                row['gt_positive'] = r['gt_positive']
-                row['gt_negative'] = r['gt_negative']
-                row['n_subjects'] = r['n_subjects']
+            for r in all_results:
+                row = {k: r.get(k) for k in fields}
                 writer.writerow(row)
-        print(f"  [Temporal] Saved sweep: {out / 'temporal_queue_sweep.csv'}")
+        print("  [Temporal] Saved: {}".format(out / 'temporal_stride_ablation.csv'))
 
     # Best config JSON
-    if sweep_results:
-        best = sweep_results[0]
-        best_save = {
-            'params': best['params'],
-            'pooled_metrics': best['pooled_metrics'],
-            'total_decisions': best['total_decisions'],
-            'gt_positive': best['gt_positive'],
-            'gt_negative': best['gt_negative'],
-            'eval_stride': eval_results['eval_stride'],
-        }
+    if all_results:
+        best = all_results[0]
         with open(out / 'temporal_queue_best.json', 'w') as f:
-            json.dump(best_save, f, indent=2)
-        print(f"  [Temporal] Saved best config: {out / 'temporal_queue_best.json'}")
+            json.dump(best, f, indent=2)
+        print("  [Temporal] Saved: {}".format(out / 'temporal_queue_best.json'))
+
+    # Backward compat: stride=32 single-stride files
+    if 32 in stride_data:
+        wm32 = stride_data[32]['window_metrics']
+        wm32_save = dict(wm32)
+        wm32_save['eval_stride'] = 32
+        wm32_save['n_subjects'] = output['n_subjects']
+        wm32_save['total_trials'] = output['total_trials']
+        with open(out / 'temporal_queue_metrics.json', 'w') as f:
+            json.dump(wm32_save, f, indent=2)
+
+        avg32 = [r for r in all_results if r['stride'] == 32 and r['method'] == 'average']
+        if avg32:
+            fields = ['queue_size', 'threshold', 'retain', 'f1', 'precision', 'recall',
+                      'accuracy', 'specificity', 'tp', 'fp', 'tn', 'fn',
+                      'total_decisions', 'gt_positive', 'gt_negative']
+            with open(out / 'temporal_queue_sweep.csv', 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=fields + ['n_subjects'])
+                writer.writeheader()
+                for r in sorted(avg32, key=lambda x: -x['f1']):
+                    row = {k: r.get(k) for k in fields}
+                    row['n_subjects'] = output['n_subjects']
+                    writer.writerow(row)
 
 
 # ---------------------------------------------------------------------------
@@ -705,13 +738,16 @@ def run_temporal_queue_evaluation(
     work_dir: str,
     config: Optional[dict] = None,
     device: str = 'cuda:0',
-    eval_stride: int = 32,
     print_results: bool = True,
+    eval_strides: Optional[List[int]] = None,
     queue_sizes: Optional[List[int]] = None,
     queue_thresholds: Optional[List[float]] = None,
     queue_retains: Optional[List[int]] = None,
+    majority_ks: Optional[List[float]] = None,
+    # Backward compat
+    eval_stride: int = 32,
 ) -> dict:
-    """Top-level entry point for temporal queue evaluation."""
+    """Top-level entry point for temporal queue evaluation with stride ablation."""
     print("\n[Temporal Queue Eval] Starting temporal queue evaluation...")
 
     evaluator = TemporalQueueEvaluator(
@@ -719,9 +755,11 @@ def run_temporal_queue_evaluation(
         config=config,
         device=device,
         eval_stride=eval_stride,
+        eval_strides=eval_strides,
         queue_sizes=queue_sizes,
         queue_thresholds=queue_thresholds,
         queue_retains=queue_retains,
+        majority_ks=majority_ks,
     )
 
     return evaluator.sweep_and_report(print_results=print_results)
