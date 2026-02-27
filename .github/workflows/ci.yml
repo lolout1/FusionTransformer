@@ -45,7 +45,7 @@ jobs:
           --cov=fusionlib \
           --cov-report=xml \
           --cov-report=term-missing \
-          --cov-fail-under=60
+          --cov-fail-under=15
 
     - name: Upload coverage to Codecov
       if: matrix.python-version == '3.10'

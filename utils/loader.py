@@ -593,6 +593,9 @@ class DatasetBuilder:
             'kalman_include_uncertainty': kwargs.get('kalman_include_uncertainty', False),
             'kalman_include_innovation': kwargs.get('kalman_include_innovation', False),
             'filter_fs': kwargs.get('filter_fs', 30.0),
+            # Channel engineering options
+            'kalman_exclude_yaw': kwargs.get('kalman_exclude_yaw', False),
+            'kalman_include_gyro_mag': kwargs.get('kalman_include_gyro_mag', False),
             # Linear KF parameters
             'kalman_Q_orientation': kwargs.get('kalman_Q_orientation', 0.01),
             'kalman_Q_rate': kwargs.get('kalman_Q_rate', 0.1),
@@ -1291,11 +1294,22 @@ class DatasetBuilder:
                     # Kalman filter fusion (replaces gyroscope with orientation features)
                     if self.enable_kalman_fusion and 'accelerometer' in trial_data and 'gyroscope' in trial_data:
                         try:
+                            # Preserve raw gyro for gyro_mag calculation if needed
+                            raw_gyro = trial_data['gyroscope'].copy() if self.kalman_config.get('kalman_include_gyro_mag', False) else None
+
                             trial_data = kalman_fusion_for_loader(trial_data, self.kalman_config)
-                            # Assemble final features: [smv, ax, ay, az, roll, pitch, yaw, ...]
+
+                            # Assemble final features with channel engineering
+                            # Channel order depends on flags:
+                            #   Default (7ch): [smv, ax, ay, az, roll, pitch, yaw]
+                            #   exclude_yaw (6ch): [smv, ax, ay, az, roll, pitch]
+                            #   include_gyro_mag + exclude_yaw (7ch): [smv, ax, ay, az, gyro_mag, roll, pitch]
                             kalman_features = assemble_kalman_features(
                                 trial_data,
-                                include_smv=self.kalman_config.get('kalman_include_smv', True)
+                                include_smv=self.kalman_config.get('kalman_include_smv', True),
+                                exclude_yaw=self.kalman_config.get('kalman_exclude_yaw', False),
+                                include_gyro_mag=self.kalman_config.get('kalman_include_gyro_mag', False),
+                                gyro_data=raw_gyro
                             )
                             # Replace accelerometer with full Kalman features
                             trial_data['accelerometer'] = kalman_features

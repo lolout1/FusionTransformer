@@ -265,11 +265,15 @@ class UTD_mm(torch.utils.data.Dataset):
             gyro_data = torch.tensor(self.gyro_data[index, :, :])
 
             if self.gyro_magnitude_only:
-                # 4 channels: [ax, ay, az, gyro_mag]
                 # Collapses 3 noisy gyro channels into 1 magnitude value
-                # This reduces noise while preserving rotational intensity information
                 gyro_mag = self.cal_smv(gyro_data)  # (T, 1)
-                imu_data = torch.cat((acc_data, gyro_mag), dim=-1)  # 4 ch
+                if self.include_smv:
+                    # 5 channels: [smv, ax, ay, az, gyro_mag]
+                    acc_smv = self.cal_smv(acc_data)
+                    imu_data = torch.cat((acc_smv, acc_data, gyro_mag), dim=-1)  # 5 ch
+                else:
+                    # 4 channels: [ax, ay, az, gyro_mag]
+                    imu_data = torch.cat((acc_data, gyro_mag), dim=-1)  # 4 ch
             elif self.include_smv:
                 # 8 channels: [smv, ax, ay, az, gyro_mag, gx, gy, gz]
                 acc_smv = self.cal_smv(acc_data)
@@ -286,11 +290,12 @@ class UTD_mm(torch.utils.data.Dataset):
 
         else:
             # Single modality (accelerometer or gyroscope only)
-            if self.include_smv:
-                # 4 channels: [smv, ax, ay, az]
+            # Check if data is already pre-fused (Kalman fusion produces >3 channels with SMV already included)
+            if self.include_smv and acc_data.shape[-1] == 3:
+                # Only add SMV to raw 3-channel data [ax, ay, az] -> [smv, ax, ay, az]
                 watch_smv = self.cal_smv(acc_data)
                 acc_data = torch.cat((watch_smv, acc_data), dim=-1)
-            # else: 3 channels: [ax, ay, az] - no modification needed
+            # else: already fused (>3 channels) or include_smv=False - no modification needed
             data['accelerometer'] = acc_data
 
         label = self.labels[index]
@@ -303,4 +308,4 @@ class UTD_mm(torch.utils.data.Dataset):
 
 if __name__ == "__main__":
     data = torch.randn((8, 128, 3))
-    smv = cal_smv(data)
+    smv = torch.sqrt((data ** 2).sum(dim=-1, keepdim=True))
