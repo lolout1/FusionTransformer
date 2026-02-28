@@ -269,6 +269,33 @@ make test-cov
 pytest tests/test_ablation_architectures.py -v
 ```
 
+### Queue & Temporal Ablation
+
+Evaluates deployment performance across aggregation methods, queue sizes, strides, and calibration settings. Trains all configs in `configs_tmp/` then runs a full temporal queue sweep (127k+ parameter combinations).
+
+```bash
+# Full run: train 7 configs + queue eval (8 GPUs, 4 parallel)
+python distributed_dataset_pipeline/run_queue_ablation.py --num-gpus 8 --parallel 4
+
+# Quick run (2 folds per config)
+python distributed_dataset_pipeline/run_queue_ablation.py --num-gpus 8 --parallel 4 --quick
+
+# Eval-only (skip training, reuse existing runs)
+python distributed_dataset_pipeline/run_queue_ablation.py --eval-only
+
+# Custom configs directory
+python distributed_dataset_pipeline/run_queue_ablation.py --configs-dir path/to/configs --num-gpus 4
+```
+
+**Sweep parameters**: strides `[2,4,5,8,10,15,20]`, queue sizes `[3,5,8,10,15,20]`, thresholds `[0.3-0.7]`, retain `[0-5]`, methods `[average, majority_k30-k70]`, calibrated `[true, false]`.
+
+**Outputs** (in `exps/queue_ablation_<timestamp>/`):
+- `queue_ablation_report.md` — full analysis with 10 sections
+- `queue_ablation_full.csv` — all parameter combinations
+- `queue_ablation_best_per_config.csv` — best settings per model config
+- `queue_ablation_best_per_stride.csv` — best settings per stride
+- `queue_ablation_summary.json` — top results and metadata
+
 ### Code Quality
 
 ```bash

@@ -202,6 +202,7 @@ class KalmanEncoderAblation(nn.Module):
         norm_first: bool = True,
         se_reduction: int = 4,
         acc_ratio: float = 0.65,
+        ff_multiplier: int = 2,
         **kwargs
     ):
         super().__init__()
@@ -242,7 +243,7 @@ class KalmanEncoderAblation(nn.Module):
         encoder_layer = TransformerEncoderLayer(
             d_model=embed_dim,
             nhead=num_heads,
-            dim_feedforward=embed_dim * 2,
+            dim_feedforward=embed_dim * ff_multiplier,
             dropout=dropout,
             activation=activation,
             norm_first=norm_first,

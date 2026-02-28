@@ -37,6 +37,7 @@ conf/
 distributed_dataset_pipeline/*
 !distributed_dataset_pipeline/README.md
 !distributed_dataset_pipeline/run_architecture_ablation.py
+!distributed_dataset_pipeline/run_queue_ablation.py
 
 # Output files
 *.out
