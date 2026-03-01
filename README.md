@@ -22,6 +22,24 @@
 
 ---
 
+## Table of Contents
+
+- [Results](#results)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Project Structure](#project-structure)
+- [Training](#training)
+- [Configuration](#configuration)
+- [Datasets](#datasets)
+- [Development](#development)
+- [Temporal Queue Evaluation](#temporal-queue-evaluation)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Citation](#citation)
+- [License](#license)
+
+---
+
 ## Results
 
 All results from Leave-One-Subject-Out (LOSO) cross-validation.
