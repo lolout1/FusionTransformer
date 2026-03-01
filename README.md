@@ -335,12 +335,45 @@ git push origin <branch-name>
 
 ---
 
+## Temporal Queue Evaluation
+
+Queue evaluation is **separate from LOSO training**. `ray_train.py` performs standard per-window test metrics and saves predictions to `fold_results.pkl`. The queue evaluator reads those predictions post-hoc to simulate real-time temporal queueing — it never touches the training or test loop.
+
+```bash
+# Step 1: Train (no queue — standard per-window LOSO)
+python ray_train.py --config configs_tmp/nosmv_f8_a32.yaml --num-gpus 8
+
+# Step 2: Queue eval (optional — reads fold_results.pkl from step 1)
+python distributed_dataset_pipeline/run_queue_ablation.py --eval-only
+
+# Full pipeline: train all configs + queue eval
+python distributed_dataset_pipeline/run_queue_ablation.py --num-gpus 8 --parallel 4
+
+# Quick run (2 folds per config)
+python distributed_dataset_pipeline/run_queue_ablation.py --num-gpus 8 --parallel 4 --quick
+```
+
+**Sweep parameters**: strides `[2,4,5,8,10,15,20]`, queue sizes `[3,5,8,10,15,20]`, thresholds `[0.3-0.7]`, retain `[0-5]`, methods `[average, majority_k30-k70]`, calibrated `[true, false]`.
+
+**Server-side testing** (`kalman_server/`): toggle queue with `--no-queue` (CLI) or "Simulate Alpha Queue" checkbox (web app). Production NATS server does single-window inference only — queueing is handled by the watch app.
+
+**Outputs** (in `exps/queue_ablation_<timestamp>/`):
+- `queue_ablation_report.md` — full analysis
+- `queue_ablation_full.csv` — all parameter combinations (127k+ rows)
+- `queue_ablation_summary.json` — top results and metadata
+
+---
+
 ## Requirements
 
 - Python 3.9+
 - PyTorch 2.0+
 - CUDA 12.1+ (for GPU training)
 - Ray 2.0+ (for distributed training)
+
+---
+
+## Installation
 
 ```bash
 pip install -r requirements.txt
