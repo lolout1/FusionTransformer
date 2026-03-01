@@ -38,6 +38,7 @@ distributed_dataset_pipeline/*
 !distributed_dataset_pipeline/README.md
 !distributed_dataset_pipeline/run_architecture_ablation.py
 !distributed_dataset_pipeline/run_queue_ablation.py
+!distributed_dataset_pipeline/run_statistical_significance.py
 
 # Output files
 *.out
