@@ -22,6 +22,25 @@
 
 ---
 
+## Table of Contents
+
+- [Results](#results)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Project Structure](#project-structure)
+- [Training](#training)
+- [Configuration](#configuration)
+- [Datasets](#datasets)
+- [Development](#development)
+- [Temporal Queue Evaluation](#temporal-queue-evaluation)
+- [Statistical Significance](#statistical-significance)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Citation](#citation)
+- [License](#license)
+
+---
+
 ## Results
 
 All results from Leave-One-Subject-Out (LOSO) cross-validation.
@@ -361,6 +380,42 @@ python distributed_dataset_pipeline/run_queue_ablation.py --num-gpus 8 --paralle
 - `queue_ablation_report.md` — full analysis
 - `queue_ablation_full.csv` — all parameter combinations (127k+ rows)
 - `queue_ablation_summary.json` — top results and metadata
+
+---
+
+## Statistical Significance
+
+Paired statistical tests comparing Kalman fusion vs raw gyroscope input across LOSO folds. Three complementary tests are used:
+
+- **Paired t-test**: Tests mean difference of per-fold metrics (assumes normality of differences)
+- **Wilcoxon signed-rank**: Non-parametric alternative (no normality assumption)
+- **Nadeau-Bengio corrected t-test** (2003): Accounts for non-independence of LOSO folds where training sets overlap ~95%. Uses `SE = sqrt((1/k + n_test/n_train) * var_diff)`
+
+| Dataset | N | Kalman F1 | Raw F1 | ΔF1 | p (t-test) | p (Wilcoxon) | p (NB-corrected) | Cohen's d |
+|---------|---|-----------|--------|-----|------------|--------------|-------------------|-----------|
+| SmartFallMM | 22 | 91.65 ± 5.49 | 89.54 ± 7.39 | +2.12 | 0.036\* | 0.023\* | 0.099 | 0.479 (small) |
+| UP-FALL | 15 | 94.05 ± 5.48 | 90.00 ± 7.62 | +4.05 | 0.047\* | 0.030\* | 0.135 | 0.563 (medium) |
+| WEDA-FALL | 12 | 93.32 ± 4.81 | 87.18 ± 2.97 | +6.14 | 1.1e-04\*\*\* | 0.002\*\* | 0.001\*\* | 1.690 (large) |
+
+Significance: \* p<0.05, \*\* p<0.01, \*\*\* p<0.001. Cohen's d: 0.2 = small, 0.5 = medium, 0.8 = large.
+
+```bash
+# Run significance tests using existing fold_results.pkl
+python distributed_dataset_pipeline/run_statistical_significance.py --results-only \
+    --smartfallmm-kalman exps/smartfallmm_kalman/fold_results.pkl \
+    --smartfallmm-raw exps/smartfallmm_raw/fold_results.pkl
+
+# Train both configs per dataset and compute tests
+python distributed_dataset_pipeline/run_statistical_significance.py --num-gpus 8
+
+# Single dataset
+python distributed_dataset_pipeline/run_statistical_significance.py --datasets wedafall --num-gpus 4
+
+# Quick validation (2 folds)
+python distributed_dataset_pipeline/run_statistical_significance.py --num-gpus 4 --quick
+```
+
+Outputs `significance_report.md` and `significance_results.json` in `exps/statistical_significance_<timestamp>/`.
 
 ---
 
