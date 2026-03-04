@@ -4,19 +4,23 @@ CPU-only LOSO Training for SmartFallMM.
 
 Runs sequential Leave-One-Subject-Out cross-validation on CPU.
 Saves fold_results.pkl compatible with significance testing scripts.
+Optionally runs temporal queue evaluation after all folds complete.
 
 Usage:
-    # Default config (dual-stream Kalman)
-    python cpu_loso_train.py --config config/best_config/smartfallmm/kalman.yaml
+    # Default config (dual-stream Kalman baseline)
+    python cpu_loso_train.py --config config/best_config/smartfallmm/kalman_baseline.yaml
 
     # Quick test (2 folds)
-    python cpu_loso_train.py --config config/best_config/smartfallmm/kalman.yaml --max-folds 2
+    python cpu_loso_train.py --config config/best_config/smartfallmm/kalman_baseline.yaml --max-folds 2
+
+    # With temporal queue evaluation after LOSO
+    python cpu_loso_train.py --config config/best_config/smartfallmm/kalman_baseline.yaml --queue-eval
 
     # Resume from fold 10
-    python cpu_loso_train.py --config config/best_config/smartfallmm/kalman.yaml --resume-from 10
+    python cpu_loso_train.py --config config/best_config/smartfallmm/kalman_baseline.yaml --resume-from 10
 
     # Custom output
-    python cpu_loso_train.py --config config/best_config/smartfallmm/kalman.yaml -o exps/my_run
+    python cpu_loso_train.py --config config/best_config/smartfallmm/kalman_baseline.yaml -o exps/my_run
 """
 
 import argparse
@@ -27,6 +31,11 @@ import json
 import pickle
 import random
 import traceback
+import warnings
+
+warnings.filterwarnings('ignore', category=UserWarning)
+import logging
+logging.disable(logging.INFO)
 from copy import deepcopy
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -59,6 +68,10 @@ def parse_args():
     p.add_argument('--seed', type=int, default=2)
     p.add_argument('--num-workers', type=int, default=0, help='DataLoader workers')
     p.add_argument('--verbose', '-v', action='store_true')
+    p.add_argument('--queue-eval', action='store_true',
+                   help='Run temporal queue evaluation after all LOSO folds complete')
+    p.add_argument('--save-models', action='store_true', default=None,
+                   help='Save per-fold model weights (auto-enabled with --queue-eval)')
     return p.parse_args()
 
 
@@ -262,7 +275,7 @@ def get_test_candidates(cfg, ns):
 
 
 def train_single_fold(ns, test_subject, fold_idx, total_folds, verbose=False):
-    """Train one LOSO fold on CPU. Returns fold result dict."""
+    """Train one LOSO fold on CPU. Returns (result_dict, best_state_dict)."""
     fold_start = time.time()
     device = torch.device('cpu')
 
@@ -285,7 +298,7 @@ def train_single_fold(ns, test_subject, fold_idx, total_folds, verbose=False):
         if not split or not any(isinstance(v, np.ndarray) and len(v) > 0
                                 for v in split.values() if isinstance(v, np.ndarray)):
             print(f'  [Fold {fold_idx+1}] WARNING: {name} split empty, skipping')
-            return None
+            return None, None
 
     # Class distribution
     train_labels = norm_train.get('labels', [])
@@ -359,7 +372,7 @@ def train_single_fold(ns, test_subject, fold_idx, total_folds, verbose=False):
         'elapsed_time': elapsed,
     }
 
-    return result
+    return result, best_state
 
 
 def main():
@@ -384,6 +397,9 @@ def main():
     import shutil
     shutil.copy2(args.config, work_dir)
 
+    # Auto-enable model saving when queue eval is requested
+    save_models = args.save_models if args.save_models is not None else args.queue_eval
+
     # Determine test candidates
     candidates = get_test_candidates(cfg, ns)
     if args.max_folds:
@@ -398,6 +414,10 @@ def main():
     print(f'Folds: {total_folds} (starting from {start_fold})')
     print(f'Output: {work_dir}')
     print(f'Device: CPU')
+    if save_models:
+        print(f'Saving per-fold model weights: model_{{subject}}.pth')
+    if args.queue_eval:
+        print(f'Queue evaluation: enabled (runs after all folds)')
     print('=' * 70)
 
     # Load existing results if resuming
@@ -432,7 +452,7 @@ def main():
 
         try:
             set_seed(args.seed)
-            result = train_single_fold(ns, subject, fold_idx, total_folds, verbose=args.verbose)
+            result, best_state = train_single_fold(ns, subject, fold_idx, total_folds, verbose=args.verbose)
             if result is not None:
                 results.append(result)
                 successful += 1
@@ -441,6 +461,11 @@ def main():
                 epoch = result['best_epoch']
                 t = result['elapsed_time']
                 print(f'  -> F1={test_f1:.1f}%  Acc={test_acc:.1f}%  epoch={epoch}  ({t:.0f}s)')
+
+                # Save per-fold model weights for queue eval
+                if save_models and best_state is not None:
+                    model_path = os.path.join(work_dir, f'model_{subject}.pth')
+                    torch.save(best_state, model_path)
             else:
                 failed += 1
                 print(f'  -> SKIPPED (empty data)')
@@ -450,7 +475,8 @@ def main():
             if args.verbose:
                 traceback.print_exc()
 
-        # Checkpoint after every fold
+        # Checkpoint after every fold (ensure directory exists)
+        os.makedirs(work_dir, exist_ok=True)
         with open(pkl_path, 'wb') as f:
             pickle.dump(results, f)
 
@@ -504,7 +530,29 @@ def main():
     print(f'  fold_results.pkl  (for significance testing)')
     print(f'  summary.json')
     print(f'  scores.csv')
+    if save_models:
+        print(f'  model_{{subject}}.pth  (per-fold weights)')
     print('=' * 70)
+
+    # Temporal queue evaluation
+    if args.queue_eval and results:
+        n_models = len([f for f in os.listdir(work_dir) if f.startswith('model_') and f.endswith('.pth')])
+        if n_models == 0:
+            print('\nWARNING: No model weights found, skipping queue evaluation')
+        else:
+            print(f'\nStarting temporal queue evaluation ({n_models} fold models)...')
+            try:
+                from utils.temporal_queue_eval import run_temporal_queue_evaluation
+                run_temporal_queue_evaluation(
+                    work_dir=work_dir,
+                    config=cfg,
+                    device='cpu',
+                    print_results=True,
+                )
+            except Exception as e:
+                print(f'Queue evaluation failed: {e}')
+                if args.verbose:
+                    traceback.print_exc()
 
 
 if __name__ == '__main__':
